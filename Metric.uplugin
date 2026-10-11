@@ -1,0 +1,20 @@
+{
+    "FileVersion": 3,
+    "Version": 11,
+    "VersionName": "0.10.0",
+    "FriendlyName": "Metric",
+    "Description": "Viewport-first spatial scale and gameplay-metric preview tooling for level designers.",
+    "Category": "Vista Viewport Suite",
+    "CreatedBy": "Mippi the Dork",
+    "CanContainContent": true,
+    "IsBetaVersion": true,
+    "Installed": false,
+    "EngineVersion": "5.8.0",
+    "Modules": [
+        {
+            "Name": "Metric",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        }
+    ]
+}
