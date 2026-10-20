@@ -424,6 +424,15 @@ struct FMetricCycleEntry
     }
 };
 
+
+struct FMetricPinnedBenchmark
+{
+    FVector WorldLocation = FVector::ZeroVector;
+    FVector Forward = FVector::ForwardVector;
+    FMetricHullSettings Hull;
+    FText Label;
+};
+
 struct FMetricLiveState
 {
     bool bHasHit = false;
@@ -453,4 +462,5 @@ struct FMetricLiveState
     EMetricCycleEntryType EntryType = EMetricCycleEntryType::BuiltInMetric;
     FSoftObjectPath PreviewMesh;
     FTransform PreviewRelativeTransform = FTransform::Identity;
+    TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
 };

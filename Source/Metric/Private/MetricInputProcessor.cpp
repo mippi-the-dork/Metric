@@ -50,6 +50,8 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     const FMetricCommands& Commands = FMetricCommands::Get();
     const bool bToggle = MetricInput::MatchesCommand(InKeyEvent, Commands.ToggleMetric);
     const bool bCycle = MetricInput::MatchesCommand(InKeyEvent, Commands.CycleMetric);
+    const bool bPin = MetricInput::MatchesCommand(InKeyEvent, Commands.PinMetricBenchmark);
+    const bool bClearPins = MetricInput::MatchesCommand(InKeyEvent, Commands.ClearMetricBenchmarks);
 
     // Metric replaces Unreal's legacy Backslash / Shift+Backslash preview-mesh
     // interaction. If the user rebinds Metric elsewhere, keep these legacy
@@ -59,7 +61,7 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     const bool bLegacyShiftBackslash = InKeyEvent.GetKey() == EKeys::Backslash
         && InKeyEvent.IsShiftDown() && !InKeyEvent.IsControlDown() && !InKeyEvent.IsAltDown() && !InKeyEvent.IsCommandDown();
 
-    if (!bToggle && !bCycle)
+    if (!bToggle && !bCycle && !bPin && !bClearPins)
     {
         return bLegacyPlainBackslash || bLegacyShiftBackslash;
     }
@@ -70,7 +72,15 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
         return false;
     }
 
-    if (bCycle)
+    if (bClearPins)
+    {
+        MetricSubsystem->ClearPinnedBenchmarks();
+    }
+    else if (bPin)
+    {
+        MetricSubsystem->PinCurrentBenchmark();
+    }
+    else if (bCycle)
     {
         MetricSubsystem->CycleNext();
     }

@@ -264,6 +264,7 @@ void UMetricSubsystem::Deinitialize()
     SetMetricActive(false);
     ClearRenderHost();
     CycleEntries.Reset();
+    PinnedBenchmarks.Reset();
     Super::Deinitialize();
 }
 
@@ -280,6 +281,7 @@ void UMetricSubsystem::HandlePreLoadMap(const FString& /*MapName*/)
     LiveState.CameraSightline = FMetricCameraSightlineResult();
     LiveState.GroundValidation = FMetricGroundValidationResult();
     LiveState.FitAnalysis = FMetricFitAnalysisResult();
+    PinnedBenchmarks.Reset();
 }
 
 void UMetricSubsystem::HandleWorldBeginTearDown(UWorld* World)
@@ -301,6 +303,7 @@ void UMetricSubsystem::HandleWorldBeginTearDown(UWorld* World)
     LiveState.CameraSightline = FMetricCameraSightlineResult();
     LiveState.GroundValidation = FMetricGroundValidationResult();
     LiveState.FitAnalysis = FMetricFitAnalysisResult();
+    PinnedBenchmarks.Reset();
 }
 
 void UMetricSubsystem::ToggleMetric()
@@ -345,6 +348,51 @@ void UMetricSubsystem::CycleNext()
     ActiveIndex = (ActiveIndex + 1) % CycleEntries.Num();
     bMetricActive = true;
     ApplyEntryToState(LiveState);
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::PinCurrentBenchmark()
+{
+    if (!bMetricActive || !LiveState.bHasHit || LiveState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    const int32 MaxPins = FMath::Clamp(Settings ? Settings->MaxPinnedBenchmarks : 8, 1, 32);
+    if (PinnedBenchmarks.Num() >= MaxPins)
+    {
+        PinnedBenchmarks.RemoveAt(0, PinnedBenchmarks.Num() - MaxPins + 1, EAllowShrinking::No);
+    }
+
+    FMetricPinnedBenchmark Pin;
+    Pin.WorldLocation = LiveState.Location;
+    Pin.Forward = LiveState.Forward;
+    Pin.Hull = LiveState.Hull;
+    Pin.Label = LiveState.Label;
+    PinnedBenchmarks.Add(MoveTemp(Pin));
+
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    if (AMetricRenderHostActor* Host = RenderHost.Get())
+    {
+        Host->ApplyMetricState(LiveState);
+    }
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::ClearPinnedBenchmarks()
+{
+    if (PinnedBenchmarks.IsEmpty())
+    {
+        return;
+    }
+
+    PinnedBenchmarks.Reset();
+    LiveState.PinnedBenchmarks.Reset();
+    if (AMetricRenderHostActor* Host = RenderHost.Get())
+    {
+        Host->ApplyMetricState(LiveState);
+    }
     NotifyStateChanged();
 }
 
@@ -529,6 +577,7 @@ void UMetricSubsystem::UpdateLiveState(UWorld* World, const FMetricLiveState& Ne
 
     LiveState = NewState;
     ApplyEntryToState(LiveState);
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
     EvaluateClearance(World, LiveState);
     EvaluateTrajectory(World, LiveState);
     EvaluateCameraProbe(World, LiveState);
@@ -540,7 +589,7 @@ void UMetricSubsystem::UpdateLiveState(UWorld* World, const FMetricLiveState& Ne
     if (AMetricRenderHostActor* Host = RenderHost.Get())
     {
         Host->ApplyMetricState(LiveState);
-        Host->SetMetricVisible(LiveState.bHasHit);
+        Host->SetMetricVisible(LiveState.bHasHit || !PinnedBenchmarks.IsEmpty());
     }
 }
 

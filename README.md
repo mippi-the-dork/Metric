@@ -1,8 +1,8 @@
-# Metric 0.9.0 Prototype
+# Metric 0.11.0 Prototype
 
 Metric is a viewport-first spatial reference tool for Unreal Engine 5.8 and the Vista Viewport Suite.
 
-Metric 0.9.0 adds preset-driven Fit Analysis for sampled width/height clearance and exact deficit reporting on top of the stable Metric Lens, contextual legend, Clearance Probe, Ground Validation, Sensor Heights, Engagement Ranges, Locomotion Bands, Trajectory Arc, and Camera Probe foundation.
+Metric 0.11.0 adds session-only Pinned Benchmarks for leaving lightweight comparison hulls in the current editor world while continuing to inspect other spaces.
 
 ## Current prototype capabilities
 
@@ -18,6 +18,16 @@ Metric 0.9.0 adds preset-driven Fit Analysis for sampled width/height clearance 
 - Native Unreal preview-mesh entries remain visual-only Static Mesh scale references. Metric does not invent gameplay data for them.
 - The render host is transient, editor-only, hidden from the Scene Outliner, unselectable, collisionless, and destroyed with Metric/editor teardown.
 - Native Preview Mesh settings are read-only. Metric never rewrites Unreal's existing preview mesh array.
+
+
+## Pinned Benchmarks
+
+- **Ctrl + Backslash** pins the current Metric hull at the live lens position.
+- **Ctrl + Shift + Backslash** clears all pins in the current editor world.
+- Pins are subsystem-owned visualization data, not Actors, so they never appear in the Scene Outliner and never become production level content.
+- Pins are session/world scoped. Loading another map clears them intentionally.
+- The oldest pin is removed automatically when the configurable maximum pin count is reached.
+- Pinned hulls use the dedicated user-configurable yellow benchmark color and appear in the contextual legend.
 
 ## Clearance Probe
 

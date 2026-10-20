@@ -17,6 +17,20 @@ void FMetricCommands::RegisterCommands()
         "Cycle to the next Metric preset or included Unreal preview mesh.",
         EUserInterfaceActionType::Button,
         FInputChord(EKeys::Backslash, EModifierKey::Shift));
+
+    UI_COMMAND(
+        PinMetricBenchmark,
+        "Pin Metric Benchmark",
+        "Pin the current Metric hull at the live lens position for this editor world.",
+        EUserInterfaceActionType::Button,
+        FInputChord(EKeys::Backslash, false, true, false, false));
+
+    UI_COMMAND(
+        ClearMetricBenchmarks,
+        "Clear Metric Benchmarks",
+        "Clear all pinned Metric benchmarks in the current editor world.",
+        EUserInterfaceActionType::Button,
+        FInputChord(EKeys::Backslash, true, true, false, false));
 }
 
 #undef LOCTEXT_NAMESPACE

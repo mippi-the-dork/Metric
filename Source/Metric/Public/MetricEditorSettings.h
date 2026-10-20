@@ -100,6 +100,12 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Legend", meta = (EditCondition = "bShowLegend", ClampMin = "10.0", ClampMax = "200.0", Units = "cm"))
     float LegendHeightOffset = 55.0f;
 
+    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks")
+    FLinearColor PinnedBenchmarkColor = FLinearColor(0.95f, 0.95f, 0.35f, 1.0f);
+
+    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks", meta = (ClampMin = "1", ClampMax = "32"))
+    int32 MaxPinnedBenchmarks = 8;
+
     virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
     virtual FText GetSectionText() const override;
 };

@@ -122,8 +122,12 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
     {
         FMetricLiveState LocalState = State;
         LocalState.Location = FVector::ZeroVector;
+        for (FMetricPinnedBenchmark& Pin : LocalState.PinnedBenchmarks)
+        {
+            Pin.WorldLocation -= State.Location;
+        }
         MetricComponent->SetMetricState(LocalState);
-        MetricComponent->SetVisibility(State.bHasHit, true);
+        MetricComponent->SetVisibility(State.bHasHit || !State.PinnedBenchmarks.IsEmpty(), true);
     }
 
     if (PreviewMeshComponent)
@@ -402,6 +406,10 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             {
                 ActiveLayers.Add(TEXT("FIT"));
             }
+            if (!State.PinnedBenchmarks.IsEmpty())
+            {
+                ActiveLayers.Add(TEXT("PINS"));
+            }
 
             LegendText = FString::Printf(TEXT("ACTIVE: %s"), *FString::Join(ActiveLayers, TEXT(" | ")));
 
@@ -441,6 +449,10 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             if (State.FitAnalysis.bVisible)
             {
                 Semantics.Add(TEXT("GREEN/AMBER/RED fit"));
+            }
+            if (!State.PinnedBenchmarks.IsEmpty())
+            {
+                Semantics.Add(TEXT("YELLOW pinned benchmark"));
             }
 
             if (!Semantics.IsEmpty())
@@ -498,6 +510,10 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
                     State.FitAnalysisSettings.SampleSpacing,
                     State.FitAnalysisSettings.WarningMargin);
             }
+            if (!State.PinnedBenchmarks.IsEmpty())
+            {
+                LegendText += FString::Printf(TEXT("\nPINS %d | Ctrl+\\ pin | Ctrl+Shift+\\ clear"), State.PinnedBenchmarks.Num());
+            }
         }
 
         const float LabelPadding = MetricSettings ? MetricSettings->LabelHeightPadding : 35.0f;
@@ -515,7 +531,7 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             LegendComponent->SetWorldRotation(FRotationMatrix::MakeFromX(ToViewer).Rotator());
         }
 
-        LegendComponent->SetVisibility(State.bHasHit && bShowLegend, true);
+        LegendComponent->SetVisibility((State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) && bShowLegend, true);
     }
 }
 

@@ -197,6 +197,7 @@ public:
         GroundStepFailColor = Settings ? Settings->GroundStepFailColor : FLinearColor(1.0f, 0.62f, 0.08f, 1.0f);
         GroundSlopeFailColor = Settings ? Settings->GroundSlopeFailColor : FLinearColor(1.0f, 0.10f, 0.08f, 1.0f);
         GroundGridColor = Settings ? Settings->GroundGridColor : FLinearColor(0.25f, 0.85f, 0.85f, 0.55f);
+        PinnedBenchmarkColor = Settings ? Settings->PinnedBenchmarkColor : FLinearColor(0.95f, 0.95f, 0.35f, 1.0f);
         SecondaryLineThickness = Settings ? Settings->SecondaryLineThickness : 1.0f;
         Thickness = Settings ? Settings->HullLineThickness : 1.5f;
         AnchorLift = Settings ? Settings->AnchorLift : 10.0f;
@@ -218,7 +219,7 @@ public:
     virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const override
     {
         FPrimitiveViewRelevance Result;
-        Result.bDrawRelevance = IsShown(View) && State.bHasHit;
+        Result.bDrawRelevance = IsShown(View) && (State.bHasHit || !State.PinnedBenchmarks.IsEmpty());
         Result.bDynamicRelevance = true;
         Result.bShadowRelevance = false;
         Result.bEditorPrimitiveRelevance = true;
@@ -231,7 +232,7 @@ public:
         uint32 VisibilityMap,
         FMeshElementCollector& Collector) const override
     {
-        if (!State.bHasHit)
+        if (!State.bHasHit && State.PinnedBenchmarks.IsEmpty())
         {
             return;
         }
@@ -263,6 +264,8 @@ public:
             const float Width = FMath::Max(1.0f, State.Hull.Width);
             const float Length = FMath::Max(1.0f, State.Hull.Length);
 
+            if (State.bHasHit)
+            {
             if (State.bShowHull)
             {
                 switch (State.Hull.HullType)
@@ -690,8 +693,57 @@ public:
                 PDI->DrawLine(ArrowEnd, ArrowEnd + Back + MarkerRight * 10.0f, ForwardColor, SDPG_World, AnchorLineThickness, 0.0f, true);
                 PDI->DrawLine(ArrowEnd, ArrowEnd + Back - MarkerRight * 10.0f, ForwardColor, SDPG_World, AnchorLineThickness, 0.0f, true);
             }
+
+            }
+
+            // Pinned benchmarks are stored as world-space snapshots but rendered by
+            // the same transient Metric proxy. Convert them into this host actor's
+            // local space so no additional world-owned Actors are required.
+            for (const FMetricPinnedBenchmark& Pin : State.PinnedBenchmarks)
+            {
+                const FVector PinBase = ProxyLocalToWorld.TransformPosition(Pin.WorldLocation + Pin.Hull.LocalOffset + FVector::UpVector * 1.0f);
+                FVector PinForward = ProxyLocalToWorld.TransformVector(Pin.Forward);
+                PinForward.Z = 0.0f;
+                if (PinForward.Normalize() == false)
+                {
+                    PinForward = FVector::ForwardVector;
+                }
+
+                FLinearColor PinColor = PinnedBenchmarkColor;
+                PinColor.A = 0.75f;
+                const float PinHeight = FMath::Max(1.0f, Pin.Hull.Height);
+                const float PinWidth = FMath::Max(1.0f, Pin.Hull.Width);
+                const float PinLength = FMath::Max(1.0f, Pin.Hull.Length);
+
+                switch (Pin.Hull.HullType)
+                {
+                case EMetricHullType::Capsule:
+                    MetricDraw::DrawCapsule(PDI, PinBase, PinForward, PinHeight, PinWidth, PinColor, 1.5f);
+                    break;
+                case EMetricHullType::OrientedBox:
+                    MetricDraw::DrawBox(PDI, PinBase, PinForward, FVector(PinLength * 0.5f, PinWidth * 0.5f, PinHeight * 0.5f), PinColor, 1.5f);
+                    break;
+                case EMetricHullType::Sphere:
+                    MetricDraw::DrawSphere(PDI, PinBase + FVector::UpVector * (PinHeight * 0.5f), FMath::Max3(PinWidth, PinLength, PinHeight) * 0.5f, PinColor, 1.5f);
+                    break;
+                case EMetricHullType::Cylinder:
+                default:
+                {
+                    const FVector PinRight = FVector::CrossProduct(FVector::UpVector, PinForward).GetSafeNormal();
+                    MetricDraw::DrawCircle3D(PDI, PinBase, PinForward, PinRight, PinWidth * 0.5f, PinColor, 1.5f);
+                    MetricDraw::DrawCircle3D(PDI, PinBase + FVector::UpVector * PinHeight, PinForward, PinRight, PinWidth * 0.5f, PinColor, 1.5f);
+                    break;
+                }
+                }
+
+                const FVector PinRight = FVector::CrossProduct(FVector::UpVector, PinForward).GetSafeNormal();
+                const FVector PinAnchor = ProxyLocalToWorld.TransformPosition(Pin.WorldLocation + FVector::UpVector * 4.0f);
+                MetricDraw::DrawCircle3D(PDI, PinAnchor, PinForward, PinRight, 18.0f, PinColor, 2.0f, 24);
+                PDI->DrawLine(PinAnchor, PinAnchor + PinForward * 45.0f, PinColor, SDPG_World, 2.0f, 0.0f, true);
+            }
         }
     }
+
 
 private:
     FMetricLiveState State;
@@ -713,6 +765,7 @@ private:
     FLinearColor GroundStepFailColor;
     FLinearColor GroundSlopeFailColor;
     FLinearColor GroundGridColor;
+    FLinearColor PinnedBenchmarkColor;
     float SecondaryLineThickness = 1.0f;
     float Thickness = 1.5f;
     float AnchorLift = 10.0f;
@@ -738,7 +791,7 @@ void UMetricViewportComponent::SetMetricState(const FMetricLiveState& NewState)
 
 FPrimitiveSceneProxy* UMetricViewportComponent::CreateSceneProxy()
 {
-    return State.bHasHit ? new FMetricViewportSceneProxy(this, State) : nullptr;
+    return (State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) ? new FMetricViewportSceneProxy(this, State) : nullptr;
 }
 
 FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToWorld) const
@@ -777,6 +830,12 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
             State.FitAnalysisSettings.MaxSideProbeDistance + MaxDimension,
             State.FitAnalysisSettings.MaxCeilingProbeHeight + MaxDimension)
         : 0.0f;
+    float PinnedReach = 0.0f;
+    for (const FMetricPinnedBenchmark& Pin : State.PinnedBenchmarks)
+    {
+        PinnedReach = FMath::Max(PinnedReach, Pin.WorldLocation.Size() + FMath::Max3(Pin.Hull.Height, Pin.Hull.Width, Pin.Hull.Length));
+    }
+
     float TrajectoryReach = 0.0f;
     if (State.Trajectory.bVisible && !State.Trajectory.SampleOffsets.IsEmpty())
     {
@@ -788,7 +847,7 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
     }
     const float SecondaryReach = FMath::Max(
         FMath::Max3(RangeReach, SensorReach, LocomotionReach),
-        FMath::Max(FMath::Max3(TrajectoryReach, CameraReach, GroundReach), FMath::Max(FitReach, SightlineReach)));
+        FMath::Max(FMath::Max3(TrajectoryReach, CameraReach, GroundReach), FMath::Max(FMath::Max(FitReach, SightlineReach), PinnedReach)));
     const FVector Extent(FMath::Max(FMath::Max3(100.0f, MaxDimension, ProbeReach), SecondaryReach));
     return FBoxSphereBounds(FBox(-Extent, Extent)).TransformBy(LocalToWorld);
 }

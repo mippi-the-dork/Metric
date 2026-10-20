@@ -21,6 +21,9 @@ public:
     void ToggleMetric();
     void SetMetricActive(bool bActive);
     void CycleNext();
+    void PinCurrentBenchmark();
+    void ClearPinnedBenchmarks();
+    int32 GetPinnedBenchmarkCount() const { return PinnedBenchmarks.Num(); }
 
     void RefreshCycleEntries();
     const FMetricCycleEntry* GetActiveEntry() const;
@@ -51,6 +54,7 @@ private:
     int32 ActiveIndex = 0;
     TArray<FMetricCycleEntry> CycleEntries;
     FMetricLiveState LiveState;
+    TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
 
     // The render host is owned by its UWorld/ULevel. Metric must not strongly
     // reference a world-owned Actor from this long-lived editor subsystem,
