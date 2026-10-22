@@ -24,6 +24,9 @@ public:
     FMetricSensorSettings Sensors;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricSensorFieldSettings SensorField;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricRangeSettings EngagementRanges;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
@@ -43,6 +46,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricFitAnalysisSettings FitAnalysis;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricThresholdAnalysisSettings ThresholdAnalysis;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricRepresentationSettings Representation;

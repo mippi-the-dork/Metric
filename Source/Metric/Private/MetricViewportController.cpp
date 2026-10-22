@@ -1,12 +1,233 @@
 #include "MetricViewportController.h"
 
+#include "SMetricViewportOverlay.h"
+#include "ILevelEditor.h"
+#include "SLevelViewport.h"
+#include "LevelEditor.h"
+#include "Modules/ModuleManager.h"
+#include "Framework/Application/SlateApplication.h"
+
 #include "MetricProjectSettings.h"
+#include "MetricEditorSettings.h"
 #include "MetricSubsystem.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
 #include "LevelEditorViewport.h"
 #include "UnrealClient.h"
 #include "Engine/World.h"
+
+
+namespace
+{
+    FMetricViewportController* GMetricViewportControllerInstance = nullptr;
+}
+
+FMetricViewportController::FMetricViewportController()
+{
+    GMetricViewportControllerInstance = this;
+}
+
+
+FMetricViewportController::~FMetricViewportController()
+{
+    RemoveAllOverlays();
+    if (GMetricViewportControllerInstance == this)
+    {
+        GMetricViewportControllerInstance = nullptr;
+    }
+}
+
+TArray<TSharedPtr<SLevelViewport>> FMetricViewportController::GetViewportsInVisualOrder(const TArray<TSharedPtr<SLevelViewport>>& Viewports)
+{
+    TArray<TSharedPtr<SLevelViewport>> Ordered;
+    for (const TSharedPtr<SLevelViewport>& Viewport : Viewports)
+    {
+        if (Viewport.IsValid())
+        {
+            Ordered.Add(Viewport);
+        }
+    }
+
+    Ordered.Sort([](const TSharedPtr<SLevelViewport>& A, const TSharedPtr<SLevelViewport>& B)
+    {
+        const FVector2D PosA = A->GetCachedGeometry().GetAbsolutePosition();
+        const FVector2D PosB = B->GetCachedGeometry().GetAbsolutePosition();
+        constexpr float RowTolerance = 24.0f;
+        if (!FMath::IsNearlyEqual(PosA.Y, PosB.Y, RowTolerance))
+        {
+            return PosA.Y < PosB.Y;
+        }
+        return PosA.X < PosB.X;
+    });
+    return Ordered;
+}
+
+void FMetricViewportController::NotifyViewportInteractionAtScreenPosition(const FVector2D& ScreenPosition)
+{
+    FMetricViewportController* Controller = GMetricViewportControllerInstance;
+    if (!Controller)
+    {
+        return;
+    }
+
+    FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>(TEXT("LevelEditor"));
+    if (!LevelEditorModule)
+    {
+        return;
+    }
+
+    TSharedPtr<ILevelEditor> LevelEditor = LevelEditorModule->GetFirstLevelEditor();
+    if (!LevelEditor.IsValid())
+    {
+        return;
+    }
+
+    const TArray<TSharedPtr<SLevelViewport>>& Viewports = LevelEditor->GetViewports();
+    for (const TSharedPtr<SLevelViewport>& Viewport : Viewports)
+    {
+        if (!Viewport.IsValid())
+        {
+            continue;
+        }
+
+        const FGeometry& Geometry = Viewport->GetCachedGeometry();
+        const FVector2D LocalPosition = Geometry.AbsoluteToLocal(ScreenPosition);
+        const FVector2D LocalSize = Geometry.GetLocalSize();
+        if (LocalPosition.X >= 0.0f && LocalPosition.Y >= 0.0f
+            && LocalPosition.X < LocalSize.X && LocalPosition.Y < LocalSize.Y)
+        {
+            Controller->LastInteractedViewport = Viewport;
+            return;
+        }
+    }
+}
+
+
+bool FMetricViewportController::IsViewportSelectedBySettings(int32 ViewportIndex) const
+{
+    const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    if (!Settings)
+    {
+        return ViewportIndex == 0;
+    }
+
+    switch (ViewportIndex)
+    {
+    case 0: return Settings->bShowHUDInViewport1;
+    case 1: return Settings->bShowHUDInViewport2;
+    case 2: return Settings->bShowHUDInViewport3;
+    case 3: return Settings->bShowHUDInViewport4;
+    default: return false;
+    }
+}
+
+void FMetricViewportController::AddOverlayToViewport(const TSharedPtr<SLevelViewport>& Viewport)
+{
+    if (!Viewport.IsValid())
+    {
+        return;
+    }
+
+    for (const FOverlayEntry& Entry : OverlayEntries)
+    {
+        if (Entry.Viewport.Pin() == Viewport)
+        {
+            return;
+        }
+    }
+
+    FOverlayEntry& Entry = OverlayEntries.AddDefaulted_GetRef();
+    Entry.Viewport = Viewport;
+    Entry.Widget = SNew(SMetricViewportOverlay);
+    Viewport->AddOverlayWidget(Entry.Widget.ToSharedRef(), 50);
+}
+
+void FMetricViewportController::RemoveAllOverlays()
+{
+    for (FOverlayEntry& Entry : OverlayEntries)
+    {
+        TSharedPtr<SLevelViewport> Viewport = Entry.Viewport.Pin();
+        if (Viewport.IsValid() && Entry.Widget.IsValid())
+        {
+            Viewport->RemoveOverlayWidget(Entry.Widget.ToSharedRef());
+        }
+    }
+    OverlayEntries.Reset();
+}
+
+void FMetricViewportController::SyncOverlays()
+{
+    FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>(TEXT("LevelEditor"));
+    if (!LevelEditorModule)
+    {
+        RemoveAllOverlays();
+        return;
+    }
+
+    TSharedPtr<ILevelEditor> LevelEditor = LevelEditorModule->GetFirstLevelEditor();
+    if (!LevelEditor.IsValid())
+    {
+        RemoveAllOverlays();
+        return;
+    }
+
+    const TArray<TSharedPtr<SLevelViewport>>& Viewports = LevelEditor->GetViewports();
+    const TArray<TSharedPtr<SLevelViewport>> OrderedViewports = GetViewportsInVisualOrder(Viewports);
+
+    const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    const EMetricHUDAnchor Anchor = Settings ? Settings->HUDAnchor : EMetricHUDAnchor::TopLeft;
+    const EMetricHUDViewportTargeting Targeting = Settings ? Settings->HUDViewportTargeting : EMetricHUDViewportTargeting::FollowLastInteracted;
+    const EMetricHUDAnchor LegendAnchor = Settings ? Settings->LegendAnchor : EMetricHUDAnchor::BottomLeft;
+
+    const uint8 AnchorValue = static_cast<uint8>(Anchor);
+    const uint8 TargetingValue = static_cast<uint8>(Targeting);
+    const uint8 LegendAnchorValue = static_cast<uint8>(LegendAnchor);
+    if (AnchorValue != LastHUDAnchorValue || TargetingValue != LastHUDTargetingValue || LegendAnchorValue != LastLegendAnchorValue)
+    {
+        RemoveAllOverlays();
+        LastHUDAnchorValue = AnchorValue;
+        LastHUDTargetingValue = TargetingValue;
+        LastLegendAnchorValue = LegendAnchorValue;
+    }
+
+    // Keep one overlay attached to every live Level Editor viewport. Targeting
+    // only changes visibility. This is substantially more reliable than adding
+    // and removing Slate overlay widgets while layouts/focus are changing.
+    for (const TSharedPtr<SLevelViewport>& Viewport : OrderedViewports)
+    {
+        AddOverlayToViewport(Viewport);
+    }
+
+    for (int32 EntryIndex = OverlayEntries.Num() - 1; EntryIndex >= 0; --EntryIndex)
+    {
+        TSharedPtr<SLevelViewport> ExistingViewport = OverlayEntries[EntryIndex].Viewport.Pin();
+        if (!ExistingViewport.IsValid() || !OrderedViewports.Contains(ExistingViewport))
+        {
+            if (ExistingViewport.IsValid() && OverlayEntries[EntryIndex].Widget.IsValid())
+            {
+                ExistingViewport->RemoveOverlayWidget(OverlayEntries[EntryIndex].Widget.ToSharedRef());
+            }
+            OverlayEntries.RemoveAt(EntryIndex);
+            continue;
+        }
+
+        bool bShouldShow = false;
+        if (Targeting == EMetricHUDViewportTargeting::FollowLastInteracted)
+        {
+            bShouldShow = LastInteractedViewport.Pin() == ExistingViewport;
+        }
+        else
+        {
+            const int32 VisualIndex = OrderedViewports.IndexOfByKey(ExistingViewport);
+            bShouldShow = VisualIndex != INDEX_NONE && IsViewportSelectedBySettings(VisualIndex);
+        }
+
+        if (OverlayEntries[EntryIndex].Widget.IsValid())
+        {
+            OverlayEntries[EntryIndex].Widget->SetTargetEnabled(bShouldShow);
+        }
+    }
+}
 
 TStatId FMetricViewportController::GetStatId() const
 {
@@ -92,6 +313,7 @@ bool FMetricViewportController::BuildCursorRay(
 
 void FMetricViewportController::Tick(float DeltaTime)
 {
+    SyncOverlays();
     if (!GEditor)
     {
         return;

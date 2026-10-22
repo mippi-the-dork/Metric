@@ -23,7 +23,16 @@ public:
     void CycleNext();
     void PinCurrentBenchmark();
     void ClearPinnedBenchmarks();
+    bool ArePinnedBenchmarksPersistent() const;
     int32 GetPinnedBenchmarkCount() const { return PinnedBenchmarks.Num(); }
+    int32 GetSelectedPinnedBenchmarkIndex() const { return SelectedPinnedBenchmarkIndex; }
+    const FMetricPinnedBenchmark* GetPinnedBenchmark(int32 Index) const;
+    void SelectPinnedBenchmark(int32 Index);
+    void DeletePinnedBenchmark(int32 Index);
+    void RenamePinnedBenchmark(int32 Index, const FText& NewLabel);
+    void ReplacePinnedBenchmarkWithLive(int32 Index);
+    void FocusPinnedBenchmark(int32 Index);
+    void SetPinnedBenchmarkVisibility(int32 Index, const FMetricLayerVisibility& Visibility);
 
     void RefreshCycleEntries();
     const FMetricCycleEntry* GetActiveEntry() const;
@@ -38,16 +47,24 @@ public:
 private:
     void HandlePreLoadMap(const FString& MapName);
     void HandleWorldBeginTearDown(UWorld* World);
+    FString GetPersistableMapPackageName(UWorld* World) const;
+    void SavePinnedBenchmarksForWorld(UWorld* World);
+    void LoadPinnedBenchmarksForWorld(UWorld* World);
+    void EnsurePinnedBenchmarkMap(UWorld* World);
     void EnsureStarterPresetAssets();
     class UMetricPreset* CreateStarterPresetAsset(const FString& PackagePath, const FText& DisplayName, const FMetricHullSettings& HullSettings);
     void EnsureRenderHost(UWorld* World);
     void ApplyEntryToState(FMetricLiveState& InOutState) const;
     void EvaluateClearance(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateSensorField(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateTrajectory(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateCameraProbe(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateCameraSightline(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateGroundValidation(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
+    bool BuildSelectedPinnedVisualState(UWorld* World, FMetricLiveState& OutState) const;
+    void RefreshSelectedPinnedVisualization(UWorld* World);
     void NotifyStateChanged();
 
     bool bMetricActive = false;
@@ -55,6 +72,8 @@ private:
     TArray<FMetricCycleEntry> CycleEntries;
     FMetricLiveState LiveState;
     TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
+    FString ActivePinnedBenchmarkMap;
+    int32 SelectedPinnedBenchmarkIndex = INDEX_NONE;
 
     // The render host is owned by its UWorld/ULevel. Metric must not strongly
     // reference a world-owned Actor from this long-lived editor subsystem,

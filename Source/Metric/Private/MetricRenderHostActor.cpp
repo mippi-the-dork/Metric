@@ -18,6 +18,11 @@ AMetricRenderHostActor::AMetricRenderHostActor()
     MetricComponent = CreateDefaultSubobject<UMetricViewportComponent>(TEXT("MetricViewport"));
     RootComponent = MetricComponent;
 
+    PinnedMetricComponent = CreateDefaultSubobject<UMetricViewportComponent>(TEXT("PinnedMetricViewport"));
+    PinnedMetricComponent->SetupAttachment(RootComponent);
+    PinnedMetricComponent->SetIsVisualizationComponent(true);
+    PinnedMetricComponent->SetVisibility(false, true);
+
     PreviewMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MetricPreviewMesh"));
     PreviewMeshComponent->SetupAttachment(RootComponent);
     PreviewMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -44,13 +49,37 @@ AMetricRenderHostActor::AMetricRenderHostActor()
     LegendComponent->SetupAttachment(RootComponent);
     LegendComponent->SetHorizontalAlignment(EHTA_Center);
     LegendComponent->SetVerticalAlignment(EVRTA_TextCenter);
-    LegendComponent->SetWorldSize(MetricSettings ? MetricSettings->LegendWorldSize : 11.0f);
+    LegendComponent->SetWorldSize(11.0f);
     const FLinearColor LegendLinearColor = MetricSettings ? MetricSettings->LegendTextColor : FLinearColor(0.82f, 0.86f, 0.92f, 1.0f);
     LegendComponent->SetTextRenderColor(LegendLinearColor.ToFColor(true));
     LegendComponent->SetHiddenInGame(true);
     LegendComponent->SetIsVisualizationComponent(true);
     LegendComponent->SetVisibility(false, true);
     LegendComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 275.0f));
+}
+
+void AMetricRenderHostActor::ApplyPinnedMetricState(const FMetricLiveState* State)
+{
+    if (!PinnedMetricComponent)
+    {
+        return;
+    }
+
+    if (!State || !State->bHasHit)
+    {
+        PinnedMetricComponent->SetVisibility(false, true);
+        return;
+    }
+
+    const FVector RelativeLocation = State->Location - GetActorLocation();
+    PinnedMetricComponent->SetRelativeLocation(RelativeLocation);
+
+    FMetricLiveState LocalState = *State;
+    LocalState.Location = FVector::ZeroVector;
+    LocalState.PinnedBenchmarks.Reset();
+    LocalState.SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    PinnedMetricComponent->SetMetricState(LocalState);
+    PinnedMetricComponent->SetVisibility(true, true);
 }
 
 void AMetricRenderHostActor::EnsureUnlitTextMaterial()
@@ -191,6 +220,25 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             DisplayText = FText::FromString(State.Label.ToString() + TEXT("\n") + ClearanceLine);
         }
 
+        if (State.SensorField.bVisible)
+        {
+            FString SensorFieldLine;
+            if (State.SensorField.BlockedRays == 0)
+            {
+                SensorFieldLine = FString::Printf(TEXT("SENSOR OPEN  %.0fu / %.0f deg"), State.SensorFieldSettings.Range, State.SensorFieldSettings.HorizontalHalfAngle * 2.0f);
+            }
+            else
+            {
+                SensorFieldLine = FString::Printf(
+                    TEXT("SENSOR %.0f%% CLEAR  |  %d/%d blocked  |  nearest %.0fu"),
+                    State.SensorField.ClearPercent,
+                    State.SensorField.BlockedRays,
+                    State.SensorField.TotalRays,
+                    State.SensorField.NearestBlockDistance);
+            }
+            DisplayText = FText::FromString(DisplayText.ToString() + TEXT("\n") + SensorFieldLine);
+        }
+
         if (State.Trajectory.bVisible)
         {
             const FString Prefix = State.Trajectory.bApproximateShape ? TEXT("EST ") : TEXT("");
@@ -221,6 +269,27 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             }
 
             DisplayText = FText::FromString(DisplayText.ToString() + TEXT("\n") + TrajectoryLine);
+
+            if (State.Trajectory.ApexSampleIndex != INDEX_NONE && State.TrajectorySettings.ApexProbeDistance > KINDA_SMALL_NUMBER)
+            {
+                FString ApexLine;
+                if (State.Trajectory.bApexHasObstacle)
+                {
+                    ApexLine = FString::Printf(
+                        TEXT("APEX +%.0fu  |  HEADROOM %.0fu%s"),
+                        State.Trajectory.ApexHeight,
+                        State.Trajectory.ApexHeadroom,
+                        State.Trajectory.bApexTight ? TEXT(" TIGHT") : TEXT(""));
+                }
+                else
+                {
+                    ApexLine = FString::Printf(
+                        TEXT("APEX +%.0fu  |  HEADROOM %.0fu+"),
+                        State.Trajectory.ApexHeight,
+                        State.TrajectorySettings.ApexProbeDistance);
+                }
+                DisplayText = FText::FromString(DisplayText.ToString() + TEXT("\n") + ApexLine);
+            }
         }
 
         if (State.CameraProbe.bVisible)
@@ -335,6 +404,46 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             DisplayText = FText::FromString(DisplayText.ToString() + TEXT("\n") + FitLine);
         }
 
+        if (State.ThresholdAnalysis.bVisible)
+        {
+            FString ThresholdLine;
+            if (State.ThresholdAnalysis.InvalidSamples > 0
+                && State.ThresholdAnalysis.MaxWidthDeficit <= KINDA_SMALL_NUMBER
+                && State.ThresholdAnalysis.MaxHeightDeficit <= KINDA_SMALL_NUMBER)
+            {
+                ThresholdLine = FString::Printf(
+                    TEXT("THRESHOLD NO FLOOR  %d/%d"),
+                    State.ThresholdAnalysis.InvalidSamples,
+                    State.ThresholdAnalysis.TotalSamples);
+            }
+            else if (!State.ThresholdAnalysis.bPass)
+            {
+                ThresholdLine = FString::Printf(
+                    TEXT("THRESHOLD FAIL  %d/%d  |  W -%.0fu H -%.0fu  |  step +%.0f/-%.0fu"),
+                    State.ThresholdAnalysis.FailedSamples,
+                    State.ThresholdAnalysis.TotalSamples,
+                    State.ThresholdAnalysis.MaxWidthDeficit,
+                    State.ThresholdAnalysis.MaxHeightDeficit,
+                    State.ThresholdAnalysis.MaxObservedStepUp,
+                    State.ThresholdAnalysis.MaxObservedStepDown);
+            }
+            else if (State.ThresholdAnalysis.bNearThreshold)
+            {
+                ThresholdLine = FString::Printf(
+                    TEXT("THRESHOLD TIGHT  |  min %.0fu W / %.0fu H"),
+                    State.ThresholdAnalysis.MinimumAvailableWidth,
+                    State.ThresholdAnalysis.MinimumAvailableHeight);
+            }
+            else
+            {
+                ThresholdLine = FString::Printf(
+                    TEXT("THRESHOLD OK  |  min %.0fu W / %.0fu H"),
+                    State.ThresholdAnalysis.MinimumAvailableWidth,
+                    State.ThresholdAnalysis.MinimumAvailableHeight);
+            }
+            DisplayText = FText::FromString(DisplayText.ToString() + TEXT("\n") + ThresholdLine);
+        }
+
         LabelComponent->SetText(DisplayText);
         LabelComponent->SetRelativeLocation(RelativeLabelLocation);
 
@@ -345,7 +454,8 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             LabelComponent->SetWorldRotation(FRotationMatrix::MakeFromX(ToViewer).Rotator());
         }
 
-        LabelComponent->SetVisibility(State.bHasHit, true);
+        // Detailed Metric readout moved to the screen-space viewport HUD in 0.16.0.
+        LabelComponent->SetVisibility(false, true);
     }
 
     if (LegendComponent)
@@ -354,8 +464,8 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
 
         const UMetricEditorSettings* MetricSettings = GetDefault<UMetricEditorSettings>();
         const bool bShowLegend = MetricSettings ? MetricSettings->bShowLegend : true;
-        const float LegendWorldSize = MetricSettings ? MetricSettings->LegendWorldSize : 11.0f;
-        const float LegendHeightOffset = MetricSettings ? MetricSettings->LegendHeightOffset : 55.0f;
+        const float LegendWorldSize = 11.0f;
+        const float LegendHeightOffset = 55.0f;
         const FLinearColor LegendLinearColor = MetricSettings ? MetricSettings->LegendTextColor : FLinearColor(0.82f, 0.86f, 0.92f, 1.0f);
 
         FString LegendText;
@@ -377,6 +487,10 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             if (State.Sensors.bShowSensorHeights)
             {
                 ActiveLayers.Add(TEXT("SENSORS"));
+            }
+            if (State.SensorField.bVisible)
+            {
+                ActiveLayers.Add(TEXT("FOV"));
             }
             if (State.Ranges.bShowEngagementRanges)
             {
@@ -406,6 +520,10 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             {
                 ActiveLayers.Add(TEXT("FIT"));
             }
+            if (State.ThresholdAnalysis.bVisible)
+            {
+                ActiveLayers.Add(TEXT("THRESHOLD"));
+            }
             if (!State.PinnedBenchmarks.IsEmpty())
             {
                 ActiveLayers.Add(TEXT("PINS"));
@@ -426,13 +544,17 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             {
                 Semantics.Add(TEXT("BLUE info"));
             }
+            if (State.SensorField.bVisible)
+            {
+                Semantics.Add(TEXT("BLUE/RED sensor field"));
+            }
             if (State.Locomotion.bShowLocomotionBands)
             {
                 Semantics.Add(TEXT("PURPLE movement"));
             }
             if (State.Trajectory.bVisible)
             {
-                Semantics.Add(TEXT("ORANGE/GREEN/RED arc"));
+                Semantics.Add(TEXT("ORANGE/GREEN/RED arc + envelope"));
             }
             if (State.CameraProbe.bVisible)
             {
@@ -450,6 +572,10 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             {
                 Semantics.Add(TEXT("GREEN/AMBER/RED fit"));
             }
+            if (State.ThresholdAnalysis.bVisible)
+            {
+                Semantics.Add(TEXT("GREEN/AMBER/RED threshold"));
+            }
             if (!State.PinnedBenchmarks.IsEmpty())
             {
                 Semantics.Add(TEXT("YELLOW pinned benchmark"));
@@ -458,6 +584,16 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             if (!Semantics.IsEmpty())
             {
                 LegendText += TEXT("\n") + FString::Join(Semantics, TEXT(" | "));
+            }
+
+            if (State.SensorField.bVisible)
+            {
+                LegendText += FString::Printf(
+                    TEXT("\nFOV %.0f deg x %.0f deg | %.0fu | %.0f%% clear"),
+                    State.SensorFieldSettings.HorizontalHalfAngle * 2.0f,
+                    State.SensorFieldSettings.VerticalHalfAngle * 2.0f,
+                    State.SensorFieldSettings.Range,
+                    State.SensorField.ClearPercent);
             }
 
             if (State.Locomotion.bShowLocomotionBands)
@@ -510,9 +646,18 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
                     State.FitAnalysisSettings.SampleSpacing,
                     State.FitAnalysisSettings.WarningMargin);
             }
+            if (State.ThresholdAnalysis.bVisible)
+            {
+                LegendText += FString::Printf(
+                    TEXT("\nTHRESHOLD %.0fu deep | step +%.0f/-%.0fu | warn %.0fu"),
+                    State.ThresholdAnalysisSettings.ProbeDepth,
+                    State.ThresholdAnalysisSettings.MaxStepUp,
+                    State.ThresholdAnalysisSettings.MaxStepDown,
+                    State.ThresholdAnalysisSettings.WarningMargin);
+            }
             if (!State.PinnedBenchmarks.IsEmpty())
             {
-                LegendText += FString::Printf(TEXT("\nPINS %d | Ctrl+\\ pin | Ctrl+Shift+\\ clear"), State.PinnedBenchmarks.Num());
+                LegendText += FString::Printf(TEXT("\nPINS %d %s | Ctrl+\\ pin | Ctrl+Shift+\\ clear"), State.PinnedBenchmarks.Num(), (MetricSettings && MetricSettings->bPersistPinnedBenchmarksPerMap) ? TEXT("SAVED") : TEXT("SESSION"));
             }
         }
 
@@ -531,7 +676,8 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
             LegendComponent->SetWorldRotation(FRotationMatrix::MakeFromX(ToViewer).Rotator());
         }
 
-        LegendComponent->SetVisibility((State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) && bShowLegend, true);
+        // Legend moved into the screen-space viewport HUD in 0.16.0.
+        LegendComponent->SetVisibility(false, true);
     }
 }
 
@@ -546,14 +692,18 @@ void AMetricRenderHostActor::SetMetricVisible(bool bVisible)
     {
         PreviewMeshComponent->SetVisibility(bVisible && PreviewMeshComponent->GetStaticMesh() != nullptr, true);
     }
+    if (PinnedMetricComponent && !bVisible)
+    {
+        PinnedMetricComponent->SetVisibility(false, true);
+    }
     if (LabelComponent)
     {
-        LabelComponent->SetVisibility(bVisible, true);
+        LabelComponent->SetVisibility(false, true);
     }
     if (LegendComponent)
     {
         const UMetricEditorSettings* MetricSettings = GetDefault<UMetricEditorSettings>();
         const bool bShowLegend = MetricSettings ? MetricSettings->bShowLegend : true;
-        LegendComponent->SetVisibility(bVisible && bShowLegend, true);
+        LegendComponent->SetVisibility(false, true);
     }
 }

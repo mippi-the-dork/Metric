@@ -40,30 +40,56 @@ void FMetricInputProcessor::Tick(const float DeltaTime, FSlateApplication& Slate
     // The Slate input processor only intercepts the Metric key chords.
 }
 
+bool FMetricInputProcessor::HandleMouseButtonDownEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent)
+{
+    (void)SlateApp;
+    FMetricViewportController::NotifyViewportInteractionAtScreenPosition(MouseEvent.GetScreenSpacePosition());
+    return false;
+}
+
 bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent)
 {
+    // Record the viewport under the pointer before any Metric shortcut changes
+    // HUD state. This makes the first interaction after editor startup authoritative
+    // instead of inheriting Unreal's often-stale ActiveViewport value.
+    FMetricViewportController::NotifyViewportInteractionAtScreenPosition(SlateApp.GetCursorPos());
     if (InKeyEvent.IsRepeat() || !FMetricViewportController::IsLevelViewportFocused() || !GEditor)
     {
         return false;
     }
 
     const FMetricCommands& Commands = FMetricCommands::Get();
-    const bool bToggle = MetricInput::MatchesCommand(InKeyEvent, Commands.ToggleMetric);
-    const bool bCycle = MetricInput::MatchesCommand(InKeyEvent, Commands.CycleMetric);
-    const bool bPin = MetricInput::MatchesCommand(InKeyEvent, Commands.PinMetricBenchmark);
-    const bool bClearPins = MetricInput::MatchesCommand(InKeyEvent, Commands.ClearMetricBenchmarks);
+    const bool bBackslash = InKeyEvent.GetKey() == EKeys::Backslash;
+    const bool bNoAltOrCmd = !InKeyEvent.IsAltDown() && !InKeyEvent.IsCommandDown();
 
-    // Metric replaces Unreal's legacy Backslash / Shift+Backslash preview-mesh
-    // interaction. If the user rebinds Metric elsewhere, keep these legacy
-    // chords consumed rather than allowing the native preview to double-trigger.
-    const bool bLegacyPlainBackslash = InKeyEvent.GetKey() == EKeys::Backslash
-        && !InKeyEvent.IsShiftDown() && !InKeyEvent.IsControlDown() && !InKeyEvent.IsAltDown() && !InKeyEvent.IsCommandDown();
-    const bool bLegacyShiftBackslash = InKeyEvent.GetKey() == EKeys::Backslash
-        && InKeyEvent.IsShiftDown() && !InKeyEvent.IsControlDown() && !InKeyEvent.IsAltDown() && !InKeyEvent.IsCommandDown();
+    // Always recognize Metric's documented Backslash chords directly. This is
+    // intentionally independent of FUICommandInfo so Ctrl-modified Backslash
+    // remains reliable even when Slate detects a binding conflict or a user
+    // keyboard-shortcut profile has not persisted the command chord.
+    const bool bPhysicalClearPins = bBackslash && bNoAltOrCmd
+        && InKeyEvent.IsControlDown() && InKeyEvent.IsShiftDown();
+    const bool bPhysicalPin = bBackslash && bNoAltOrCmd
+        && InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown();
+    const bool bLegacyShiftBackslash = bBackslash && bNoAltOrCmd
+        && !InKeyEvent.IsControlDown() && InKeyEvent.IsShiftDown();
+    const bool bLegacyPlainBackslash = bBackslash && bNoAltOrCmd
+        && !InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown();
+
+    // Resolve the most-specific modifier chords first so Ctrl+Shift+Backslash
+    // can never fall through to cycle or toggle handling. Rebound command
+    // chords are still supported in addition to the documented defaults.
+    const bool bClearPins = bPhysicalClearPins
+        || MetricInput::MatchesCommand(InKeyEvent, Commands.ClearMetricBenchmarks);
+    const bool bPin = !bClearPins && (bPhysicalPin
+        || MetricInput::MatchesCommand(InKeyEvent, Commands.PinMetricBenchmark));
+    const bool bCycle = !bClearPins && !bPin && (bLegacyShiftBackslash
+        || MetricInput::MatchesCommand(InKeyEvent, Commands.CycleMetric));
+    const bool bToggle = !bClearPins && !bPin && !bCycle && (bLegacyPlainBackslash
+        || MetricInput::MatchesCommand(InKeyEvent, Commands.ToggleMetric));
 
     if (!bToggle && !bCycle && !bPin && !bClearPins)
     {
-        return bLegacyPlainBackslash || bLegacyShiftBackslash;
+        return false;
     }
 
     UMetricSubsystem* MetricSubsystem = GEditor->GetEditorSubsystem<UMetricSubsystem>();

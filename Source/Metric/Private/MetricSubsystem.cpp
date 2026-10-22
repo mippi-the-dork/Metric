@@ -8,6 +8,8 @@
 #include "Containers/Ticker.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Editor.h"
+#include "EditorViewportClient.h"
+#include "LevelEditorViewport.h"
 #include "HAL/FileManager.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
@@ -18,6 +20,146 @@
 #include "Settings/LevelEditorViewportSettings.h"
 
 #define LOCTEXT_NAMESPACE "MetricSubsystem"
+
+namespace MetricBenchmark
+{
+    static void ApplyVisualVisibility(FMetricLiveState& State, const FMetricLayerVisibility& Visibility)
+    {
+        State.bShowHull = State.bShowHull && Visibility.bHullVisual;
+        State.bShowForward = State.bShowForward && Visibility.bHullVisual;
+        State.ClearanceSettings.bShowClearanceProbe = State.ClearanceSettings.bShowClearanceProbe && Visibility.bClearanceVisual;
+        State.GroundValidationSettings.bShowGroundValidation = State.GroundValidationSettings.bShowGroundValidation && Visibility.bGroundVisual;
+        State.FitAnalysisSettings.bShowFitAnalysis = State.FitAnalysisSettings.bShowFitAnalysis && Visibility.bFitVisual;
+        State.ThresholdAnalysisSettings.bShowThresholdAnalysis = State.ThresholdAnalysisSettings.bShowThresholdAnalysis && Visibility.bThresholdVisual;
+        State.Sensors.bShowSensorHeights = State.Sensors.bShowSensorHeights && Visibility.bSensorsVisual;
+        State.SensorFieldSettings.bShowSensorField = State.SensorFieldSettings.bShowSensorField && Visibility.bSensorFieldVisual;
+        State.Ranges.bShowEngagementRanges = State.Ranges.bShowEngagementRanges && Visibility.bRangesVisual;
+        State.Locomotion.bShowLocomotionBands = State.Locomotion.bShowLocomotionBands && Visibility.bLocomotionVisual;
+        State.TrajectorySettings.bShowTrajectory = State.TrajectorySettings.bShowTrajectory && Visibility.bTrajectoryVisual;
+        State.CameraProbeSettings.bShowCameraProbe = State.CameraProbeSettings.bShowCameraProbe && Visibility.bCameraVisual;
+        State.CameraSightlineSettings.bShowCameraSightline = State.CameraSightlineSettings.bShowCameraSightline && Visibility.bSightlineVisual;
+    }
+    static FString BuildCapturedResults(const FMetricLiveState& State)
+    {
+        TArray<FString> Lines;
+
+        if (State.bShowHull)
+        {
+            Lines.Add(FString::Printf(TEXT("HULL        %.0f W x %.0f H x %.0f L"), State.Hull.Width, State.Hull.Height, State.Hull.Length));
+        }
+
+        if (State.Clearance.bVisible)
+        {
+            if (State.Clearance.bBlocked)
+            {
+                Lines.Add(FString::Printf(TEXT("CLEARANCE   FAIL   %.0fu / %.0fu"), State.Clearance.ClearDistance, State.Clearance.ProbeDistance));
+            }
+            else if (State.Clearance.bNearThreshold)
+            {
+                Lines.Add(FString::Printf(TEXT("CLEARANCE   TIGHT  %.0fu | obstacle %.0fu"), State.Clearance.ProbeDistance, State.Clearance.ObstacleDistance));
+            }
+            else
+            {
+                Lines.Add(FString::Printf(TEXT("CLEARANCE   PASS   %.0fu+"), State.Clearance.ProbeDistance));
+            }
+        }
+
+        if (State.GroundValidation.bVisible)
+        {
+            Lines.Add(FString::Printf(TEXT("GROUND      %s   %d/%d | slope %.0f deg | up %.0fu down %.0fu"),
+                State.GroundValidation.bPass ? TEXT("PASS") : TEXT("FAIL"),
+                State.GroundValidation.TotalSamples - State.GroundValidation.FailedSamples,
+                State.GroundValidation.TotalSamples,
+                State.GroundValidation.MaxObservedSlope,
+                State.GroundValidation.MaxObservedStepUp,
+                State.GroundValidation.MaxObservedStepDown));
+        }
+
+        if (State.FitAnalysis.bVisible)
+        {
+            const TCHAR* FitStatus = State.FitAnalysis.bPass ? (State.FitAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL");
+            Lines.Add(FString::Printf(TEXT("FIT         %s   W %.0fu H %.0fu | deficit W %.0fu H %.0fu"),
+                FitStatus,
+                State.FitAnalysis.MinimumAvailableWidth,
+                State.FitAnalysis.MinimumAvailableHeight,
+                State.FitAnalysis.MaxWidthDeficit,
+                State.FitAnalysis.MaxHeightDeficit));
+        }
+
+        if (State.ThresholdAnalysis.bVisible)
+        {
+            const TCHAR* ThresholdStatus = State.ThresholdAnalysis.bPass ? (State.ThresholdAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL");
+            Lines.Add(FString::Printf(TEXT("THRESHOLD   %s   %d/%d | W %.0fu H %.0fu | step +%.0f/-%.0fu"),
+                ThresholdStatus,
+                State.ThresholdAnalysis.TotalSamples - State.ThresholdAnalysis.FailedSamples,
+                State.ThresholdAnalysis.TotalSamples,
+                State.ThresholdAnalysis.MinimumAvailableWidth,
+                State.ThresholdAnalysis.MinimumAvailableHeight,
+                State.ThresholdAnalysis.MaxObservedStepUp,
+                State.ThresholdAnalysis.MaxObservedStepDown));
+        }
+
+        if (State.CameraProbe.bVisible)
+        {
+            const TCHAR* CameraStatus = State.CameraProbe.bBelowMinimum ? TEXT("TOO CLOSE") : (State.CameraProbe.bCompressed ? TEXT("COMPRESSED") : TEXT("CLEAR"));
+            Lines.Add(FString::Printf(TEXT("CAMERA      %s   %.0fu / %.0fu | %.0f%%"),
+                CameraStatus,
+                State.CameraProbe.ResolvedDistance,
+                State.CameraProbe.TargetDistance,
+                State.CameraProbe.CompressionPercent));
+        }
+
+        if (State.CameraSightline.bVisible)
+        {
+            const TCHAR* ViewStatus = State.CameraSightline.bOccluded ? TEXT("OCCLUDED") : (State.CameraSightline.bFramingFail ? TEXT("FRAMING FAIL") : TEXT("PASS"));
+            Lines.Add(FString::Printf(TEXT("VIEW        %s   %.1f deg"), ViewStatus, State.CameraSightline.SubjectAngle));
+        }
+
+        if (State.Trajectory.bVisible)
+        {
+            const TCHAR* ArcStatus = State.Trajectory.bBlocked ? TEXT("BLOCKED") : (State.Trajectory.bLandingValid ? TEXT("LANDING OK") : TEXT("NO LANDING"));
+            Lines.Add(FString::Printf(TEXT("TRAJECTORY  %s   %.0fu | %.2fs | apex %.0fu | headroom %.0fu"),
+                ArcStatus,
+                State.Trajectory.HorizontalDistance,
+                State.Trajectory.FlightTime,
+                State.Trajectory.ApexHeight,
+                State.Trajectory.ApexHeadroom));
+        }
+
+        if (State.Sensors.bShowSensorHeights)
+        {
+            Lines.Add(FString::Printf(TEXT("SENSORS     primary %.0fu   low %.0fu"), State.Sensors.PrimarySensorZOffset, State.Sensors.LowProfileSensorZOffset));
+        }
+
+        if (State.SensorField.bVisible)
+        {
+            Lines.Add(FString::Printf(TEXT("SENSOR      %.0f%% CLEAR   %d/%d blocked | nearest %.0fu"),
+                State.SensorField.ClearPercent,
+                State.SensorField.BlockedRays,
+                State.SensorField.TotalRays,
+                State.SensorField.NearestBlockDistance));
+        }
+
+        if (State.Locomotion.bShowLocomotionBands)
+        {
+            Lines.Add(FString::Printf(TEXT("MOVE        %.0fu/s   %.1f / %.1f / %.1fs"),
+                State.Locomotion.Speed,
+                State.Locomotion.NearTime,
+                State.Locomotion.MidTime,
+                State.Locomotion.FarTime));
+        }
+
+        if (State.Ranges.bShowEngagementRanges)
+        {
+            Lines.Add(FString::Printf(TEXT("RANGE       %.0f / %.0f / %.0fu"),
+                State.Ranges.ShortRange,
+                State.Ranges.MediumRange,
+                State.Ranges.LongRange));
+        }
+
+        return Lines.IsEmpty() ? TEXT("No analysis layers were active when this benchmark was captured.") : FString::Join(Lines, TEXT("\n"));
+    }
+}
 
 void UMetricSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -167,6 +309,13 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     NewPreset->Sensors.LowProfileSensorZOffset = bHeavyStarter ? 160.0f : 100.0f;
     NewPreset->Sensors.MarkerRadius = bHeavyStarter ? 32.0f : 24.0f;
 
+    NewPreset->SensorField.bShowSensorField = false;
+    NewPreset->SensorField.Range = bHeavyStarter ? 2200.0f : 1800.0f;
+    NewPreset->SensorField.HorizontalHalfAngle = bHeavyStarter ? 40.0f : 45.0f;
+    NewPreset->SensorField.VerticalHalfAngle = bHeavyStarter ? 25.0f : 30.0f;
+    NewPreset->SensorField.HorizontalRayCount = bHeavyStarter ? 11 : 9;
+    NewPreset->SensorField.TraceChannel = ECC_Visibility;
+
     NewPreset->EngagementRanges.bShowEngagementRanges = false;
     NewPreset->EngagementRanges.ShortRange = bHeavyStarter ? 700.0f : 500.0f;
     NewPreset->EngagementRanges.MediumRange = bHeavyStarter ? 2000.0f : 1500.0f;
@@ -185,6 +334,10 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     NewPreset->Trajectory.MaxSimulationTime = bHeavyStarter ? 2.25f : 2.0f;
     NewPreset->Trajectory.SampleInterval = 0.05f;
     NewPreset->Trajectory.MaxLandingSlope = bHeavyStarter ? 40.0f : 45.0f;
+    NewPreset->Trajectory.bShowTrajectoryEnvelope = true;
+    NewPreset->Trajectory.EnvelopeSampleStride = bHeavyStarter ? 4 : 3;
+    NewPreset->Trajectory.ApexProbeDistance = bHeavyStarter ? 250.0f : 200.0f;
+    NewPreset->Trajectory.ApexWarningMargin = bHeavyStarter ? 75.0f : 50.0f;
     NewPreset->Trajectory.TraceChannel = ECC_Visibility;
 
     NewPreset->CameraProbe.bShowCameraProbe = true;
@@ -222,6 +375,17 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     NewPreset->FitAnalysis.FloorTraceHeight = bHeavyStarter ? 160.0f : 120.0f;
     NewPreset->FitAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
     NewPreset->FitAnalysis.TraceChannel = ECC_Visibility;
+
+    NewPreset->ThresholdAnalysis.bShowThresholdAnalysis = true;
+    NewPreset->ThresholdAnalysis.ProbeDepth = bHeavyStarter ? 180.0f : 120.0f;
+    NewPreset->ThresholdAnalysis.MaxSideProbeDistance = bHeavyStarter ? 400.0f : 250.0f;
+    NewPreset->ThresholdAnalysis.MaxCeilingProbeHeight = bHeavyStarter ? 450.0f : 300.0f;
+    NewPreset->ThresholdAnalysis.WarningMargin = bHeavyStarter ? 20.0f : 15.0f;
+    NewPreset->ThresholdAnalysis.MaxStepUp = bHeavyStarter ? 30.0f : 45.0f;
+    NewPreset->ThresholdAnalysis.MaxStepDown = bHeavyStarter ? 40.0f : 60.0f;
+    NewPreset->ThresholdAnalysis.FloorTraceHeight = bHeavyStarter ? 160.0f : 120.0f;
+    NewPreset->ThresholdAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
+    NewPreset->ThresholdAnalysis.TraceChannel = ECC_Visibility;
 
     NewPreset->Representation.bShowStaticMesh = false;
     NewPreset->Representation.StaticMesh.Reset();
@@ -261,15 +425,27 @@ void UMetricSubsystem::Deinitialize()
         WorldBeginTearDownHandle.Reset();
     }
 
+    if (GEditor)
+    {
+        SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    }
+
     SetMetricActive(false);
     ClearRenderHost();
     CycleEntries.Reset();
     PinnedBenchmarks.Reset();
+    SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    ActivePinnedBenchmarkMap.Reset();
     Super::Deinitialize();
 }
 
 void UMetricSubsystem::HandlePreLoadMap(const FString& /*MapName*/)
 {
+    if (GEditor)
+    {
+        SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    }
+
     // LoadMap will synchronously tear down the current editor world. Drop every
     // world-owned reference before that process begins. Keep Metric's enabled
     // state so the Lens can resume lazily in the newly loaded editor world.
@@ -282,10 +458,22 @@ void UMetricSubsystem::HandlePreLoadMap(const FString& /*MapName*/)
     LiveState.GroundValidation = FMetricGroundValidationResult();
     LiveState.FitAnalysis = FMetricFitAnalysisResult();
     PinnedBenchmarks.Reset();
+    SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    ActivePinnedBenchmarkMap.Reset();
 }
 
 void UMetricSubsystem::HandleWorldBeginTearDown(UWorld* World)
 {
+    // PreLoadMap normally saves first and clears ActivePinnedBenchmarkMap. If a
+    // world is torn down through another editor path, persist it here only while
+    // it is still the active pin owner. This avoids an empty post-PreLoad save
+    // erasing the layout we just stored.
+    if (World && !ActivePinnedBenchmarkMap.IsEmpty()
+        && GetPersistableMapPackageName(World) == ActivePinnedBenchmarkMap)
+    {
+        SavePinnedBenchmarksForWorld(World);
+    }
+
     AMetricRenderHostActor* Host = RenderHost.Get();
     if (!World || !Host || Host->GetWorld() != World)
     {
@@ -304,6 +492,182 @@ void UMetricSubsystem::HandleWorldBeginTearDown(UWorld* World)
     LiveState.GroundValidation = FMetricGroundValidationResult();
     LiveState.FitAnalysis = FMetricFitAnalysisResult();
     PinnedBenchmarks.Reset();
+    SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    ActivePinnedBenchmarkMap.Reset();
+}
+
+bool UMetricSubsystem::ArePinnedBenchmarksPersistent() const
+{
+    const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    return Settings && Settings->bPersistPinnedBenchmarksPerMap;
+}
+
+FString UMetricSubsystem::GetPersistableMapPackageName(UWorld* World) const
+{
+    if (!World || World->WorldType != EWorldType::Editor)
+    {
+        return FString();
+    }
+
+    UPackage* Package = World->GetPackage();
+    if (!Package)
+    {
+        return FString();
+    }
+
+    const FString PackageName = Package->GetName();
+    if (PackageName.IsEmpty() || PackageName.StartsWith(TEXT("/Temp/")) || PackageName.StartsWith(TEXT("/Engine/Transient")))
+    {
+        return FString();
+    }
+
+    return PackageName;
+}
+
+void UMetricSubsystem::SavePinnedBenchmarksForWorld(UWorld* World)
+{
+    if (!ArePinnedBenchmarksPersistent())
+    {
+        return;
+    }
+
+    const FString MapPackageName = GetPersistableMapPackageName(World);
+    if (MapPackageName.IsEmpty())
+    {
+        return;
+    }
+
+    UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>();
+    if (!Settings)
+    {
+        return;
+    }
+
+    int32 ExistingIndex = INDEX_NONE;
+    for (int32 Index = 0; Index < Settings->PersistentBenchmarkMaps.Num(); ++Index)
+    {
+        if (Settings->PersistentBenchmarkMaps[Index].MapPackageName == MapPackageName)
+        {
+            ExistingIndex = Index;
+            break;
+        }
+    }
+
+    if (PinnedBenchmarks.IsEmpty())
+    {
+        if (ExistingIndex != INDEX_NONE)
+        {
+            Settings->PersistentBenchmarkMaps.RemoveAt(ExistingIndex);
+            Settings->SaveConfig();
+        }
+        return;
+    }
+
+    FMetricPersistentBenchmarkMap* StoredMap = ExistingIndex != INDEX_NONE
+        ? &Settings->PersistentBenchmarkMaps[ExistingIndex]
+        : &Settings->PersistentBenchmarkMaps.AddDefaulted_GetRef();
+
+    StoredMap->MapPackageName = MapPackageName;
+    StoredMap->Benchmarks.Reset();
+    StoredMap->Benchmarks.Reserve(PinnedBenchmarks.Num());
+
+    for (const FMetricPinnedBenchmark& Pin : PinnedBenchmarks)
+    {
+        FMetricPersistentBenchmark& StoredPin = StoredMap->Benchmarks.AddDefaulted_GetRef();
+        StoredPin.WorldLocation = Pin.WorldLocation;
+        StoredPin.Forward = Pin.Forward;
+        StoredPin.Hull = Pin.Hull;
+        StoredPin.Label = Pin.Label.ToString();
+        StoredPin.SourceProfileLabel = Pin.SourceProfileLabel.ToString();
+        StoredPin.CapturedResults = Pin.CapturedResults;
+        StoredPin.bHasVisualSnapshot = Pin.bHasVisualSnapshot;
+        StoredPin.Visibility = Pin.Visibility;
+        StoredPin.SurfaceNormal = Pin.SurfaceNormal;
+        StoredPin.ClearanceSettings = Pin.ClearanceSettings;
+        StoredPin.Sensors = Pin.Sensors;
+        StoredPin.SensorFieldSettings = Pin.SensorFieldSettings;
+        StoredPin.Ranges = Pin.Ranges;
+        StoredPin.Locomotion = Pin.Locomotion;
+        StoredPin.TrajectorySettings = Pin.TrajectorySettings;
+        StoredPin.CameraProbeSettings = Pin.CameraProbeSettings;
+        StoredPin.CameraSightlineSettings = Pin.CameraSightlineSettings;
+        StoredPin.GroundValidationSettings = Pin.GroundValidationSettings;
+        StoredPin.FitAnalysisSettings = Pin.FitAnalysisSettings;
+        StoredPin.ThresholdAnalysisSettings = Pin.ThresholdAnalysisSettings;
+    }
+
+    Settings->SaveConfig();
+}
+
+void UMetricSubsystem::LoadPinnedBenchmarksForWorld(UWorld* World)
+{
+    PinnedBenchmarks.Reset();
+
+    const FString MapPackageName = GetPersistableMapPackageName(World);
+    ActivePinnedBenchmarkMap = MapPackageName;
+    if (MapPackageName.IsEmpty() || !ArePinnedBenchmarksPersistent())
+    {
+        LiveState.PinnedBenchmarks.Reset();
+        return;
+    }
+
+    const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    if (!Settings)
+    {
+        return;
+    }
+
+    const int32 MaxPins = FMath::Clamp(Settings->MaxPinnedBenchmarks, 1, 32);
+    for (const FMetricPersistentBenchmarkMap& StoredMap : Settings->PersistentBenchmarkMaps)
+    {
+        if (StoredMap.MapPackageName != MapPackageName)
+        {
+            continue;
+        }
+
+        const int32 StartIndex = FMath::Max(0, StoredMap.Benchmarks.Num() - MaxPins);
+        for (int32 Index = StartIndex; Index < StoredMap.Benchmarks.Num(); ++Index)
+        {
+            const FMetricPersistentBenchmark& StoredPin = StoredMap.Benchmarks[Index];
+            FMetricPinnedBenchmark& Pin = PinnedBenchmarks.AddDefaulted_GetRef();
+            Pin.WorldLocation = StoredPin.WorldLocation;
+            Pin.Forward = StoredPin.Forward.GetSafeNormal(SMALL_NUMBER, FVector::ForwardVector);
+            Pin.Hull = StoredPin.Hull;
+            Pin.Label = FText::FromString(StoredPin.Label);
+            Pin.SourceProfileLabel = StoredPin.SourceProfileLabel.IsEmpty() ? Pin.Label : FText::FromString(StoredPin.SourceProfileLabel);
+            Pin.CapturedResults = StoredPin.CapturedResults;
+            Pin.bHasVisualSnapshot = StoredPin.bHasVisualSnapshot;
+            Pin.Visibility = StoredPin.Visibility;
+            Pin.SurfaceNormal = StoredPin.SurfaceNormal;
+            Pin.ClearanceSettings = StoredPin.ClearanceSettings;
+            Pin.Sensors = StoredPin.Sensors;
+            Pin.SensorFieldSettings = StoredPin.SensorFieldSettings;
+            Pin.Ranges = StoredPin.Ranges;
+            Pin.Locomotion = StoredPin.Locomotion;
+            Pin.TrajectorySettings = StoredPin.TrajectorySettings;
+            Pin.CameraProbeSettings = StoredPin.CameraProbeSettings;
+            Pin.CameraSightlineSettings = StoredPin.CameraSightlineSettings;
+            Pin.GroundValidationSettings = StoredPin.GroundValidationSettings;
+            Pin.FitAnalysisSettings = StoredPin.FitAnalysisSettings;
+            Pin.ThresholdAnalysisSettings = StoredPin.ThresholdAnalysisSettings;
+        }
+        break;
+    }
+
+    SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    LiveState.SelectedPinnedBenchmarkIndex = INDEX_NONE;
+}
+
+void UMetricSubsystem::EnsurePinnedBenchmarkMap(UWorld* World)
+{
+    const FString MapPackageName = GetPersistableMapPackageName(World);
+    if (MapPackageName == ActivePinnedBenchmarkMap)
+    {
+        return;
+    }
+
+    LoadPinnedBenchmarksForWorld(World);
 }
 
 void UMetricSubsystem::ToggleMetric()
@@ -367,33 +731,163 @@ void UMetricSubsystem::PinCurrentBenchmark()
 
     FMetricPinnedBenchmark Pin;
     Pin.WorldLocation = LiveState.Location;
+    Pin.SurfaceNormal = LiveState.SurfaceNormal;
     Pin.Forward = LiveState.Forward;
     Pin.Hull = LiveState.Hull;
     Pin.Label = LiveState.Label;
+    Pin.SourceProfileLabel = LiveState.Label;
+    Pin.CapturedResults = MetricBenchmark::BuildCapturedResults(LiveState);
+    Pin.bHasVisualSnapshot = true;
+    if (Settings) Pin.Visibility = Settings->LiveVisibility;
+    Pin.ClearanceSettings = LiveState.ClearanceSettings;
+    Pin.Sensors = LiveState.Sensors;
+    Pin.SensorFieldSettings = LiveState.SensorFieldSettings;
+    Pin.Ranges = LiveState.Ranges;
+    Pin.Locomotion = LiveState.Locomotion;
+    Pin.TrajectorySettings = LiveState.TrajectorySettings;
+    Pin.CameraProbeSettings = LiveState.CameraProbeSettings;
+    Pin.CameraSightlineSettings = LiveState.CameraSightlineSettings;
+    Pin.GroundValidationSettings = LiveState.GroundValidationSettings;
+    Pin.FitAnalysisSettings = LiveState.FitAnalysisSettings;
+    Pin.ThresholdAnalysisSettings = LiveState.ThresholdAnalysisSettings;
     PinnedBenchmarks.Add(MoveTemp(Pin));
+    SelectedPinnedBenchmarkIndex = PinnedBenchmarks.Num() - 1;
+
+    if (GEditor)
+    {
+        SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    }
 
     LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    LiveState.SelectedPinnedBenchmarkIndex = SelectedPinnedBenchmarkIndex;
     if (AMetricRenderHostActor* Host = RenderHost.Get())
     {
         Host->ApplyMetricState(LiveState);
     }
+    if (GEditor) RefreshSelectedPinnedVisualization(GEditor->GetEditorWorldContext().World());
     NotifyStateChanged();
 }
 
 void UMetricSubsystem::ClearPinnedBenchmarks()
 {
-    if (PinnedBenchmarks.IsEmpty())
-    {
-        return;
-    }
-
+    // Do not early-out when the runtime array is empty. A saved map may still
+    // have persistent pins that the user is explicitly asking to clear.
     PinnedBenchmarks.Reset();
+    SelectedPinnedBenchmarkIndex = INDEX_NONE;
     LiveState.PinnedBenchmarks.Reset();
+    LiveState.SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    if (GEditor)
+    {
+        SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    }
     if (AMetricRenderHostActor* Host = RenderHost.Get())
     {
         Host->ApplyMetricState(LiveState);
+        Host->ApplyPinnedMetricState(nullptr);
     }
     NotifyStateChanged();
+}
+
+const FMetricPinnedBenchmark* UMetricSubsystem::GetPinnedBenchmark(int32 Index) const
+{
+    return PinnedBenchmarks.IsValidIndex(Index) ? &PinnedBenchmarks[Index] : nullptr;
+}
+
+void UMetricSubsystem::SelectPinnedBenchmark(int32 Index)
+{
+    SelectedPinnedBenchmarkIndex = PinnedBenchmarks.IsValidIndex(Index) ? Index : INDEX_NONE;
+    LiveState.SelectedPinnedBenchmarkIndex = SelectedPinnedBenchmarkIndex;
+    if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
+    if (GEditor) RefreshSelectedPinnedVisualization(GEditor->GetEditorWorldContext().World());
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::DeletePinnedBenchmark(int32 Index)
+{
+    if (!PinnedBenchmarks.IsValidIndex(Index)) return;
+    PinnedBenchmarks.RemoveAt(Index);
+    if (SelectedPinnedBenchmarkIndex == Index) SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    else if (SelectedPinnedBenchmarkIndex > Index) --SelectedPinnedBenchmarkIndex;
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    LiveState.SelectedPinnedBenchmarkIndex = SelectedPinnedBenchmarkIndex;
+    if (GEditor) SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
+    if (GEditor) RefreshSelectedPinnedVisualization(GEditor->GetEditorWorldContext().World());
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::RenamePinnedBenchmark(int32 Index, const FText& NewLabel)
+{
+    if (!PinnedBenchmarks.IsValidIndex(Index)) return;
+    const FString Trimmed = NewLabel.ToString().TrimStartAndEnd();
+    PinnedBenchmarks[Index].Label = Trimmed.IsEmpty() ? FText::FromString(FString::Printf(TEXT("Benchmark %d"), Index + 1)) : FText::FromString(Trimmed);
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    if (GEditor) SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::ReplacePinnedBenchmarkWithLive(int32 Index)
+{
+    if (!PinnedBenchmarks.IsValidIndex(Index) || !bMetricActive || !LiveState.bHasHit || LiveState.EntryType == EMetricCycleEntryType::NativePreviewMesh) return;
+    FText ExistingLabel = PinnedBenchmarks[Index].Label;
+    PinnedBenchmarks[Index].WorldLocation = LiveState.Location;
+    PinnedBenchmarks[Index].SurfaceNormal = LiveState.SurfaceNormal;
+    PinnedBenchmarks[Index].Forward = LiveState.Forward;
+    PinnedBenchmarks[Index].Hull = LiveState.Hull;
+    PinnedBenchmarks[Index].Label = ExistingLabel;
+    PinnedBenchmarks[Index].SourceProfileLabel = LiveState.Label;
+    PinnedBenchmarks[Index].CapturedResults = MetricBenchmark::BuildCapturedResults(LiveState);
+    PinnedBenchmarks[Index].bHasVisualSnapshot = true;
+    PinnedBenchmarks[Index].ClearanceSettings = LiveState.ClearanceSettings;
+    PinnedBenchmarks[Index].Sensors = LiveState.Sensors;
+    PinnedBenchmarks[Index].SensorFieldSettings = LiveState.SensorFieldSettings;
+    PinnedBenchmarks[Index].Ranges = LiveState.Ranges;
+    PinnedBenchmarks[Index].Locomotion = LiveState.Locomotion;
+    PinnedBenchmarks[Index].TrajectorySettings = LiveState.TrajectorySettings;
+    PinnedBenchmarks[Index].CameraProbeSettings = LiveState.CameraProbeSettings;
+    PinnedBenchmarks[Index].CameraSightlineSettings = LiveState.CameraSightlineSettings;
+    PinnedBenchmarks[Index].GroundValidationSettings = LiveState.GroundValidationSettings;
+    PinnedBenchmarks[Index].FitAnalysisSettings = LiveState.FitAnalysisSettings;
+    PinnedBenchmarks[Index].ThresholdAnalysisSettings = LiveState.ThresholdAnalysisSettings;
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    if (GEditor) SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
+    if (GEditor) RefreshSelectedPinnedVisualization(GEditor->GetEditorWorldContext().World());
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::SetPinnedBenchmarkVisibility(int32 Index, const FMetricLayerVisibility& Visibility)
+{
+    if (!PinnedBenchmarks.IsValidIndex(Index)) return;
+    PinnedBenchmarks[Index].Visibility = Visibility;
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    if (GEditor) SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
+    if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
+    if (GEditor) RefreshSelectedPinnedVisualization(GEditor->GetEditorWorldContext().World());
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::FocusPinnedBenchmark(int32 Index)
+{
+    if (!PinnedBenchmarks.IsValidIndex(Index) || !GEditor) return;
+    SelectPinnedBenchmark(Index);
+    FViewport* ActiveViewport = GEditor->GetActiveViewport();
+    if (!ActiveViewport) return;
+    FViewportClient* ActiveClient = ActiveViewport->GetClient();
+    for (FLevelEditorViewportClient* Client : GEditor->GetLevelViewportClients())
+    {
+        if (!Client || Client != ActiveClient || !Client->IsPerspective()) continue;
+        const FMetricPinnedBenchmark& Pin = PinnedBenchmarks[Index];
+        FVector Forward = Pin.Forward.GetSafeNormal();
+        if (Forward.IsNearlyZero()) Forward = FVector::ForwardVector;
+        const FVector Target = Pin.WorldLocation + FVector::UpVector * FMath::Max(50.0f, Pin.Hull.Height * 0.5f);
+        const FVector Camera = Target - Forward * FMath::Max(450.0f, Pin.Hull.Height * 2.0f) + FVector::UpVector * FMath::Max(120.0f, Pin.Hull.Height * 0.4f);
+        Client->SetViewLocation(Camera);
+        Client->SetViewRotation((Target - Camera).Rotation());
+        Client->Invalidate();
+        break;
+    }
 }
 
 void UMetricSubsystem::RefreshCycleEntries()
@@ -496,6 +990,8 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
     InOutState.ClearanceSettings = FMetricClearanceSettings();
     InOutState.Clearance = FMetricClearanceResult();
     InOutState.Sensors = FMetricSensorSettings();
+    InOutState.SensorFieldSettings = FMetricSensorFieldSettings();
+    InOutState.SensorField = FMetricSensorFieldResult();
     InOutState.Ranges = FMetricRangeSettings();
     InOutState.Locomotion = FMetricLocomotionSettings();
     InOutState.TrajectorySettings = FMetricTrajectorySettings();
@@ -508,6 +1004,8 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
     InOutState.GroundValidation = FMetricGroundValidationResult();
     InOutState.FitAnalysisSettings = FMetricFitAnalysisSettings();
     InOutState.FitAnalysis = FMetricFitAnalysisResult();
+    InOutState.ThresholdAnalysisSettings = FMetricThresholdAnalysisSettings();
+    InOutState.ThresholdAnalysis = FMetricThresholdAnalysisResult();
     InOutState.bShowHull = true;
     InOutState.bShowForward = true;
     InOutState.PreviewMesh = FSoftObjectPath();
@@ -530,6 +1028,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
         InOutState.bShowForward = false;
         InOutState.ClearanceSettings.bShowClearanceProbe = false;
         InOutState.Sensors.bShowSensorHeights = false;
+        InOutState.SensorFieldSettings.bShowSensorField = false;
         InOutState.Ranges.bShowEngagementRanges = false;
         InOutState.Locomotion.bShowLocomotionBands = false;
         InOutState.TrajectorySettings.bShowTrajectory = false;
@@ -537,6 +1036,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
         InOutState.CameraSightlineSettings.bShowCameraSightline = false;
         InOutState.GroundValidationSettings.bShowGroundValidation = false;
         InOutState.FitAnalysisSettings.bShowFitAnalysis = false;
+        InOutState.ThresholdAnalysisSettings.bShowThresholdAnalysis = false;
         InOutState.PreviewMesh = Entry->NativePreviewMesh;
         return;
     }
@@ -548,6 +1048,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
             InOutState.Hull = Preset->Hull;
             InOutState.ClearanceSettings = Preset->Clearance;
             InOutState.Sensors = Preset->Sensors;
+            InOutState.SensorFieldSettings = Preset->SensorField;
             InOutState.Ranges = Preset->EngagementRanges;
             InOutState.Locomotion = Preset->LocomotionBands;
             InOutState.TrajectorySettings = Preset->Trajectory;
@@ -555,6 +1056,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
             InOutState.CameraSightlineSettings = Preset->CameraSightline;
             InOutState.GroundValidationSettings = Preset->GroundValidation;
             InOutState.FitAnalysisSettings = Preset->FitAnalysis;
+            InOutState.ThresholdAnalysisSettings = Preset->ThresholdAnalysis;
             InOutState.Label = FText::Format(LOCTEXT("PresetLabel", "METRIC - {0}"), Entry->DisplayName);
             if (Preset->Representation.bShowStaticMesh)
             {
@@ -570,6 +1072,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
 
 void UMetricSubsystem::UpdateLiveState(UWorld* World, const FMetricLiveState& NewState)
 {
+    EnsurePinnedBenchmarkMap(World);
     if (!bMetricActive || !World)
     {
         return;
@@ -579,17 +1082,91 @@ void UMetricSubsystem::UpdateLiveState(UWorld* World, const FMetricLiveState& Ne
     ApplyEntryToState(LiveState);
     LiveState.PinnedBenchmarks = PinnedBenchmarks;
     EvaluateClearance(World, LiveState);
+    EvaluateSensorField(World, LiveState);
     EvaluateTrajectory(World, LiveState);
     EvaluateCameraProbe(World, LiveState);
     EvaluateCameraSightline(World, LiveState);
     EvaluateGroundValidation(World, LiveState);
     EvaluateFitAnalysis(World, LiveState);
+    EvaluateThresholdAnalysis(World, LiveState);
     EnsureRenderHost(World);
 
     if (AMetricRenderHostActor* Host = RenderHost.Get())
     {
-        Host->ApplyMetricState(LiveState);
+        FMetricLiveState RenderState = LiveState;
+        if (const UMetricEditorSettings* EditorSettings = GetDefault<UMetricEditorSettings>())
+        {
+            MetricBenchmark::ApplyVisualVisibility(RenderState, EditorSettings->LiveVisibility);
+        }
+        Host->ApplyMetricState(RenderState);
         Host->SetMetricVisible(LiveState.bHasHit || !PinnedBenchmarks.IsEmpty());
+    }
+    RefreshSelectedPinnedVisualization(World);
+}
+
+bool UMetricSubsystem::BuildSelectedPinnedVisualState(UWorld* World, FMetricLiveState& OutState) const
+{
+    if (!World || !PinnedBenchmarks.IsValidIndex(SelectedPinnedBenchmarkIndex))
+    {
+        return false;
+    }
+
+    const FMetricPinnedBenchmark& Pin = PinnedBenchmarks[SelectedPinnedBenchmarkIndex];
+    if (!Pin.bHasVisualSnapshot)
+    {
+        return false;
+    }
+
+    OutState = FMetricLiveState();
+    OutState.bHasHit = true;
+    OutState.bShowHull = false;
+    OutState.bShowForward = false;
+    OutState.Location = Pin.WorldLocation;
+    OutState.SurfaceNormal = Pin.SurfaceNormal.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+    OutState.Forward = Pin.Forward.GetSafeNormal(SMALL_NUMBER, FVector::ForwardVector);
+    OutState.ViewerLocation = LiveState.ViewerLocation;
+    OutState.Hull = Pin.Hull;
+    OutState.ClearanceSettings = Pin.ClearanceSettings;
+    OutState.Sensors = Pin.Sensors;
+    OutState.SensorFieldSettings = Pin.SensorFieldSettings;
+    OutState.Ranges = Pin.Ranges;
+    OutState.Locomotion = Pin.Locomotion;
+    OutState.TrajectorySettings = Pin.TrajectorySettings;
+    OutState.CameraProbeSettings = Pin.CameraProbeSettings;
+    OutState.CameraSightlineSettings = Pin.CameraSightlineSettings;
+    OutState.GroundValidationSettings = Pin.GroundValidationSettings;
+    OutState.FitAnalysisSettings = Pin.FitAnalysisSettings;
+    OutState.ThresholdAnalysisSettings = Pin.ThresholdAnalysisSettings;
+    OutState.Label = Pin.Label;
+    MetricBenchmark::ApplyVisualVisibility(OutState, Pin.Visibility);
+
+    EvaluateClearance(World, OutState);
+    EvaluateSensorField(World, OutState);
+    EvaluateTrajectory(World, OutState);
+    EvaluateCameraProbe(World, OutState);
+    EvaluateCameraSightline(World, OutState);
+    EvaluateGroundValidation(World, OutState);
+    EvaluateFitAnalysis(World, OutState);
+    EvaluateThresholdAnalysis(World, OutState);
+    return true;
+}
+
+void UMetricSubsystem::RefreshSelectedPinnedVisualization(UWorld* World)
+{
+    AMetricRenderHostActor* Host = RenderHost.Get();
+    if (!Host)
+    {
+        return;
+    }
+
+    FMetricLiveState PinnedState;
+    if (BuildSelectedPinnedVisualState(World, PinnedState))
+    {
+        Host->ApplyPinnedMetricState(&PinnedState);
+    }
+    else
+    {
+        Host->ApplyPinnedMetricState(nullptr);
     }
 }
 
@@ -709,6 +1286,85 @@ void UMetricSubsystem::EvaluateClearance(UWorld* World, FMetricLiveState& InOutS
         Result.ImpactPointOffset = EndOffset;
         Result.ImpactNormal = FVector::ZeroVector;
     }
+}
+
+
+void UMetricSubsystem::EvaluateSensorField(UWorld* World, FMetricLiveState& InOutState) const
+{
+    InOutState.SensorField = FMetricSensorFieldResult();
+
+    if (!World
+        || !InOutState.bHasHit
+        || !InOutState.SensorFieldSettings.bShowSensorField
+        || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    FVector Forward = InOutState.Forward;
+    Forward.Z = 0.0f;
+    Forward = Forward.GetSafeNormal();
+    if (Forward.IsNearlyZero())
+    {
+        Forward = FVector::ForwardVector;
+    }
+
+    const FVector Up = FVector::UpVector;
+    const float Range = FMath::Max(10.0f, InOutState.SensorFieldSettings.Range);
+    const float HalfAngle = FMath::Clamp(InOutState.SensorFieldSettings.HorizontalHalfAngle, 1.0f, 89.0f);
+    int32 RayCount = FMath::Clamp(InOutState.SensorFieldSettings.HorizontalRayCount, 3, 31);
+    if ((RayCount % 2) == 0)
+    {
+        ++RayCount;
+    }
+
+    const FVector OriginOffset = InOutState.Hull.LocalOffset + Up * FMath::Max(0.0f, InOutState.Sensors.PrimarySensorZOffset);
+    const FVector Origin = InOutState.Location + OriginOffset;
+
+    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricSensorFieldTrace), true);
+    QueryParams.bTraceComplex = true;
+
+    FMetricSensorFieldResult& Result = InOutState.SensorField;
+    Result.bVisible = true;
+    Result.TotalRays = RayCount;
+    Result.OriginOffset = OriginOffset;
+    Result.NearestBlockDistance = Range;
+    Result.Rays.Reserve(RayCount);
+
+    for (int32 Index = 0; Index < RayCount; ++Index)
+    {
+        const float Alpha = RayCount > 1
+            ? static_cast<float>(Index) / static_cast<float>(RayCount - 1)
+            : 0.5f;
+        const float YawDegrees = FMath::Lerp(-HalfAngle, HalfAngle, Alpha);
+        const FVector Direction = FQuat(Up, FMath::DegreesToRadians(YawDegrees)).RotateVector(Forward).GetSafeNormal();
+        const FVector End = Origin + Direction * Range;
+
+        FHitResult Hit;
+        const bool bBlocked = World->LineTraceSingleByChannel(
+            Hit,
+            Origin,
+            End,
+            InOutState.SensorFieldSettings.TraceChannel.GetValue(),
+            QueryParams);
+
+        FMetricSensorFieldRay Ray;
+        Ray.bBlocked = bBlocked;
+        Ray.Distance = bBlocked ? FMath::Max(0.0f, Hit.Distance) : Range;
+        const FVector ResolvedEnd = bBlocked ? Hit.ImpactPoint : End;
+        Ray.EndOffset = ResolvedEnd - InOutState.Location;
+        Result.Rays.Add(Ray);
+
+        if (bBlocked)
+        {
+            ++Result.BlockedRays;
+            Result.NearestBlockDistance = FMath::Min(Result.NearestBlockDistance, Ray.Distance);
+        }
+    }
+
+    Result.ClearPercent = Result.TotalRays > 0
+        ? (static_cast<float>(Result.TotalRays - Result.BlockedRays) / static_cast<float>(Result.TotalRays)) * 100.0f
+        : 100.0f;
 }
 
 
@@ -836,6 +1492,40 @@ void UMetricSubsystem::EvaluateTrajectory(UWorld* World, FMetricLiveState& InOut
 
             const FVector ResolvedOffset = Hit.Location - InOutState.Location;
             Result.SampleOffsets.Add(ResolvedOffset);
+
+            // Find the highest sampled hull-center point and measure remaining overhead
+            // clearance from the top of the active hull. This is independent of the
+            // sweep result so near-ceiling jumps can be identified before collision.
+            float HighestZ = -FLT_MAX;
+            for (int32 SampleIndex = 0; SampleIndex < Result.SampleOffsets.Num(); ++SampleIndex)
+            {
+                if (Result.SampleOffsets[SampleIndex].Z > HighestZ)
+                {
+                    HighestZ = Result.SampleOffsets[SampleIndex].Z;
+                    Result.ApexSampleIndex = SampleIndex;
+                    Result.ApexOffset = Result.SampleOffsets[SampleIndex];
+                }
+            }
+            Result.ApexHeight = FMath::Max(0.0f, Result.ApexOffset.Z - StartOffset.Z);
+            const float ApexProbeDistance = FMath::Max(0.0f, InOutState.TrajectorySettings.ApexProbeDistance);
+            if (ApexProbeDistance > KINDA_SMALL_NUMBER)
+            {
+                const FVector ApexCenterWorld = InOutState.Location + Result.ApexOffset;
+                const float HullTopOffset = CenterHeight;
+                const FVector ProbeStart = ApexCenterWorld + FVector::UpVector * HullTopOffset;
+                const FVector ProbeEnd = ProbeStart + FVector::UpVector * ApexProbeDistance;
+                FHitResult ApexHit;
+                Result.bApexHasObstacle = World->LineTraceSingleByChannel(
+                    ApexHit, ProbeStart, ProbeEnd,
+                    InOutState.TrajectorySettings.TraceChannel.GetValue(), QueryParams);
+                Result.ApexHeadroom = Result.bApexHasObstacle ? ApexHit.Distance : ApexProbeDistance;
+                Result.bApexTight = Result.bApexHasObstacle
+                    && Result.ApexHeadroom <= FMath::Max(0.0f, InOutState.TrajectorySettings.ApexWarningMargin);
+                if (Result.bApexHasObstacle)
+                {
+                    Result.ApexClearanceImpactOffset = ApexHit.ImpactPoint - InOutState.Location;
+                }
+            }
             return;
         }
 
@@ -854,6 +1544,37 @@ void UMetricSubsystem::EvaluateTrajectory(UWorld* World, FMetricLiveState& InOut
     Result.bBlocked = false;
     Result.bHasLanding = false;
     Result.bLandingValid = false;
+
+    float HighestZ = -FLT_MAX;
+    for (int32 SampleIndex = 0; SampleIndex < Result.SampleOffsets.Num(); ++SampleIndex)
+    {
+        if (Result.SampleOffsets[SampleIndex].Z > HighestZ)
+        {
+            HighestZ = Result.SampleOffsets[SampleIndex].Z;
+            Result.ApexSampleIndex = SampleIndex;
+            Result.ApexOffset = Result.SampleOffsets[SampleIndex];
+        }
+    }
+    Result.ApexHeight = FMath::Max(0.0f, Result.ApexOffset.Z - StartOffset.Z);
+    const float ApexProbeDistance = FMath::Max(0.0f, InOutState.TrajectorySettings.ApexProbeDistance);
+    if (ApexProbeDistance > KINDA_SMALL_NUMBER)
+    {
+        const FVector ApexCenterWorld = InOutState.Location + Result.ApexOffset;
+        const float HullTopOffset = CenterHeight;
+        const FVector ProbeStart = ApexCenterWorld + FVector::UpVector * HullTopOffset;
+        const FVector ProbeEnd = ProbeStart + FVector::UpVector * ApexProbeDistance;
+        FHitResult ApexHit;
+        Result.bApexHasObstacle = World->LineTraceSingleByChannel(
+            ApexHit, ProbeStart, ProbeEnd,
+            InOutState.TrajectorySettings.TraceChannel.GetValue(), QueryParams);
+        Result.ApexHeadroom = Result.bApexHasObstacle ? ApexHit.Distance : ApexProbeDistance;
+        Result.bApexTight = Result.bApexHasObstacle
+            && Result.ApexHeadroom <= FMath::Max(0.0f, InOutState.TrajectorySettings.ApexWarningMargin);
+        if (Result.bApexHasObstacle)
+        {
+            Result.ApexClearanceImpactOffset = ApexHit.ImpactPoint - InOutState.Location;
+        }
+    }
 }
 
 void UMetricSubsystem::EvaluateCameraProbe(UWorld* World, FMetricLiveState& InOutState) const
@@ -1273,6 +1994,169 @@ void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOu
         Result.bNearThreshold = Result.bNearThreshold || Sample.bNearThreshold;
 
         if (Sample.bWidthFail || Sample.bHeightFail)
+        {
+            ++Result.FailedSamples;
+            Result.bPass = false;
+        }
+    }
+
+    if (Result.MinimumAvailableWidth == TNumericLimits<float>::Max())
+    {
+        Result.MinimumAvailableWidth = 0.0f;
+    }
+    if (Result.MinimumAvailableHeight == TNumericLimits<float>::Max())
+    {
+        Result.MinimumAvailableHeight = 0.0f;
+    }
+}
+
+
+void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState& InOutState) const
+{
+    InOutState.ThresholdAnalysis = FMetricThresholdAnalysisResult();
+
+    if (!World
+        || !InOutState.bHasHit
+        || !InOutState.ThresholdAnalysisSettings.bShowThresholdAnalysis
+        || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    const FMetricThresholdAnalysisSettings& Settings = InOutState.ThresholdAnalysisSettings;
+    FMetricThresholdAnalysisResult& Result = InOutState.ThresholdAnalysis;
+    Result.bVisible = true;
+    Result.bPass = true;
+
+    FVector Forward = InOutState.Forward;
+    Forward.Z = 0.0f;
+    Forward = Forward.GetSafeNormal();
+    if (Forward.IsNearlyZero())
+    {
+        Forward = FVector::ForwardVector;
+    }
+
+    FVector Right = FVector::CrossProduct(FVector::UpVector, Forward).GetSafeNormal();
+    if (Right.IsNearlyZero())
+    {
+        Right = FVector::RightVector;
+    }
+
+    const float RequiredWidth = FMath::Max(1.0f, InOutState.Hull.Width);
+    const float RequiredHeight = FMath::Max(1.0f, InOutState.Hull.Height);
+    const float RequiredHalfWidth = RequiredWidth * 0.5f;
+    const float ProbeDepth = FMath::Max(10.0f, Settings.ProbeDepth);
+    const float SideProbeDistance = FMath::Max(FMath::Max(10.0f, Settings.MaxSideProbeDistance), RequiredHalfWidth + Settings.WarningMargin);
+    const float CeilingProbeHeight = FMath::Max(FMath::Max(10.0f, Settings.MaxCeilingProbeHeight), RequiredHeight + Settings.WarningMargin);
+    const float WarningMargin = FMath::Max(0.0f, Settings.WarningMargin);
+    const float MaxStepUp = FMath::Max(0.0f, Settings.MaxStepUp);
+    const float MaxStepDown = FMath::Max(0.0f, Settings.MaxStepDown);
+    const float FloorTraceHeight = FMath::Max(10.0f, Settings.FloorTraceHeight);
+    const float FloorTraceDepth = FMath::Max(10.0f, Settings.FloorTraceDepth);
+
+    Result.RequiredWidth = RequiredWidth;
+    Result.RequiredHeight = RequiredHeight;
+    Result.MinimumAvailableWidth = TNumericLimits<float>::Max();
+    Result.MinimumAvailableHeight = TNumericLimits<float>::Max();
+
+    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricThresholdAnalysisTrace), true);
+    QueryParams.bTraceComplex = true;
+
+    bool bHavePreviousFloor = false;
+    float PreviousFloorZ = 0.0f;
+
+    // Entry, midpoint, and exit. Threshold analysis is intentionally a compact
+    // transition test rather than another long corridor sampler.
+    for (int32 SampleIndex = 0; SampleIndex < 3; ++SampleIndex)
+    {
+        const float Alpha = static_cast<float>(SampleIndex) * 0.5f;
+        const float ForwardOffset = ProbeDepth * Alpha;
+        const FVector Station = InOutState.Location + Forward * ForwardOffset;
+
+        FMetricThresholdSample& Sample = Result.Samples.AddDefaulted_GetRef();
+        ++Result.TotalSamples;
+
+        FHitResult FloorHit;
+        const bool bHasFloor = World->LineTraceSingleByChannel(
+            FloorHit,
+            Station + FVector::UpVector * FloorTraceHeight,
+            Station - FVector::UpVector * FloorTraceDepth,
+            Settings.TraceChannel.GetValue(),
+            QueryParams);
+
+        Sample.bHasFloor = bHasFloor;
+        if (!bHasFloor)
+        {
+            Sample.BaseOffset = Forward * ForwardOffset - FVector::UpVector * FloorTraceDepth;
+            Sample.bStepDownFail = true;
+            Sample.StepDelta = -FloorTraceDepth;
+            ++Result.InvalidSamples;
+            ++Result.FailedSamples;
+            Result.bPass = false;
+            Result.MaxObservedStepDown = FMath::Max(Result.MaxObservedStepDown, FloorTraceDepth);
+            bHavePreviousFloor = false;
+            continue;
+        }
+
+        const FVector FloorPoint = FloorHit.ImpactPoint;
+        Sample.BaseOffset = FloorPoint - InOutState.Location;
+
+        if (bHavePreviousFloor)
+        {
+            Sample.StepDelta = FloorPoint.Z - PreviousFloorZ;
+            Sample.bStepUpFail = Sample.StepDelta > MaxStepUp + KINDA_SMALL_NUMBER;
+            Sample.bStepDownFail = Sample.StepDelta < -(MaxStepDown + KINDA_SMALL_NUMBER);
+            Result.MaxObservedStepUp = FMath::Max(Result.MaxObservedStepUp, FMath::Max(0.0f, Sample.StepDelta));
+            Result.MaxObservedStepDown = FMath::Max(Result.MaxObservedStepDown, FMath::Max(0.0f, -Sample.StepDelta));
+        }
+        PreviousFloorZ = FloorPoint.Z;
+        bHavePreviousFloor = true;
+
+        const float WidthMeasureHeight = FMath::Clamp(RequiredHeight * 0.5f, 1.0f, FMath::Max(1.0f, RequiredHeight - 1.0f));
+        const FVector WidthCenter = FloorPoint + FVector::UpVector * WidthMeasureHeight;
+
+        FHitResult LeftHit;
+        FHitResult RightHit;
+        const bool bLeftHit = World->LineTraceSingleByChannel(
+            LeftHit, WidthCenter, WidthCenter - Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+        const bool bRightHit = World->LineTraceSingleByChannel(
+            RightHit, WidthCenter, WidthCenter + Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+
+        const float LeftDistance = bLeftHit ? FMath::Max(0.0f, LeftHit.Distance) : SideProbeDistance;
+        const float RightDistance = bRightHit ? FMath::Max(0.0f, RightHit.Distance) : SideProbeDistance;
+        Sample.LeftOffset = (bLeftHit ? LeftHit.Location : WidthCenter - Right * SideProbeDistance) - InOutState.Location;
+        Sample.RightOffset = (bRightHit ? RightHit.Location : WidthCenter + Right * SideProbeDistance) - InOutState.Location;
+        Sample.AvailableWidth = LeftDistance + RightDistance;
+        Sample.WidthDeficit = FMath::Max(0.0f, RequiredHalfWidth - LeftDistance)
+            + FMath::Max(0.0f, RequiredHalfWidth - RightDistance);
+        Sample.bWidthFail = Sample.WidthDeficit > KINDA_SMALL_NUMBER;
+
+        FHitResult CeilingHit;
+        const bool bCeilingHit = World->LineTraceSingleByChannel(
+            CeilingHit,
+            FloorPoint + FVector::UpVector * 1.0f,
+            FloorPoint + FVector::UpVector * CeilingProbeHeight,
+            Settings.TraceChannel.GetValue(),
+            QueryParams);
+        Sample.CeilingOffset = (bCeilingHit ? CeilingHit.Location : FloorPoint + FVector::UpVector * CeilingProbeHeight) - InOutState.Location;
+        Sample.AvailableHeight = bCeilingHit ? FMath::Max(0.0f, CeilingHit.Location.Z - FloorPoint.Z) : CeilingProbeHeight;
+        Sample.HeightDeficit = bCeilingHit ? FMath::Max(0.0f, RequiredHeight - Sample.AvailableHeight) : 0.0f;
+        Sample.bHeightFail = Sample.HeightDeficit > KINDA_SMALL_NUMBER;
+
+        const bool bWidthNear = !Sample.bWidthFail
+            && (LeftDistance < RequiredHalfWidth + WarningMargin || RightDistance < RequiredHalfWidth + WarningMargin);
+        const bool bHeightNear = !Sample.bHeightFail
+            && bCeilingHit
+            && Sample.AvailableHeight < RequiredHeight + WarningMargin;
+        Sample.bNearThreshold = bWidthNear || bHeightNear;
+
+        Result.MinimumAvailableWidth = FMath::Min(Result.MinimumAvailableWidth, Sample.AvailableWidth);
+        Result.MinimumAvailableHeight = FMath::Min(Result.MinimumAvailableHeight, Sample.AvailableHeight);
+        Result.MaxWidthDeficit = FMath::Max(Result.MaxWidthDeficit, Sample.WidthDeficit);
+        Result.MaxHeightDeficit = FMath::Max(Result.MaxHeightDeficit, Sample.HeightDeficit);
+        Result.bNearThreshold = Result.bNearThreshold || Sample.bNearThreshold;
+
+        if (Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail)
         {
             ++Result.FailedSamples;
             Result.bPass = false;

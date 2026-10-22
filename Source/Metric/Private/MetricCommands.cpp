@@ -23,14 +23,14 @@ void FMetricCommands::RegisterCommands()
         "Pin Metric Benchmark",
         "Pin the current Metric hull at the live lens position for this editor world.",
         EUserInterfaceActionType::Button,
-        FInputChord(EKeys::Backslash, false, true, false, false));
+        FInputChord(EKeys::Backslash, EModifierKey::Control));
 
     UI_COMMAND(
         ClearMetricBenchmarks,
         "Clear Metric Benchmarks",
         "Clear all pinned Metric benchmarks in the current editor world.",
         EUserInterfaceActionType::Button,
-        FInputChord(EKeys::Backslash, true, true, false, false));
+        FInputChord(EKeys::Backslash, EModifierKey::FromBools(true, false, true, false)));
 }
 
 #undef LOCTEXT_NAMESPACE

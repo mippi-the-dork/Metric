@@ -1,8 +1,61 @@
-# Metric 0.11.0 Prototype
+# Metric 0.16.10 Prototype
 
 Metric is a viewport-first spatial reference tool for Unreal Engine 5.8 and the Vista Viewport Suite.
 
-Metric 0.11.0 adds session-only Pinned Benchmarks for leaving lightweight comparison hulls in the current editor world while continuing to inspect other spaces.
+Metric 0.15.2 is a compile hotfix for UE 5.8.3. It resolves an ambiguous FVector/FVector4 conditional in the Trajectory Apex Clearance renderer introduced in 0.14.0, while preserving the 0.15.1 pin shortcut fix and all 0.15.0 functionality.
+
+
+
+
+## 0.16.10 Deterministic HUD Targeting Hotfix
+
+- Keeps one lightweight Slate overlay alive per Level Editor viewport so hidden HUDs can still tick and become visible deterministically.
+- HUD and Legend child panels now own visibility instead of collapsing the entire overlay widget.
+- Follow Last Interacted records the actual viewport under mouse-down/key interaction rather than polling hover or inheriting a stale startup ActiveViewport.
+- Selected Viewports visibility is evaluated independently for every live pane and no longer depends on prior interaction.
+- No Metric Profile / Human / Heavy data asset values changed.
+
+## 0.16.9 HUD Display Control and Targeting
+
+- **Follow Last Interacted Viewport** now reacts immediately to the viewport currently hovered or focused, with Unreal's active viewport used only as a first-frame fallback. No detour through another viewport should be required.
+- **Selected Viewports** now keeps a lightweight overlay attached to every live Level Editor viewport and toggles visibility per Viewport 1-4 selection, avoiding fragile add/remove behavior during layout changes.
+- The Legend now uses live color swatches sourced directly from Metric's configured visualization colors.
+- Live Metric and each pinned benchmark now have independent **Edit** menus with a two-column **Visual / Results** matrix for Hull, Clearance, Ground, Fit, Threshold, Sensors, Sensor Field, Engagement Ranges, Locomotion, Trajectory, Camera, and Sightline.
+- Live display choices are user settings. Each benchmark stores its own display mask and persists it with saved benchmark data.
+- Selected benchmark world visualization respects that benchmark's Visual toggles, while pinned HUD results respect its Results toggles.
+- The HUD was tightened toward native Unreal editor conventions with flatter grouping, compact headers, separators, stable-width result regions, and reduced explanatory text.
+
+
+## 0.16.8 HUD / Benchmark / Legend UX
+
+- Viewport 1-4 targeting is now assigned by visible viewport position, row-major from top-left, instead of Unreal's internal viewport array order.
+- Benchmark selection is collapsed into a scrollable dropdown suitable for larger pin sets.
+- Selected benchmarks now re-evaluate and render their captured Metric configuration at the pinned location, while the yellow benchmark hull remains the persistent identity marker.
+- The Metric legend is now a screen-space Slate panel with its own anchor setting and a Show/Hide button on the HUD.
+- Legend placement supports the same eight anchor positions as the HUD.
+
+## 0.16.6 Viewport HUD Targeting Hotfix
+
+- The Metric viewport HUD now follows the Level Editor viewport that was interacted with most recently.
+- Multi-viewport layouts no longer use `GetFirstActiveViewport()` for HUD placement.
+- Metric resolves the active `FLevelEditorViewportClient`, finds the matching `SLevelViewport`, removes the HUD from the previous viewport, and reattaches it to the newly active viewport.
+- The analysis lens itself remains perspective-only, while the HUD can follow the user's most recently interacted Level Editor viewport.
+
+
+## 0.16.1 Content Browser Polish
+
+- `UMetricPreset` assets are presented as **Metric Profile** in the Content Browser instead of `Data Asset (Metric Preset)`.
+- Metric Profile assets use the type color `#FF940A`.
+- Metric registers `Resources/MetricProfile.svg` as the Metric Profile class icon and thumbnail when the SVG is present.
+- Restored the correct `MetricModule.cpp` source after the 0.16.0 package accidentally contained README text in that file.
+
+## 0.15.2 Compile Hotfix
+
+- **Ctrl + Backslash** pins the current live Metric benchmark.
+- **Ctrl + Shift + Backslash** clears pinned benchmarks for the current map/session.
+- The two documented chords are now recognized directly by the input preprocessor instead of depending only on Slate command-chord registration.
+- Chord precedence is explicit: clear pins, pin, cycle, then toggle. This prevents the more specific Ctrl-modified actions from falling through to Shift + Backslash or plain Backslash behavior.
+- Rebound commands in **Editor Preferences > Keyboard Shortcuts > Metric** remain supported.
 
 ## Current prototype capabilities
 
@@ -20,12 +73,71 @@ Metric 0.11.0 adds session-only Pinned Benchmarks for leaving lightweight compar
 - Native Preview Mesh settings are read-only. Metric never rewrites Unreal's existing preview mesh array.
 
 
+
+
+## Threshold Analysis
+
+Metric presets now expose a compact **Threshold Analysis** layer for short entry/exit transitions. Unlike Fit Analysis, which samples a longer corridor, Threshold Analysis checks only the entry, midpoint, and far side of a configurable threshold depth.
+
+Each preset exposes:
+
+- **Show Threshold Analysis**
+- **Probe Depth**
+- **Max Side Probe Distance**
+- **Max Ceiling Probe Height**
+- **Warning Margin**
+- **Max Step Up**
+- **Max Step Down**
+- **Floor Trace Height**
+- **Floor Trace Depth**
+- **Trace Channel**
+
+At each of the three stations Metric measures lateral room and floor-to-ceiling height, while consecutive floor samples are compared against the configured step-up and step-down limits. Results are reported as `THRESHOLD OK`, `THRESHOLD TIGHT`, `THRESHOLD FAIL`, or `THRESHOLD NO FLOOR`. Failure readouts include width/height deficit and the worst observed step transition.
+
+This is intended for doors, hatches, tunnel mouths, curb transitions, small portals, and similar short spatial transitions. It is a geometric approximation and does not replace navigation, animation, mantle, or project-specific traversal logic.
+
+## Trajectory Envelope / Apex Clearance
+
+Metric's existing Trajectory layer can now visualize the approximate **occupied hull envelope** around the sampled ballistic path instead of showing only the center arc. The envelope uses the active preset hull width and height, drawing quiet side/top/bottom rails plus periodic cross-sections along the trajectory.
+
+Trajectory presets now expose:
+
+- **Show Trajectory Envelope**
+- **Envelope Sample Stride**
+- **Apex Probe Distance**
+- **Apex Warning Margin**
+
+Metric also identifies the highest sampled hull-center point and measures vertical clearance above the top of the hull from that point. The readout adds an apex line such as `APEX +148u | HEADROOM 72u`, `APEX +148u | HEADROOM 32u TIGHT`, or `APEX +148u | HEADROOM 200u+`.
+
+The apex probe is a local overhead measurement, not a second movement solver. The trajectory sweep remains the authoritative pass/fail path query. A jump may therefore be collision-free while still reporting tight apex headroom, which is useful for spotting low beams, ceilings, overhangs, and visually uncomfortable jump spaces before they actually block the hull.
+
+Cylinder hulls retain Metric's existing capsule approximation for trajectory collision. Envelope rails are a visualization of the configured hull dimensions and do not claim exact continuous swept-volume rendering.
+
+## Sensor Field / Field-of-View
+
+Metric presets now expose an optional **Sensor Field** layer that expands the existing Sensor Heights reference into a forward-facing field-of-view volume. It uses the preset's Primary Sensor Height as its origin, draws the configured horizontal and vertical field angles, and samples horizontal visibility through the field using world traces.
+
+Each preset exposes:
+
+- **Show Sensor Field**
+- **Range**
+- **Horizontal Half Angle**
+- **Vertical Half Angle**
+- **Horizontal Ray Count**
+- **Trace Channel**
+
+The viewport draws the nominal field boundary in blue, individual sampled rays through the horizontal field, and red truncation markers where geometry blocks a sample. The readout reports either `SENSOR OPEN` or a compact coverage summary such as `SENSOR 67% CLEAR | 3/9 blocked | nearest 420u`.
+
+The vertical angle is currently a visualization reference only. Obstruction percentage is derived from the horizontal ray fan at Primary Sensor Height, so Metric does not claim to reproduce a project's AI Perception component, sight affiliation rules, peripheral vision implementation, target filtering, vertical sampling, or gameplay-specific visibility logic.
+
 ## Pinned Benchmarks
 
 - **Ctrl + Backslash** pins the current Metric hull at the live lens position.
 - **Ctrl + Shift + Backslash** clears all pins in the current editor world.
 - Pins are subsystem-owned visualization data, not Actors, so they never appear in the Scene Outliner and never become production level content.
-- Pins are session/world scoped. Loading another map clears them intentionally.
+- Pins can now persist per saved map when **Metric - User > Pinned Benchmarks > Persist Pinned Benchmarks Per Map** is enabled (default).
+- Persistent pins are stored in editor user settings, never as level Actors or level-owned objects. Unsaved `/Temp/` maps remain session-only.
+- Returning to a saved map automatically restores its pins. Clearing pins also clears the stored pin set for that map.
 - The oldest pin is removed automatically when the configurable maximum pin count is reached.
 - Pinned hulls use the dedicated user-configurable yellow benchmark color and appear in the contextual legend.
 
@@ -383,3 +495,10 @@ Locomotion uses a purple visual family and distinct segmented line patterns so i
 - Fresh Human and Heavy starter assets now receive explicit values for every current Metric group, including Camera Probe.
 - Added `Doc/Starter-Preset-Values.md` as the canonical manual update sheet for existing Human and Heavy starter Data Assets.
 - Existing Data Assets are never auto-overwritten by version updates.
+
+
+## Viewport HUD placement
+
+Metric's screen-space HUD can be anchored to Top Left, Middle Left, Bottom Left, Top Middle, Bottom Middle, Top Right, Middle Right, or Bottom Right from **Editor Preferences > Plugins > Metric - User > Viewport HUD**.
+
+HUD viewport targeting defaults to **Follow Last Interacted Viewport**. In this mode Metric waits for a real Level Editor viewport interaction/focus before attaching the HUD, then follows the last viewport you use. **Selected Viewports** mode can instead show the HUD in any combination of Viewport 1 through Viewport 4.

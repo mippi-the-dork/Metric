@@ -1,0 +1,5 @@
+Metric expects the custom Metric Profile SVG at:
+
+Resources/MetricProfile.svg
+
+The class icon and Content Browser thumbnail are registered automatically when that file exists.

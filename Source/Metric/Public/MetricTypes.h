@@ -101,6 +101,48 @@ struct FMetricSensorSettings
 };
 
 USTRUCT(BlueprintType)
+struct FMetricSensorFieldSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Sensor Field")
+    bool bShowSensorField = false;
+
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "10.0", Units = "cm"))
+    float Range = 1800.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "1.0", ClampMax = "89.0", Units = "deg"))
+    float HorizontalHalfAngle = 45.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "1.0", ClampMax = "89.0", Units = "deg"))
+    float VerticalHalfAngle = 30.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "3", ClampMax = "31"))
+    int32 HorizontalRayCount = 9;
+
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField"))
+    TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+
+struct FMetricSensorFieldRay
+{
+    FVector EndOffset = FVector::ZeroVector;
+    bool bBlocked = false;
+    float Distance = 0.0f;
+};
+
+struct FMetricSensorFieldResult
+{
+    bool bVisible = false;
+    int32 TotalRays = 0;
+    int32 BlockedRays = 0;
+    float ClearPercent = 100.0f;
+    float NearestBlockDistance = 0.0f;
+    FVector OriginOffset = FVector::ZeroVector;
+    TArray<FMetricSensorFieldRay> Rays;
+};
+
+USTRUCT(BlueprintType)
 struct FMetricRangeSettings
 {
     GENERATED_BODY()
@@ -167,6 +209,18 @@ struct FMetricTrajectorySettings
     float MaxLandingSlope = 45.0f;
 
     UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory"))
+    bool bShowTrajectoryEnvelope = true;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory && bShowTrajectoryEnvelope", ClampMin = "1", ClampMax = "12"))
+    int32 EnvelopeSampleStride = 3;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm"))
+    float ApexProbeDistance = 200.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm"))
+    float ApexWarningMargin = 50.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory"))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -181,6 +235,13 @@ struct FMetricTrajectoryResult
     float HorizontalDistance = 0.0f;
     FVector ImpactPointOffset = FVector::ZeroVector;
     FVector ImpactNormal = FVector::UpVector;
+    int32 ApexSampleIndex = INDEX_NONE;
+    FVector ApexOffset = FVector::ZeroVector;
+    FVector ApexClearanceImpactOffset = FVector::ZeroVector;
+    float ApexHeight = 0.0f;
+    float ApexHeadroom = 0.0f;
+    bool bApexHasObstacle = false;
+    bool bApexTight = false;
     TArray<FVector> SampleOffsets;
 };
 
@@ -396,6 +457,82 @@ struct FMetricFitAnalysisResult
     TArray<FMetricFitSample> Samples;
 };
 
+
+
+USTRUCT(BlueprintType)
+struct FMetricThresholdAnalysisSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis")
+    bool bShowThresholdAnalysis = false;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    float ProbeDepth = 120.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    float MaxSideProbeDistance = 250.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    float MaxCeilingProbeHeight = 300.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm"))
+    float WarningMargin = 15.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm"))
+    float MaxStepUp = 45.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm"))
+    float MaxStepDown = 60.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    float FloorTraceHeight = 120.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    float FloorTraceDepth = 200.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis"))
+    TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+
+struct FMetricThresholdSample
+{
+    FVector BaseOffset = FVector::ZeroVector;
+    FVector LeftOffset = FVector::ZeroVector;
+    FVector RightOffset = FVector::ZeroVector;
+    FVector CeilingOffset = FVector::ZeroVector;
+    bool bHasFloor = false;
+    bool bWidthFail = false;
+    bool bHeightFail = false;
+    bool bStepUpFail = false;
+    bool bStepDownFail = false;
+    bool bNearThreshold = false;
+    float AvailableWidth = 0.0f;
+    float AvailableHeight = 0.0f;
+    float WidthDeficit = 0.0f;
+    float HeightDeficit = 0.0f;
+    float StepDelta = 0.0f;
+};
+
+struct FMetricThresholdAnalysisResult
+{
+    bool bVisible = false;
+    bool bPass = true;
+    bool bNearThreshold = false;
+    int32 TotalSamples = 0;
+    int32 FailedSamples = 0;
+    int32 InvalidSamples = 0;
+    float RequiredWidth = 0.0f;
+    float RequiredHeight = 0.0f;
+    float MinimumAvailableWidth = 0.0f;
+    float MinimumAvailableHeight = 0.0f;
+    float MaxWidthDeficit = 0.0f;
+    float MaxHeightDeficit = 0.0f;
+    float MaxObservedStepUp = 0.0f;
+    float MaxObservedStepDown = 0.0f;
+    TArray<FMetricThresholdSample> Samples;
+};
+
 USTRUCT(BlueprintType)
 struct FMetricRepresentationSettings
 {
@@ -425,12 +562,108 @@ struct FMetricCycleEntry
 };
 
 
+
+USTRUCT(BlueprintType)
+struct FMetricLayerVisibility
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bHullVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bHullResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bClearanceVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bClearanceResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bGroundVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bGroundResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bFitVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bFitResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bThresholdVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bThresholdResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bSensorsVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bSensorsResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bSensorFieldVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bSensorFieldResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bRangesVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bRangesResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bLocomotionVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bLocomotionResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bTrajectoryVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bTrajectoryResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bCameraVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bCameraResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bSightlineVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bSightlineResults = true;
+
+};
+
 struct FMetricPinnedBenchmark
 {
     FVector WorldLocation = FVector::ZeroVector;
+    FVector SurfaceNormal = FVector::UpVector;
     FVector Forward = FVector::ForwardVector;
     FMetricHullSettings Hull;
     FText Label;
+    FText SourceProfileLabel;
+    FString CapturedResults;
+    bool bHasVisualSnapshot = false;
+    FMetricLayerVisibility Visibility;
+    FMetricClearanceSettings ClearanceSettings;
+    FMetricSensorSettings Sensors;
+    FMetricSensorFieldSettings SensorFieldSettings;
+    FMetricRangeSettings Ranges;
+    FMetricLocomotionSettings Locomotion;
+    FMetricTrajectorySettings TrajectorySettings;
+    FMetricCameraProbeSettings CameraProbeSettings;
+    FMetricCameraSightlineSettings CameraSightlineSettings;
+    FMetricGroundValidationSettings GroundValidationSettings;
+    FMetricFitAnalysisSettings FitAnalysisSettings;
+    FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
 };
 
 struct FMetricLiveState
@@ -446,6 +679,8 @@ struct FMetricLiveState
     FMetricClearanceSettings ClearanceSettings;
     FMetricClearanceResult Clearance;
     FMetricSensorSettings Sensors;
+    FMetricSensorFieldSettings SensorFieldSettings;
+    FMetricSensorFieldResult SensorField;
     FMetricRangeSettings Ranges;
     FMetricLocomotionSettings Locomotion;
     FMetricTrajectorySettings TrajectorySettings;
@@ -458,9 +693,12 @@ struct FMetricLiveState
     FMetricGroundValidationResult GroundValidation;
     FMetricFitAnalysisSettings FitAnalysisSettings;
     FMetricFitAnalysisResult FitAnalysis;
+    FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
+    FMetricThresholdAnalysisResult ThresholdAnalysis;
     FText Label;
     EMetricCycleEntryType EntryType = EMetricCycleEntryType::BuiltInMetric;
     FSoftObjectPath PreviewMesh;
     FTransform PreviewRelativeTransform = FTransform::Identity;
     TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
+    int32 SelectedPinnedBenchmarkIndex = INDEX_NONE;
 };

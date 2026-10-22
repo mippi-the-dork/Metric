@@ -3,6 +3,7 @@
 #include "MetricCommands.h"
 #include "MetricInputProcessor.h"
 #include "MetricLog.h"
+#include "MetricStyle.h"
 #include "MetricViewportController.h"
 #include "Framework/Application/SlateApplication.h"
 
@@ -10,6 +11,7 @@
 
 void FMetricModule::StartupModule()
 {
+    FMetricStyle::Initialize();
     FMetricCommands::Register();
     ViewportController = MakeUnique<FMetricViewportController>();
 
@@ -19,7 +21,7 @@ void FMetricModule::StartupModule()
         // Index 0 gives Metric first opportunity to consume the two legacy
         // preview-mesh chords while the Level Editor viewport has focus.
         FSlateApplication::Get().RegisterInputPreProcessor(InputProcessor, 0);
-        UE_LOG(LogMetric, Log, TEXT("Metric 0.4.1 input processor registered."));
+        UE_LOG(LogMetric, Log, TEXT("Metric 0.16.10 input processor registered."));
     }
 }
 
@@ -33,6 +35,7 @@ void FMetricModule::ShutdownModule()
     InputProcessor.Reset();
     ViewportController.Reset();
     FMetricCommands::Unregister();
+    FMetricStyle::Shutdown();
 }
 
 #undef LOCTEXT_NAMESPACE

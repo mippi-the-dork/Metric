@@ -19,6 +19,7 @@ public:
     AMetricRenderHostActor();
 
     void ApplyMetricState(const FMetricLiveState& State);
+    void ApplyPinnedMetricState(const FMetricLiveState* State);
     void SetMetricVisible(bool bVisible);
 
     virtual bool IsEditorOnly() const override { return true; }
@@ -29,6 +30,9 @@ public:
 private:
     UPROPERTY(Transient)
     TObjectPtr<UMetricViewportComponent> MetricComponent;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UMetricViewportComponent> PinnedMetricComponent;
 
     UPROPERTY(Transient)
     TObjectPtr<UStaticMeshComponent> PreviewMeshComponent;
