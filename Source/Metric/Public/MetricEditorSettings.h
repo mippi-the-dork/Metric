@@ -90,6 +90,9 @@ struct FMetricPersistentBenchmark
 
     UPROPERTY()
     FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
+
+    UPROPERTY()
+    FMetricTurnClearanceSettings TurnClearanceSettings;
 };
 
 USTRUCT()
@@ -115,6 +118,12 @@ public:
 
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
     EMetricHUDAnchor HUDAnchor = EMetricHUDAnchor::TopLeft;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
+    bool bHUDMinimized = false;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Show Live Visualizer"))
+    bool bShowLiveVisualizer = true;
 
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
     EMetricHUDViewportTargeting HUDViewportTargeting = EMetricHUDViewportTargeting::FollowLastInteracted;
@@ -154,6 +163,15 @@ public:
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0"))
     float AnchorLineThickness = 2.0f;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display")
+    bool bEmphasizeProblemLines = true;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "4.0"))
+    float WarningLineThicknessMultiplier = 1.75f;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "6.0"))
+    float FailureLineThicknessMultiplier = 2.5f;
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "8.0", ClampMax = "100.0", Units = "cm"))
     float LabelWorldSize = 18.0f;

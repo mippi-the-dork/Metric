@@ -1,6 +1,7 @@
 #include "SMetricViewportOverlay.h"
 
 #include "MetricEditorSettings.h"
+#include "MetricStyle.h"
 #include "MetricSubsystem.h"
 #include "MetricTypes.h"
 #include "Editor.h"
@@ -9,6 +10,7 @@
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
@@ -28,6 +30,7 @@ namespace MetricOverlay
         Ground,
         Fit,
         Threshold,
+        Turn,
         Sensors,
         SensorField,
         Ranges,
@@ -51,6 +54,7 @@ namespace MetricOverlay
         { TEXT("Ground"), TEXT("GROUND") },
         { TEXT("Fit"), TEXT("FIT") },
         { TEXT("Threshold"), TEXT("THRESHOLD") },
+        { TEXT("Turn Clearance"), TEXT("TURN") },
         { TEXT("Sensors"), TEXT("SENSORS") },
         { TEXT("Sensor Field"), TEXT("SENSOR") },
         { TEXT("Engagement Ranges"), TEXT("RANGE") },
@@ -74,6 +78,7 @@ namespace MetricOverlay
         case ELayer::Ground:     return bVisual ? V.bGroundVisual : V.bGroundResults;
         case ELayer::Fit:        return bVisual ? V.bFitVisual : V.bFitResults;
         case ELayer::Threshold:  return bVisual ? V.bThresholdVisual : V.bThresholdResults;
+        case ELayer::Turn:       return bVisual ? V.bTurnVisual : V.bTurnResults;
         case ELayer::Sensors:    return bVisual ? V.bSensorsVisual : V.bSensorsResults;
         case ELayer::SensorField:return bVisual ? V.bSensorFieldVisual : V.bSensorFieldResults;
         case ELayer::Ranges:     return bVisual ? V.bRangesVisual : V.bRangesResults;
@@ -94,6 +99,7 @@ namespace MetricOverlay
         case ELayer::Ground:     if (bVisual) V.bGroundVisual = bValue; else V.bGroundResults = bValue; break;
         case ELayer::Fit:        if (bVisual) V.bFitVisual = bValue; else V.bFitResults = bValue; break;
         case ELayer::Threshold:  if (bVisual) V.bThresholdVisual = bValue; else V.bThresholdResults = bValue; break;
+        case ELayer::Turn:       if (bVisual) V.bTurnVisual = bValue; else V.bTurnResults = bValue; break;
         case ELayer::Sensors:    if (bVisual) V.bSensorsVisual = bValue; else V.bSensorsResults = bValue; break;
         case ELayer::SensorField:if (bVisual) V.bSensorFieldVisual = bValue; else V.bSensorFieldResults = bValue; break;
         case ELayer::Ranges:     if (bVisual) V.bRangesVisual = bValue; else V.bRangesResults = bValue; break;
@@ -127,6 +133,19 @@ namespace MetricOverlay
             Lines.Add(FString::Printf(TEXT("FIT         %s   W %.0fu  H %.0fu"), State.FitAnalysis.bPass ? (State.FitAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL"), State.FitAnalysis.MinimumAvailableWidth, State.FitAnalysis.MinimumAvailableHeight));
         if (V.bThresholdResults && State.ThresholdAnalysis.bVisible)
             Lines.Add(FString::Printf(TEXT("THRESHOLD   %s   %d/%d"), State.ThresholdAnalysis.bPass ? (State.ThresholdAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL"), State.ThresholdAnalysis.TotalSamples - State.ThresholdAnalysis.FailedSamples, State.ThresholdAnalysis.TotalSamples));
+        if (V.bTurnResults && State.TurnClearance.bVisible)
+        {
+            auto TurnText = [](const FMetricTurnPathResult& Path) -> FString
+            {
+                if (!Path.bTested) return TEXT("OFF");
+                if (Path.bBlocked)
+                {
+                    return FString::Printf(TEXT("BLOCKED %.0f deg"), Path.ClearAngle);
+                }
+                return FString::Printf(TEXT("PASS %.0f deg"), Path.ClearAngle);
+            };
+            Lines.Add(FString::Printf(TEXT("TURN        L %s | R %s"), *TurnText(State.TurnClearance.Left), *TurnText(State.TurnClearance.Right)));
+        }
         if (V.bSensorsResults && State.Sensors.bShowSensorHeights)
             Lines.Add(FString::Printf(TEXT("SENSORS     primary %.0fu   low %.0fu"), State.Sensors.PrimarySensorZOffset, State.Sensors.LowProfileSensorZOffset));
         if (V.bCameraResults && State.CameraProbe.bVisible)
@@ -193,6 +212,30 @@ namespace MetricOverlay
         }
     }
 
+    static bool IsSelectedViewportEnabled(const UMetricEditorSettings* Settings, int32 ViewportNumber)
+    {
+        if (!Settings || ViewportNumber == INDEX_NONE)
+        {
+            return false;
+        }
+        switch (ViewportNumber)
+        {
+        case 1: return Settings->bShowHUDInViewport1;
+        case 2: return Settings->bShowHUDInViewport2;
+        case 3: return Settings->bShowHUDInViewport3;
+        case 4: return Settings->bShowHUDInViewport4;
+        default: return false;
+        }
+    }
+
+    static FString CleanProfileLabel(const FText& Label)
+    {
+        FString Value = Label.ToString();
+        Value.RemoveFromStart(TEXT("METRIC - "));
+        Value.RemoveFromStart(TEXT("Metric - "));
+        return Value;
+    }
+
     static TSharedRef<SWidget> MakeSwatch(const FLinearColor& Color)
     {
         return SNew(SBox).WidthOverride(10.0f).HeightOverride(10.0f)
@@ -217,6 +260,97 @@ namespace MetricOverlay
         ];
         Box->AddSlot().AutoHeight().Padding(0,1)[Row];
     }
+
+    static FSlateColor ResultValueColor(const FString& Value, const UMetricEditorSettings* Settings)
+    {
+        if (!Settings)
+        {
+            return FSlateColor::UseForeground();
+        }
+        if (Value.Contains(TEXT("FAIL")) || Value.Contains(TEXT("BLOCKED")) || Value.Contains(TEXT("TOO CLOSE")) || Value.Contains(TEXT("OCCLUDED")) || Value.Contains(TEXT("NO LANDING")))
+        {
+            return FSlateColor(Settings->ClearanceFailColor);
+        }
+        if (Value.Contains(TEXT("TIGHT")) || Value.Contains(TEXT("COMPRESSED")) || Value.Contains(TEXT("FRAMING FAIL")))
+        {
+            return FSlateColor(Settings->ClearanceWarningColor);
+        }
+        if (Value.Contains(TEXT("PASS")) || Value.Contains(TEXT("CLEAR")) || Value.Contains(TEXT("LANDING OK")) || Value.Contains(TEXT("OPEN")))
+        {
+            return FSlateColor(Settings->ClearancePassColor);
+        }
+        return FSlateColor::UseForeground();
+    }
+
+    static void AddResultRows(const TSharedRef<SVerticalBox>& Box, const FString& Summary, const UMetricEditorSettings* Settings)
+    {
+        TArray<FString> Lines;
+        Summary.ParseIntoArrayLines(Lines, false);
+        for (const FString& RawLine : Lines)
+        {
+            FString Line = RawLine;
+            Line.TrimStartAndEndInline();
+            if (Line.IsEmpty())
+            {
+                continue;
+            }
+
+            FString Label;
+            FString Value = Line;
+            for (int32 LayerIndex = 0; LayerIndex < static_cast<int32>(ELayer::Count); ++LayerIndex)
+            {
+                const FString Prefix(Layers[LayerIndex].Prefix);
+                if (Line.StartsWith(Prefix))
+                {
+                    Label = Layers[LayerIndex].Name;
+                    Value = Line.Mid(Prefix.Len());
+                    Value.TrimStartInline();
+                    break;
+                }
+            }
+
+            if (Label.IsEmpty())
+            {
+                Box->AddSlot().AutoHeight().Padding(4,1)
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(Value))
+                    .Font(FAppStyle::GetFontStyle("SmallFont"))
+                    .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+                    .AutoWrapText(true)
+                ];
+                continue;
+            }
+
+            Box->AddSlot().AutoHeight().Padding(4,1)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().FillWidth(0.42f).VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(Label))
+                    .Font(FAppStyle::GetFontStyle("SmallFont"))
+                    .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+                ]
+                + SHorizontalBox::Slot().FillWidth(0.58f).HAlign(HAlign_Right).VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(Value))
+                    .Font(FAppStyle::GetFontStyle("SmallFont"))
+                    .ColorAndOpacity(ResultValueColor(Value, Settings))
+                    .Justification(ETextJustify::Right)
+                ]
+            ];
+        }
+    }
+
+    static TSharedRef<SWidget> BuildResultRowsWidget(const FString& Summary, const UMetricEditorSettings* Settings)
+    {
+        TSharedRef<SVerticalBox> Rows = SNew(SVerticalBox);
+        AddResultRows(Rows, Summary, Settings);
+        return Rows;
+    }
+
 }
 
 void SMetricViewportOverlay::Construct(const FArguments& InArgs)
@@ -236,7 +370,7 @@ void SMetricViewportOverlay::Construct(const FArguments& InArgs)
         SNew(SOverlay)
         + SOverlay::Slot().HAlign(HudH).VAlign(HudV).Padding(HudPadding)
         [
-            SNew(SBox).WidthOverride(390.0f)
+            SAssignNew(HUDSizeBox, SBox).WidthOverride(390.0f)
             .Visibility(this, &SMetricViewportOverlay::GetHUDVisibility)
             [
                 SNew(SBorder)
@@ -269,11 +403,18 @@ void SMetricViewportOverlay::SetTargetEnabled(bool bEnabled)
     SetVisibility(EVisibility::SelfHitTestInvisible);
 }
 
+void SMetricViewportOverlay::SetViewportNumber(int32 InViewportNumber)
+{
+    ViewportNumber = InViewportNumber;
+}
+
 EVisibility SMetricViewportOverlay::GetHUDVisibility() const
 {
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
     const bool bShowHUD = !Settings || Settings->bShowViewportHUD;
-    return (bTargetEnabled && bLastActive && bShowHUD)
+    const bool bSelectedMode = Settings && Settings->HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports;
+    const bool bViewportEnabled = bSelectedMode ? MetricOverlay::IsSelectedViewportEnabled(Settings, ViewportNumber) : bTargetEnabled;
+    return (bViewportEnabled && bLastActive && bShowHUD)
         ? EVisibility::SelfHitTestInvisible
         : EVisibility::Collapsed;
 }
@@ -287,9 +428,55 @@ void SMetricViewportOverlay::Tick(const FGeometry& AllottedGeometry, const doubl
     const int32 Selected = Subsystem ? Subsystem->GetSelectedPinnedBenchmarkIndex() : INDEX_NONE;
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
     const bool bLegend = Settings ? Settings->bShowLegend : true;
-    if (bActive != bLastActive || PinCount != LastPinCount || Selected != LastSelectedPin || bLegend != bLastLegendVisible)
+    const bool bMinimized = Settings ? Settings->bHUDMinimized : false;
+    const FString LiveSummary = (Subsystem && Settings) ? MetricOverlay::ResultSummary(Subsystem->GetLiveState(), Settings->LiveVisibility) : FString();
+    FString PinnedSummary;
+    if (Subsystem)
+    {
+        if (const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Selected))
+        {
+            PinnedSummary = MetricOverlay::FilterCapturedResults(Pin->CapturedResults, Pin->Visibility);
+        }
+    }
+    const FString ProfileLabel = Subsystem ? Subsystem->GetLiveState().Label.ToString() : FString();
+    const bool bStructureChanged =
+        bActive != bLastActive ||
+        PinCount != LastPinCount ||
+        Selected != LastSelectedPin ||
+        bLegend != bLastLegendVisible ||
+        bMinimized != bLastHUDMinimized ||
+        ProfileLabel != LastProfileLabel;
+
+    if (bStructureChanged)
     {
         Rebuild();
+    }
+    else if (LiveSummary != LastLiveSummary || PinnedSummary != LastPinnedSummary)
+    {
+        RefreshDynamicResultContent(LiveSummary, PinnedSummary);
+    }
+}
+
+void SMetricViewportOverlay::RefreshDynamicResultContent(const FString& LiveSummary, const FString& PinnedSummary)
+{
+    const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+
+    if (LiveSummary != LastLiveSummary)
+    {
+        LastLiveSummary = LiveSummary;
+        if (LiveResultsBox.IsValid())
+        {
+            LiveResultsBox->SetContent(MetricOverlay::BuildResultRowsWidget(LastLiveSummary, Settings));
+        }
+    }
+
+    if (PinnedSummary != LastPinnedSummary)
+    {
+        LastPinnedSummary = PinnedSummary;
+        if (PinnedResultsBox.IsValid())
+        {
+            PinnedResultsBox->SetContent(MetricOverlay::BuildResultRowsWidget(LastPinnedSummary, Settings));
+        }
     }
 }
 
@@ -297,6 +484,8 @@ void SMetricViewportOverlay::Rebuild()
 {
     if (!RootBox.IsValid()) return;
     RootBox->ClearChildren();
+    LiveResultsBox.Reset();
+    PinnedResultsBox.Reset();
 
     UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
     bLastActive = Subsystem && Subsystem->IsMetricActive();
@@ -304,91 +493,215 @@ void SMetricViewportOverlay::Rebuild()
     LastSelectedPin = Subsystem ? Subsystem->GetSelectedPinnedBenchmarkIndex() : INDEX_NONE;
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
     bLastLegendVisible = Settings ? Settings->bShowLegend : true;
+    bLastHUDMinimized = Settings ? Settings->bHUDMinimized : false;
+    LastLiveSummary = (Subsystem && Settings) ? MetricOverlay::ResultSummary(Subsystem->GetLiveState(), Settings->LiveVisibility) : FString();
+    LastProfileLabel = Subsystem ? Subsystem->GetLiveState().Label.ToString() : FString();
+    LastPinnedSummary.Reset();
+    if (Subsystem)
+    {
+        if (const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(LastSelectedPin))
+        {
+            LastPinnedSummary = MetricOverlay::FilterCapturedResults(Pin->CapturedResults, Pin->Visibility);
+        }
+    }
     SetVisibility(EVisibility::SelfHitTestInvisible);
     if (!bLastActive || !Subsystem) return;
 
-    RootBox->AddSlot().AutoHeight().Padding(0,0,0,3)
+    if (HUDSizeBox.IsValid())
+    {
+        HUDSizeBox->SetWidthOverride(bLastHUDMinimized ? 44.0f : 390.0f);
+    }
+
+    const FSlateBrush* MetricIcon = FMetricStyle::GetBrush(TEXT("Metric.HUDIcon"));
+    if (!MetricIcon) MetricIcon = FMetricStyle::GetBrush(TEXT("ClassIcon.MetricPreset"));
+    if (!MetricIcon) MetricIcon = FAppStyle::GetBrush(TEXT("Icons.Info"));
+
+    if (bLastHUDMinimized)
+    {
+        RootBox->AddSlot().AutoHeight()
+        [
+            SNew(SButton)
+            .ToolTipText(LOCTEXT("RestoreHUDTip", "Restore the Metric viewport HUD."))
+            .ContentPadding(FMargin(2.0f))
+            .OnClicked(this, &SMetricViewportOverlay::ToggleHUDMinimized)
+            [ SNew(SBox).WidthOverride(28.0f).HeightOverride(28.0f)[SNew(SImage).Image(MetricIcon).ColorAndOpacity(FLinearColor::White)] ]
+        ];
+        if (LegendBorder.IsValid()) LegendBorder->SetContent(BuildLegendContent());
+        return;
+    }
+
+    const FString ProfileName = MetricOverlay::CleanProfileLabel(Subsystem->GetLiveState().Label);
+    RootBox->AddSlot().AutoHeight().Padding(0,0,0,4)
     [
         SNew(SHorizontalBox)
+        + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+        [ SNew(SBox).WidthOverride(22.0f).HeightOverride(22.0f)[SNew(SImage).Image(MetricIcon).ColorAndOpacity(FLinearColor::White)] ]
         + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+        [ SNew(STextBlock).Text(LOCTEXT("MetricHeader", "METRIC")).Font(FAppStyle::GetFontStyle("HeadingExtraSmall")) ]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)
         [
-            SNew(STextBlock).Text(LOCTEXT("LiveMetricHeader", "METRIC")).Font(FAppStyle::GetFontStyle("HeadingExtraSmall"))
+            SNew(SButton)
+            .ToolTipText(LOCTEXT("MinimizeHUDTip", "Minimize Metric to its viewport icon while keeping world-space visualization active."))
+            .ContentPadding(FMargin(3.0f))
+            .OnClicked(this, &SMetricViewportOverlay::ToggleHUDMinimized)
+            [ SNew(SImage).Image(FAppStyle::GetBrush("Icons.ChevronDown")) ]
         ]
-        + SHorizontalBox::Slot().AutoWidth().Padding(4,0)
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)
         [
             SNew(SComboButton)
-            .ButtonContent()[ SNew(STextBlock).Text(LOCTEXT("EditLive", "Edit")) ]
+            .ToolTipText(LOCTEXT("EditLiveTip", "Display Options: choose which live Metric layers draw in the viewport and which appear in results."))
+            .ButtonContent()[ SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit")) ]
             .OnGetMenuContent(this, &SMetricViewportOverlay::BuildVisibilityMenu, false)
         ]
-        + SHorizontalBox::Slot().AutoWidth()
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)
         [
-            SNew(SButton).Text(this, &SMetricViewportOverlay::BuildLegendButtonText)
+            SNew(SButton)
+            .Text(this, &SMetricViewportOverlay::BuildLegendButtonText)
             .ToolTipText(LOCTEXT("LegendToggleTip", "Show or hide the Metric legend in this viewport."))
             .OnClicked(this, &SMetricViewportOverlay::ToggleLegend)
         ]
     ];
 
-    RootBox->AddSlot().AutoHeight().Padding(0,0,0,4)
+    RootBox->AddSlot().AutoHeight().Padding(28,0,2,3)
     [
         SNew(STextBlock)
-        .Text_Lambda([]() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) return S->GetLiveState().Label; return FText::GetEmpty(); })
-        .Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())
-    ];
-    RootBox->AddSlot().AutoHeight().Padding(0,0,0,6)
-    [
-        SNew(SBox).HeightOverride(132.0f)
-        [ SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildSummaryText).Font(FAppStyle::GetFontStyle("SmallFont")).AutoWrapText(true).WrapTextAt(360.0f) ]
+        .Text(FText::FromString(ProfileName))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        .ToolTipText(FText::FromString(ProfileName))
     ];
 
-    RootBox->AddSlot().AutoHeight().Padding(0,2,0,4)[SNew(SSeparator)];
-
-    RootBox->AddSlot().AutoHeight().Padding(0,0,0,4)
-    [
-        SNew(SHorizontalBox)
-        + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-        [ SNew(STextBlock).Text(FText::Format(LOCTEXT("BenchmarksHeader", "BENCHMARKS  {0}"), FText::AsNumber(LastPinCount))).Font(FAppStyle::GetFontStyle("SmallFont")) ]
-        + SHorizontalBox::Slot().AutoWidth()
-        [
-            SNew(SComboButton)
-            .IsEnabled(LastSelectedPin != INDEX_NONE)
-            .ButtonContent()[ SNew(STextBlock).Text(LOCTEXT("EditBenchmark", "Edit")) ]
-            .OnGetMenuContent(this, &SMetricViewportOverlay::BuildVisibilityMenu, true)
-        ]
-    ];
-
-    RootBox->AddSlot().AutoHeight().Padding(0,0,0,4)
-    [
-        SNew(SComboButton)
-        .ButtonContent()[ SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildBenchmarkSelectionText) ]
-        .OnGetMenuContent(this, &SMetricViewportOverlay::BuildBenchmarkMenu)
-    ];
-
-    if (LastSelectedPin != INDEX_NONE)
+    auto AddSectionHeader = [this](const FText& Title, bool bExpanded, FReply (SMetricViewportOverlay::*Handler)())
     {
-        const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(LastSelectedPin);
-        if (Pin)
-        {
-            RootBox->AddSlot().AutoHeight().Padding(0,3,0,3)
-            [ SNew(SEditableTextBox).Text(Pin->Label).SelectAllTextWhenFocused(true).OnTextCommitted(this, &SMetricViewportOverlay::CommitRename, LastSelectedPin) ];
-            RootBox->AddSlot().AutoHeight().Padding(0,1,0,5)
+        RootBox->AddSlot().AutoHeight().Padding(0,2,0,1)
+        [
+            SNew(SButton)
+            .ContentPadding(FMargin(2.0f, 2.0f))
+            .OnClicked(this, Handler)
             [
                 SNew(SHorizontalBox)
-                + SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("Focus", "Focus")).OnClicked(this, &SMetricViewportOverlay::FocusSelectedPin)]
-                + SHorizontalBox::Slot().AutoWidth().Padding(4,0)[SNew(SButton).Text(LOCTEXT("Replace", "Replace")).ToolTipText(LOCTEXT("ReplaceTip", "Replace this benchmark with the current live Metric snapshot.")).OnClicked(this, &SMetricViewportOverlay::ReplaceSelectedPin)]
-                + SHorizontalBox::Slot().AutoWidth().Padding(4,0)[SNew(SButton).Text(LOCTEXT("Delete", "Delete")).OnClicked(this, &SMetricViewportOverlay::DeleteSelectedPin)]
-            ];
+                + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,4,0)
+                [ SNew(SImage).Image(FAppStyle::GetBrush(bExpanded ? TEXT("Icons.ChevronDown") : TEXT("Icons.ChevronRight"))) ]
+                + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+                [ SNew(STextBlock).Text(Title).Font(FAppStyle::GetFontStyle("SmallFont")) ]
+            ]
+        ];
+    };
 
-            RootBox->AddSlot().AutoHeight().Padding(0,2,0,2)[SNew(STextBlock).Text(LOCTEXT("PinnedResultsHeader", "PINNED METRIC RESULTS")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())];
-            RootBox->AddSlot().AutoHeight().Padding(0,0,0,2)[SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildPinnedSourceText).Font(FAppStyle::GetFontStyle("SmallFont"))];
-            RootBox->AddSlot().AutoHeight().Padding(0,0,0,5)
-            [ SNew(SBox).HeightOverride(152.0f)[SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildPinnedResultsText).Font(FAppStyle::GetFontStyle("SmallFont")).AutoWrapText(true).WrapTextAt(360.0f)] ];
-            RootBox->AddSlot().AutoHeight().Padding(0,1,0,2)[SNew(STextBlock).Text(LOCTEXT("LiveVsPinHeader", "LIVE vs PIN")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())];
-            RootBox->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(34.0f)[SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildComparisonText).Font(FAppStyle::GetFontStyle("SmallFont")).AutoWrapText(true).WrapTextAt(360.0f)]];
+    AddSectionHeader(LOCTEXT("LiveSection", "LIVE METRIC"), bLiveSectionExpanded, &SMetricViewportOverlay::ToggleLiveSection);
+    if (bLiveSectionExpanded)
+    {
+        RootBox->AddSlot().AutoHeight().Padding(4,1,2,2)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("LiveVisualizerLabel", "Live Visualizer"))
+                .Font(FAppStyle::GetFontStyle("SmallFont"))
+                .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+            ]
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SButton)
+                .Text_Lambda([]()
+                {
+                    const UMetricEditorSettings* CurrentSettings = GetDefault<UMetricEditorSettings>();
+                    return (CurrentSettings && CurrentSettings->bShowLiveVisualizer) ? LOCTEXT("LiveVisualizerOn", "On") : LOCTEXT("LiveVisualizerOff", "Off");
+                })
+                .ToolTipText(LOCTEXT("LiveVisualizerTip", "Show or hide the live world-space Metric visualization without affecting benchmarks or live result rows."))
+                .OnClicked(this, &SMetricViewportOverlay::ToggleLiveVisualizer)
+            ]
+        ];
+
+        const UMetricEditorSettings* CurrentSettings = GetDefault<UMetricEditorSettings>();
+        RootBox->AddSlot().AutoHeight().Padding(0,0,0,4)
+        [
+            SAssignNew(LiveResultsBox, SBox)
+            [
+                MetricOverlay::BuildResultRowsWidget(LastLiveSummary, CurrentSettings)
+            ]
+        ];
+    }
+
+    RootBox->AddSlot().AutoHeight().Padding(0,2,0,2)[SNew(SSeparator)];
+
+    AddSectionHeader(FText::Format(LOCTEXT("BenchmarksSection", "BENCHMARKS ({0})"), FText::AsNumber(LastPinCount)), bBenchmarkSectionExpanded, &SMetricViewportOverlay::ToggleBenchmarkSection);
+    if (bBenchmarkSectionExpanded)
+    {
+        RootBox->AddSlot().AutoHeight().Padding(4,2,2,3)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().FillWidth(1.0f)
+            [
+                SNew(SComboButton)
+                .ButtonContent()[ SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildBenchmarkSelectionText) ]
+                .OnGetMenuContent(this, &SMetricViewportOverlay::BuildBenchmarkMenu)
+            ]
+            + SHorizontalBox::Slot().AutoWidth().Padding(3,0,0,0)
+            [
+                SNew(SComboButton)
+                .IsEnabled(LastSelectedPin != INDEX_NONE)
+                .ToolTipText(LOCTEXT("EditBenchmarkTip", "Display Options: choose which layers this benchmark draws and reports."))
+                .ButtonContent()[ SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit")) ]
+                .OnGetMenuContent(this, &SMetricViewportOverlay::BuildVisibilityMenu, true)
+            ]
+        ];
+
+        if (LastSelectedPin != INDEX_NONE)
+        {
+            const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(LastSelectedPin);
+            if (Pin)
+            {
+                if (bRenameActive)
+                {
+                    RootBox->AddSlot().AutoHeight().Padding(4,1,2,3)
+                    [ SNew(SEditableTextBox).Text(Pin->Label).SelectAllTextWhenFocused(true).OnTextCommitted(this, &SMetricViewportOverlay::CommitRename, LastSelectedPin) ];
+                }
+
+                RootBox->AddSlot().AutoHeight().Padding(4,1,2,4)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,2,0)
+                    [ SNew(SButton).ToolTipText(LOCTEXT("FocusTip", "Focus the selected benchmark in the active viewport.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::FocusSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Search"))] ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,2,0)
+                    [ SNew(SButton).ToolTipText(LOCTEXT("ReplaceTip", "Replace this benchmark with the current live Metric snapshot.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::ReplaceSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Refresh"))] ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,2,0)
+                    [ SNew(SButton).ToolTipText(LOCTEXT("RenameTip", "Rename the selected benchmark.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::RenameSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit"))] ]
+                    + SHorizontalBox::Slot().AutoWidth()
+                    [ SNew(SButton).ToolTipText(LOCTEXT("DeleteTip", "Delete the selected benchmark.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::DeleteSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Delete"))] ]
+                ];
+            }
         }
     }
 
-    RootBox->AddSlot().AutoHeight().Padding(0,6,0,0)
-    [ SNew(STextBlock).Text(LOCTEXT("Shortcuts", "Ctrl+\\ Pin   |   Ctrl+Shift+\\ Clear All")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground()) ];
+    if (LastSelectedPin != INDEX_NONE)
+    {
+        RootBox->AddSlot().AutoHeight().Padding(0,1,0,1)[SNew(SSeparator)];
+        AddSectionHeader(LOCTEXT("PinnedResultsSection", "PINNED RESULTS"), bPinnedSectionExpanded, &SMetricViewportOverlay::TogglePinnedSection);
+        if (bPinnedSectionExpanded)
+        {
+            RootBox->AddSlot().AutoHeight().Padding(4,1,2,1)[SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildPinnedSourceText).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())];
+            const UMetricEditorSettings* CurrentSettings = GetDefault<UMetricEditorSettings>();
+            RootBox->AddSlot().AutoHeight().Padding(0,0,0,4)
+            [
+                SAssignNew(PinnedResultsBox, SBox)
+                [
+                    MetricOverlay::BuildResultRowsWidget(LastPinnedSummary, CurrentSettings)
+                ]
+            ];
+        }
+
+        AddSectionHeader(LOCTEXT("ComparisonSection", "LIVE vs PIN"), bComparisonSectionExpanded, &SMetricViewportOverlay::ToggleComparisonSection);
+        if (bComparisonSectionExpanded)
+        {
+            RootBox->AddSlot().AutoHeight().Padding(4,1,2,4)
+            [ SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildComparisonText).Font(FAppStyle::GetFontStyle("SmallFont")).AutoWrapText(true).WrapTextAt(322.0f) ];
+        }
+    }
+
+    RootBox->AddSlot().AutoHeight().Padding(2,5,0,0)
+    [ SNew(STextBlock).Text(LOCTEXT("Shortcuts", "Ctrl+\\ Pin   |   Alt+\\ Next   |   Ctrl+Shift+\\ Clear")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground()) ];
 
     if (LegendBorder.IsValid())
     {
@@ -400,6 +713,17 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildBenchmarkMenu()
 {
     TSharedRef<SVerticalBox> List = SNew(SVerticalBox);
     UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
+    List->AddSlot().AutoHeight().Padding(2,1)
+    [
+        SNew(SButton)
+        .HAlign(HAlign_Left)
+        .Text(LOCTEXT("BenchmarkNone", "None"))
+        .ToolTipText(LOCTEXT("BenchmarkNoneTip", "Show only the live Metric lens and no selected benchmark analysis."))
+        .OnClicked_Lambda([this]()
+        {
+            return SelectPin(INDEX_NONE);
+        })
+    ];
     if (!Subsystem || Subsystem->GetPinnedBenchmarkCount() == 0)
     {
         List->AddSlot().AutoHeight().Padding(8,6)[SNew(STextBlock).Text(LOCTEXT("NoBenchmarks", "No pinned benchmarks"))];
@@ -411,7 +735,10 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildBenchmarkMenu()
             const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Index);
             if (!Pin) continue;
             const FString Label = FString::Printf(TEXT("P%d  %s"), Index + 1, *Pin->Label.ToString());
-            List->AddSlot().AutoHeight().Padding(2,1)[SNew(SButton).HAlign(HAlign_Left).Text(FText::FromString(Label)).OnClicked(this, &SMetricViewportOverlay::SelectPin, Index)];
+            List->AddSlot().AutoHeight().Padding(2,1)[SNew(SButton).HAlign(HAlign_Left).Text(FText::FromString(Label)).OnClicked_Lambda([this, Index]()
+            {
+                return SelectPin(Index);
+            })];
         }
     }
     return SNew(SBox).WidthOverride(350.0f).MaxDesiredHeight(280.0f)[SNew(SScrollBox) + SScrollBox::Slot()[List]];
@@ -420,17 +747,35 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildBenchmarkMenu()
 TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchmark)
 {
     TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
-    Box->AddSlot().AutoHeight().Padding(8,6,8,3)
+    Box->AddSlot().AutoHeight().Padding(8,6,8,4)
+    [
+        SNew(STextBlock)
+        .Text(bForBenchmark ? LOCTEXT("BenchmarkVisibility", "BENCHMARK DISPLAY") : LOCTEXT("LiveVisibility", "LIVE DISPLAY"))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(6,0,6,5)
     [
         SNew(SHorizontalBox)
-        + SHorizontalBox::Slot().FillWidth(1.0f)[SNew(STextBlock).Text(bForBenchmark ? LOCTEXT("BenchmarkVisibility", "BENCHMARK DISPLAY") : LOCTEXT("LiveVisibility", "LIVE DISPLAY")).Font(FAppStyle::GetFontStyle("SmallFont"))]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("PresetAll", "All")).ToolTipText(LOCTEXT("PresetAllTip", "Show all visuals and all result rows.")).OnClicked_Lambda([this, bForBenchmark]() { return ApplyVisibilityPreset(0, bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("PresetVisual", "Visuals")).ToolTipText(LOCTEXT("PresetVisualTip", "Show world visuals only.")).OnClicked_Lambda([this, bForBenchmark]() { return ApplyVisibilityPreset(1, bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("PresetResults", "Results")).ToolTipText(LOCTEXT("PresetResultsTip", "Show HUD results only.")).OnClicked_Lambda([this, bForBenchmark]() { return ApplyVisibilityPreset(2, bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("PresetNone", "None")).ToolTipText(LOCTEXT("PresetNoneTip", "Hide all Metric layers for this context.")).OnClicked_Lambda([this, bForBenchmark]() { return ApplyVisibilityPreset(3, bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("PresetReset", "Reset")).ToolTipText(LOCTEXT("PresetResetTip", "Restore the default Metric layer visibility.")).OnClicked_Lambda([this, bForBenchmark]() { return ApplyVisibilityPreset(4, bForBenchmark); })]
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)[SNew(SSeparator)];
+    Box->AddSlot().AutoHeight().Padding(8,2,8,3)
+    [
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot().FillWidth(1.0f)[SNew(STextBlock).Text(LOCTEXT("LayerCol", "Layer")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())]
         + SHorizontalBox::Slot().AutoWidth().Padding(8,0)[SNew(STextBlock).Text(LOCTEXT("VisualCol", "Visual")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())]
         + SHorizontalBox::Slot().AutoWidth().Padding(12,0,2,0)[SNew(STextBlock).Text(LOCTEXT("ResultsCol", "Results")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())]
     ];
 
     for (int32 Index = 0; Index < static_cast<int32>(MetricOverlay::ELayer::Count); ++Index)
     {
-        Box->AddSlot().AutoHeight().Padding(8,2)
+        Box->AddSlot().AutoHeight().Padding(8,1)
         [
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)[SNew(STextBlock).Text(FText::FromString(MetricOverlay::Layers[Index].Name)).Font(FAppStyle::GetFontStyle("SmallFont"))]
@@ -468,6 +813,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLegendContent()
     if (State.GroundValidation.bVisible && V.bGroundVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendGround", "Ground: pass / step / slope"), { Settings->GroundPassColor, Settings->GroundStepFailColor, Settings->GroundSlopeFailColor });
     if (State.FitAnalysis.bVisible && V.bFitVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendFit", "Fit: pass / tight / fail"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
     if (State.ThresholdAnalysis.bVisible && V.bThresholdVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendThreshold", "Threshold: pass / tight / fail"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
+    if (State.TurnClearance.bVisible && V.bTurnVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendTurn", "Turn clearance"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
     if (State.Sensors.bShowSensorHeights && V.bSensorsVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendSensors", "Sensor heights"), { Settings->SensorColor });
     if (State.SensorField.bVisible && V.bSensorFieldVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendSensorField", "Sensor field / blocked"), { Settings->SensorFieldColor, Settings->SensorFieldBlockedColor });
     if (State.Ranges.bShowEngagementRanges && V.bRangesVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendRange", "Engagement ranges"), { Settings->EngagementRangeColor });
@@ -489,10 +835,10 @@ FText SMetricViewportOverlay::BuildSummaryText() const
 FText SMetricViewportOverlay::BuildBenchmarkSelectionText() const
 {
     UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
-    if (!Subsystem || Subsystem->GetSelectedPinnedBenchmarkIndex() == INDEX_NONE) return LOCTEXT("SelectBenchmark", "Select benchmark...");
+    if (!Subsystem || Subsystem->GetSelectedPinnedBenchmarkIndex() == INDEX_NONE) return LOCTEXT("SelectBenchmark", "None");
     const int32 Index = Subsystem->GetSelectedPinnedBenchmarkIndex();
     const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Index);
-    return Pin ? FText::FromString(FString::Printf(TEXT("P%d  %s"), Index + 1, *Pin->Label.ToString())) : LOCTEXT("SelectBenchmark2", "Select benchmark...");
+    return Pin ? FText::FromString(FString::Printf(TEXT("P%d  %s"), Index + 1, *Pin->Label.ToString())) : LOCTEXT("SelectBenchmark2", "None");
 }
 
 FText SMetricViewportOverlay::BuildPinnedResultsText() const
@@ -535,7 +881,9 @@ EVisibility SMetricViewportOverlay::GetLegendVisibility() const
 {
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
     const bool bShowLegend = !Settings || Settings->bShowLegend;
-    return (bTargetEnabled && bLastActive && bShowLegend)
+    const bool bSelectedMode = Settings && Settings->HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports;
+    const bool bViewportEnabled = bSelectedMode ? MetricOverlay::IsSelectedViewportEnabled(Settings, ViewportNumber) : bTargetEnabled;
+    return (bViewportEnabled && bLastActive && bShowLegend)
         ? EVisibility::HitTestInvisible
         : EVisibility::Collapsed;
 }
@@ -547,6 +895,29 @@ FReply SMetricViewportOverlay::ToggleLegend()
         Settings->bShowLegend = !Settings->bShowLegend;
         Settings->SaveConfig();
         bLastLegendVisible = Settings->bShowLegend;
+        Rebuild();
+    }
+    return FReply::Handled();
+}
+
+FReply SMetricViewportOverlay::ToggleHUDMinimized()
+{
+    if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+    {
+        Settings->bHUDMinimized = !Settings->bHUDMinimized;
+        Settings->SaveConfig();
+        bLastHUDMinimized = Settings->bHUDMinimized;
+        Rebuild();
+    }
+    return FReply::Handled();
+}
+
+FReply SMetricViewportOverlay::ToggleLiveVisualizer()
+{
+    if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+    {
+        Settings->bShowLiveVisualizer = !Settings->bShowLiveVisualizer;
+        Settings->SaveConfig();
         Rebuild();
     }
     return FReply::Handled();
@@ -591,10 +962,47 @@ void SMetricViewportOverlay::OnVisibilityChanged(ECheckBoxState NewState, int32 
     Rebuild();
 }
 
+FReply SMetricViewportOverlay::ToggleLiveSection() { bLiveSectionExpanded = !bLiveSectionExpanded; Rebuild(); return FReply::Handled(); }
+FReply SMetricViewportOverlay::ToggleBenchmarkSection() { bBenchmarkSectionExpanded = !bBenchmarkSectionExpanded; Rebuild(); return FReply::Handled(); }
+FReply SMetricViewportOverlay::TogglePinnedSection() { bPinnedSectionExpanded = !bPinnedSectionExpanded; Rebuild(); return FReply::Handled(); }
+FReply SMetricViewportOverlay::ToggleComparisonSection() { bComparisonSectionExpanded = !bComparisonSectionExpanded; Rebuild(); return FReply::Handled(); }
+FReply SMetricViewportOverlay::RenameSelectedPin() { bRenameActive = !bRenameActive; Rebuild(); return FReply::Handled(); }
+
+FReply SMetricViewportOverlay::ApplyVisibilityPreset(int32 Preset, bool bForBenchmark)
+{
+    FMetricLayerVisibility V;
+    for (int32 LayerIndex = 0; LayerIndex < static_cast<int32>(MetricOverlay::ELayer::Count); ++LayerIndex)
+    {
+        bool bVisual = true;
+        bool bResults = true;
+        if (Preset == 1) bResults = false;
+        else if (Preset == 2) bVisual = false;
+        else if (Preset == 3) { bVisual = false; bResults = false; }
+        MetricOverlay::SetVisibilityFlag(V, LayerIndex, true, bVisual);
+        MetricOverlay::SetVisibilityFlag(V, LayerIndex, false, bResults);
+    }
+
+    if (bForBenchmark)
+    {
+        if (UMetricSubsystem* S = MetricOverlay::GetSubsystem())
+        {
+            const int32 Index = S->GetSelectedPinnedBenchmarkIndex();
+            if (Index != INDEX_NONE) S->SetPinnedBenchmarkVisibility(Index, V);
+        }
+    }
+    else if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+    {
+        Settings->LiveVisibility = V;
+        Settings->SaveConfig();
+    }
+    Rebuild();
+    return FReply::Handled();
+}
+
 FReply SMetricViewportOverlay::SelectPin(int32 Index) { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->SelectPinnedBenchmark(Index); Rebuild(); return FReply::Handled(); }
 FReply SMetricViewportOverlay::FocusSelectedPin() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->FocusPinnedBenchmark(S->GetSelectedPinnedBenchmarkIndex()); return FReply::Handled(); }
 FReply SMetricViewportOverlay::DeleteSelectedPin() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->DeletePinnedBenchmark(S->GetSelectedPinnedBenchmarkIndex()); Rebuild(); return FReply::Handled(); }
 FReply SMetricViewportOverlay::ReplaceSelectedPin() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->ReplacePinnedBenchmarkWithLive(S->GetSelectedPinnedBenchmarkIndex()); Rebuild(); return FReply::Handled(); }
-void SMetricViewportOverlay::CommitRename(const FText& NewText, ETextCommit::Type CommitType, int32 Index) { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->RenamePinnedBenchmark(Index, NewText); Rebuild(); }
+void SMetricViewportOverlay::CommitRename(const FText& NewText, ETextCommit::Type CommitType, int32 Index) { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->RenamePinnedBenchmark(Index, NewText); bRenameActive = false; Rebuild(); }
 
 #undef LOCTEXT_NAMESPACE

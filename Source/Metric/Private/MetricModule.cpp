@@ -21,7 +21,7 @@ void FMetricModule::StartupModule()
         // Index 0 gives Metric first opportunity to consume the two legacy
         // preview-mesh chords while the Level Editor viewport has focus.
         FSlateApplication::Get().RegisterInputPreProcessor(InputProcessor, 0);
-        UE_LOG(LogMetric, Log, TEXT("Metric 0.16.10 input processor registered."));
+        UE_LOG(LogMetric, Log, TEXT("Metric 0.17.1 input processor registered."));
     }
 }
 

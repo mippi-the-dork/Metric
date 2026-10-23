@@ -31,6 +31,13 @@ void FMetricStyle::Initialize()
         StyleSet->Set(TEXT("ClassThumbnail.MetricPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
     }
 
+    // Reuse the exact Metric Profile SVG for viewport chrome as well. Slate's
+    // vector brush stays crisp at both the full HUD and minimized button sizes.
+    if (FPaths::FileExists(ProfileIconPath))
+    {
+        StyleSet->Set(TEXT("Metric.HUDIcon"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(28.0f, 28.0f)));
+    }
+
     FSlateStyleRegistry::RegisterSlateStyle(*StyleSet);
 }
 
@@ -43,4 +50,9 @@ void FMetricStyle::Shutdown()
 
     FSlateStyleRegistry::UnRegisterSlateStyle(*StyleSet);
     StyleSet.Reset();
+}
+
+const FSlateBrush* FMetricStyle::GetBrush(FName BrushName)
+{
+    return StyleSet.IsValid() ? StyleSet->GetBrush(BrushName) : nullptr;
 }

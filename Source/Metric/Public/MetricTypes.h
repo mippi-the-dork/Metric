@@ -533,6 +533,57 @@ struct FMetricThresholdAnalysisResult
     TArray<FMetricThresholdSample> Samples;
 };
 
+UENUM(BlueprintType)
+enum class EMetricTurnDirection : uint8
+{
+    Left UMETA(DisplayName = "Left"),
+    Right UMETA(DisplayName = "Right"),
+    Both UMETA(DisplayName = "Both")
+};
+
+USTRUCT(BlueprintType)
+struct FMetricTurnClearanceSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance")
+    bool bShowTurnClearance = false;
+
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "10.0", Units = "cm"))
+    float TurnRadius = 250.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "10.0", ClampMax = "180.0", Units = "deg"))
+    float TurnAngle = 90.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "2.0", ClampMax = "30.0", Units = "deg"))
+    float SampleAngle = 7.5f;
+
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance"))
+    EMetricTurnDirection Direction = EMetricTurnDirection::Both;
+
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance"))
+    TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+
+struct FMetricTurnPathResult
+{
+    bool bTested = false;
+    bool bBlocked = false;
+    float ClearAngle = 0.0f;
+    float ClearDistance = 0.0f;
+    FVector ImpactPointOffset = FVector::ZeroVector;
+    FVector ImpactNormal = FVector::UpVector;
+    TArray<FVector> SampleOffsets;
+};
+
+struct FMetricTurnClearanceResult
+{
+    bool bVisible = false;
+    bool bApproximateShape = false;
+    FMetricTurnPathResult Left;
+    FMetricTurnPathResult Right;
+};
+
 USTRUCT(BlueprintType)
 struct FMetricRepresentationSettings
 {
@@ -635,6 +686,12 @@ struct FMetricLayerVisibility
     bool bCameraResults = true;
 
     UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bTurnVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bTurnResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
     bool bSightlineVisual = true;
 
     UPROPERTY(EditAnywhere, Category = "Metric Visibility")
@@ -664,6 +721,7 @@ struct FMetricPinnedBenchmark
     FMetricGroundValidationSettings GroundValidationSettings;
     FMetricFitAnalysisSettings FitAnalysisSettings;
     FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
+    FMetricTurnClearanceSettings TurnClearanceSettings;
 };
 
 struct FMetricLiveState
@@ -695,6 +753,8 @@ struct FMetricLiveState
     FMetricFitAnalysisResult FitAnalysis;
     FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
     FMetricThresholdAnalysisResult ThresholdAnalysis;
+    FMetricTurnClearanceSettings TurnClearanceSettings;
+    FMetricTurnClearanceResult TurnClearance;
     FText Label;
     EMetricCycleEntryType EntryType = EMetricCycleEntryType::BuiltInMetric;
     FSoftObjectPath PreviewMesh;

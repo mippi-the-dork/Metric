@@ -1,4 +1,4 @@
-# Metric 0.16.10 Prototype
+# Metric 0.19.2 Prototype
 
 Metric is a viewport-first spatial reference tool for Unreal Engine 5.8 and the Vista Viewport Suite.
 
@@ -6,6 +6,54 @@ Metric 0.15.2 is a compile hotfix for UE 5.8.3. It resolves an ambiguous FVector
 
 
 
+
+
+
+## 0.19.2 HUD / Legend Stability Hotfix
+
+- Stops rebuilding the full viewport HUD and legend every time live Metric values change.
+- Keeps the Slate panel structure stable while atomically refreshing only the live/pinned result content.
+- Prevents transient overlapping text/layout frames while moving the live Metric lens.
+- Preserves the 0.19.1 compile hotfix and all 0.19.0 functionality.
+
+## 0.19.1 Compile Hotfix
+
+- Fixed UE 5.8 checked-format-string compilation in the Turn Clearance HUD result text.
+- No behavior or Metric Profile value changes.
+
+
+## 0.19.0 Turn Clearance and Live Visualizer Fix
+
+- Fixes **Show Live Visualizer = Off** so every live world-space element is suppressed, including the anchor, forward marker, analysis geometry, and native preview mesh, while benchmarks and live HUD results remain available.
+- Gives the active Metric Profile its own full-width secondary header row so names like **Human Reference** and **Heavy Reference** are no longer clipped by header actions.
+- Enlarges the Metric HUD icon and uses the canonical SVG directly for both the full HUD and minimized restore button.
+- Adds **Turn Clearance**, a preset-driven swept maneuver test for left/right turns. It sweeps the active hull along a configurable arc and reports PASS or the first blocked angle/distance.
+- Turn Clearance participates in Live and Benchmark Visual/Results filtering, pinned benchmark snapshots, the contextual legend, status-driven line thickness, and persistent benchmark storage.
+- Fresh Human defaults: 250 cm radius, 90 deg turn, 7.5 deg samples, Both directions, disabled by default.
+- Fresh Heavy defaults: 400 cm radius, 90 deg turn, 10 deg samples, Both directions, disabled by default.
+
+
+## 0.18.0 Native HUD Results and Live Visualizer Control
+
+- Replaces fallback section glyphs with Unreal chevron disclosure icons.
+- Uses the Metric artwork reliably in the HUD through a packaged PNG render of the canonical SVG, while keeping the SVG for Metric Profile assets.
+- Presents Live and Pinned Metric results as compact two-column inspector rows with subdued labels, right-aligned values, and status colors.
+- Replaces the header Edit text with an icon-driven Display Options menu.
+- Adds **Show Live Visualizer** to Metric user settings and an **On / Off** control inside LIVE METRIC. Turning it off hides only the live world-space visualization; benchmark visuals and live result rows remain available.
+- Keeps the contextual Legend independent from HUD minimization and live-visualizer visibility.
+
+
+## 0.17.2 Native HUD Polish and Selected Viewports Fix
+
+- Leaves **Follow Last Interacted Viewport** unchanged from 0.17.0.
+- **Selected Viewports** is now evaluated directly by each viewport overlay using its visible pane number, independent of active/focus history.
+- Filters hidden/zero-size viewport widgets before assigning Viewport 1-4, keeping numbering tied to visible pane order.
+- Reworks the HUD into compact Unreal-style collapsible sections for Live Metric, Benchmarks, Pinned Results, and Live vs Pin.
+- Removes large fixed-height result regions so the panel only occupies the space its current content needs.
+- Replaces benchmark Focus / Replace / Rename / Delete text actions with compact native-style icon buttons and tooltips.
+- Tightens the header into a Metric icon + METRIC + active profile treatment.
+- Adds Edit quick presets: **All**, **Visuals**, **Results**, **None**, and **Reset**, while preserving the per-layer Visual / Results matrix.
+- No `UMetricPreset` fields or Human / Heavy canonical values changed.
 
 ## 0.16.10 Deterministic HUD Targeting Hotfix
 

@@ -28,6 +28,7 @@ public:
     int32 GetSelectedPinnedBenchmarkIndex() const { return SelectedPinnedBenchmarkIndex; }
     const FMetricPinnedBenchmark* GetPinnedBenchmark(int32 Index) const;
     void SelectPinnedBenchmark(int32 Index);
+    void CyclePinnedBenchmarkSelection();
     void DeletePinnedBenchmark(int32 Index);
     void RenamePinnedBenchmark(int32 Index, const FText& NewLabel);
     void ReplacePinnedBenchmarkWithLive(int32 Index);
@@ -63,6 +64,7 @@ private:
     void EvaluateGroundValidation(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateTurnClearance(UWorld* World, FMetricLiveState& InOutState) const;
     bool BuildSelectedPinnedVisualState(UWorld* World, FMetricLiveState& OutState) const;
     void RefreshSelectedPinnedVisualization(UWorld* World);
     void NotifyStateChanged();

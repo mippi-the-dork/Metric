@@ -61,6 +61,8 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     const FMetricCommands& Commands = FMetricCommands::Get();
     const bool bBackslash = InKeyEvent.GetKey() == EKeys::Backslash;
     const bool bNoAltOrCmd = !InKeyEvent.IsAltDown() && !InKeyEvent.IsCommandDown();
+    const bool bPhysicalNextBenchmark = bBackslash
+        && InKeyEvent.IsAltDown() && !InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown() && !InKeyEvent.IsCommandDown();
 
     // Always recognize Metric's documented Backslash chords directly. This is
     // intentionally independent of FUICommandInfo so Ctrl-modified Backslash
@@ -82,12 +84,14 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
         || MetricInput::MatchesCommand(InKeyEvent, Commands.ClearMetricBenchmarks);
     const bool bPin = !bClearPins && (bPhysicalPin
         || MetricInput::MatchesCommand(InKeyEvent, Commands.PinMetricBenchmark));
-    const bool bCycle = !bClearPins && !bPin && (bLegacyShiftBackslash
+    const bool bNextBenchmark = !bClearPins && !bPin && (bPhysicalNextBenchmark
+        || MetricInput::MatchesCommand(InKeyEvent, Commands.NextMetricBenchmark));
+    const bool bCycle = !bClearPins && !bPin && !bNextBenchmark && (bLegacyShiftBackslash
         || MetricInput::MatchesCommand(InKeyEvent, Commands.CycleMetric));
-    const bool bToggle = !bClearPins && !bPin && !bCycle && (bLegacyPlainBackslash
+    const bool bToggle = !bClearPins && !bPin && !bNextBenchmark && !bCycle && (bLegacyPlainBackslash
         || MetricInput::MatchesCommand(InKeyEvent, Commands.ToggleMetric));
 
-    if (!bToggle && !bCycle && !bPin && !bClearPins)
+    if (!bToggle && !bCycle && !bPin && !bClearPins && !bNextBenchmark)
     {
         return false;
     }
@@ -105,6 +109,10 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     else if (bPin)
     {
         MetricSubsystem->PinCurrentBenchmark();
+    }
+    else if (bNextBenchmark)
+    {
+        MetricSubsystem->CyclePinnedBenchmarkSelection();
     }
     else if (bCycle)
     {

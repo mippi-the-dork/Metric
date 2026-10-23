@@ -202,9 +202,20 @@ public:
         PinnedBenchmarkColor = Settings ? Settings->PinnedBenchmarkColor : FLinearColor(0.95f, 0.95f, 0.35f, 1.0f);
         SecondaryLineThickness = Settings ? Settings->SecondaryLineThickness : 1.0f;
         Thickness = Settings ? Settings->HullLineThickness : 1.5f;
+        bEmphasizeProblemLines = Settings ? Settings->bEmphasizeProblemLines : true;
+        WarningLineThicknessMultiplier = Settings ? Settings->WarningLineThicknessMultiplier : 1.75f;
+        FailureLineThicknessMultiplier = Settings ? Settings->FailureLineThicknessMultiplier : 2.5f;
         AnchorLift = Settings ? Settings->AnchorLift : 10.0f;
         AnchorRadius = Settings ? Settings->AnchorRadius : 16.0f;
         AnchorLineThickness = Settings ? Settings->AnchorLineThickness : 2.0f;
+    }
+
+    float StatusThickness(float BaseThickness, bool bFail, bool bWarning = false) const
+    {
+        if (!bEmphasizeProblemLines) return BaseThickness;
+        if (bFail) return FMath::Max(BaseThickness, BaseThickness * FailureLineThicknessMultiplier);
+        if (bWarning) return FMath::Max(BaseThickness, BaseThickness * WarningLineThicknessMultiplier);
+        return BaseThickness;
     }
 
     virtual SIZE_T GetTypeHash() const override
@@ -302,8 +313,9 @@ public:
                 const FVector RequestedEnd = ProxyLocalToWorld.TransformPosition(State.Clearance.SweepEndOffset);
                 const FVector ResolvedCenter = SweepStart + WorldForward * State.Clearance.ClearDistance;
 
-                // Main measurement line. The requested segment stays visible even on failure.
-                PDI->DrawLine(SweepStart, ResolvedCenter, ClearanceColor, SDPG_World, 3.0f, 0.0f, true);
+                // Status drives visual weight: clean paths stay quiet, warnings/failures demand attention.
+                const float ClearanceThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), State.Clearance.bBlocked, State.Clearance.bNearThreshold);
+                PDI->DrawLine(SweepStart, ResolvedCenter, ClearanceColor, SDPG_World, ClearanceThickness, 0.0f, true);
                 if ((RequestedEnd - ResolvedCenter).SizeSquared() > 1.0f)
                 {
                     FLinearColor RemainingColor = ClearanceFailColor;
@@ -365,8 +377,9 @@ public:
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.Clearance.ImpactPointOffset);
                     const float MarkerSize = 14.0f;
                     const FVector Right = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
-                    PDI->DrawLine(Impact - Right * MarkerSize - FVector::UpVector * MarkerSize, Impact + Right * MarkerSize + FVector::UpVector * MarkerSize, ClearanceColor, SDPG_Foreground, 3.0f, 0.0f, true);
-                    PDI->DrawLine(Impact + Right * MarkerSize - FVector::UpVector * MarkerSize, Impact - Right * MarkerSize + FVector::UpVector * MarkerSize, ClearanceColor, SDPG_Foreground, 3.0f, 0.0f, true);
+                    const float ImpactThickness = StatusThickness(2.0f, true);
+                    PDI->DrawLine(Impact - Right * MarkerSize - FVector::UpVector * MarkerSize, Impact + Right * MarkerSize + FVector::UpVector * MarkerSize, ClearanceColor, SDPG_Foreground, ImpactThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + Right * MarkerSize - FVector::UpVector * MarkerSize, Impact - Right * MarkerSize + FVector::UpVector * MarkerSize, ClearanceColor, SDPG_Foreground, ImpactThickness, 0.0f, true);
                 }
             }
 
@@ -376,11 +389,13 @@ public:
                     ? TrajectoryBlockedColor
                     : (State.Trajectory.bLandingValid ? TrajectoryLandingColor : TrajectoryColor);
 
+                const bool bTrajectoryWarning = !State.Trajectory.bBlocked && !State.Trajectory.bLandingValid;
+                const float TrajectoryThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), State.Trajectory.bBlocked, bTrajectoryWarning);
                 FVector Prev = ProxyLocalToWorld.TransformPosition(State.Trajectory.SampleOffsets[0]);
                 for (int32 Index = 1; Index < State.Trajectory.SampleOffsets.Num(); ++Index)
                 {
                     const FVector Next = ProxyLocalToWorld.TransformPosition(State.Trajectory.SampleOffsets[Index]);
-                    PDI->DrawLine(Prev, Next, ArcColor, SDPG_World, 2.5f, 0.0f, true);
+                    PDI->DrawLine(Prev, Next, ArcColor, SDPG_World, TrajectoryThickness, 0.0f, true);
                     Prev = Next;
                 }
 
@@ -468,9 +483,9 @@ public:
                 DesiredColor.A = State.CameraProbe.bCompressed ? 0.35f : 0.75f;
                 PDI->DrawLine(Pivot, DesiredCamera, DesiredColor, SDPG_World, 1.5f, 0.0f, true);
 
-                // The resolved arm is the primary read. When geometry compresses the
-                // camera, this segment stops at the swept sphere center.
-                PDI->DrawLine(Pivot, ResolvedCamera, ResolvedColor, SDPG_World, 3.0f, 0.0f, true);
+                // The resolved arm is the primary read. Compression gets heavier line weight.
+                const float CameraThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), State.CameraProbe.bBelowMinimum, State.CameraProbe.bCompressed && !State.CameraProbe.bBelowMinimum);
+                PDI->DrawLine(Pivot, ResolvedCamera, ResolvedColor, SDPG_World, CameraThickness, 0.0f, true);
 
                 const float ProbeRadius = FMath::Max(1.0f, State.CameraProbeSettings.ProbeRadius);
                 MetricDraw::DrawSphere(PDI, ResolvedCamera, ProbeRadius, ResolvedColor, 2.0f);
@@ -506,7 +521,7 @@ public:
                 const bool bFail = State.CameraSightline.bOccluded || State.CameraSightline.bFramingFail;
                 const FLinearColor ViewColor = bFail ? ClearanceFailColor : CameraSightlineColor;
 
-                PDI->DrawLine(Camera, Subject, ViewColor, SDPG_World, bFail ? 3.0f : 2.0f, 0.0f, true);
+                PDI->DrawLine(Camera, Subject, ViewColor, SDPG_World, StatusThickness(FMath::Max(1.0f, SecondaryLineThickness), bFail), 0.0f, true);
                 PDI->DrawLine(Camera, Aim, CameraSightlineColor, SDPG_World, 1.0f, 0.0f, true);
 
                 const FVector AimDir = (Aim - Camera).GetSafeNormal();
@@ -524,8 +539,9 @@ public:
                 {
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.CameraSightline.ImpactPointOffset);
                     const float Cross = 12.0f;
-                    PDI->DrawLine(Impact - FVector::RightVector * Cross - FVector::UpVector * Cross, Impact + FVector::RightVector * Cross + FVector::UpVector * Cross, ClearanceFailColor, SDPG_Foreground, 3.0f, 0.0f, true);
-                    PDI->DrawLine(Impact + FVector::RightVector * Cross - FVector::UpVector * Cross, Impact - FVector::RightVector * Cross + FVector::UpVector * Cross, ClearanceFailColor, SDPG_Foreground, 3.0f, 0.0f, true);
+                    const float BlockedThickness = StatusThickness(1.5f, true);
+                    PDI->DrawLine(Impact - FVector::RightVector * Cross - FVector::UpVector * Cross, Impact + FVector::RightVector * Cross + FVector::UpVector * Cross, ClearanceFailColor, SDPG_Foreground, BlockedThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + FVector::RightVector * Cross - FVector::UpVector * Cross, Impact - FVector::RightVector * Cross + FVector::UpVector * Cross, ClearanceFailColor, SDPG_Foreground, BlockedThickness, 0.0f, true);
                 }
             }
 
@@ -546,15 +562,18 @@ public:
                         Normal = FVector::UpVector;
                     }
 
+                    const bool bGroundFail = !Sample.bHit || Sample.bSlopeFail;
+                    const bool bGroundWarning = !bGroundFail && (Sample.bStepUpFail || Sample.bStepDownFail);
                     FLinearColor SampleColor = GroundPassColor;
-                    if (!Sample.bHit || Sample.bSlopeFail)
+                    if (bGroundFail)
                     {
                         SampleColor = GroundSlopeFailColor;
                     }
-                    else if (Sample.bStepUpFail || Sample.bStepDownFail)
+                    else if (bGroundWarning)
                     {
                         SampleColor = GroundStepFailColor;
                     }
+                    const float GroundThickness = StatusThickness(FMath::Max(0.9f, SecondaryLineThickness), bGroundFail, bGroundWarning);
 
                     FVector SampleRight = FVector::CrossProduct(Normal, WorldForward).GetSafeNormal();
                     if (SampleRight.IsNearlyZero())
@@ -562,8 +581,8 @@ public:
                         SampleRight = FVector::RightVector;
                     }
                     const FVector SampleForward = FVector::CrossProduct(SampleRight, Normal).GetSafeNormal();
-                    MetricDraw::DrawCircle3D(PDI, Point, SampleForward, SampleRight, MarkerRadius, SampleColor, 1.5f, 16);
-                    PDI->DrawLine(Point, Point + Normal * 18.0f, SampleColor, SDPG_World, 1.25f, 0.0f, true);
+                    MetricDraw::DrawCircle3D(PDI, Point, SampleForward, SampleRight, MarkerRadius, SampleColor, GroundThickness, 16);
+                    PDI->DrawLine(Point, Point + Normal * 18.0f, SampleColor, SDPG_World, GroundThickness, 0.0f, true);
 
                     // Samples are stored row-major with three lanes when lateral coverage is enabled.
                     // Connect samples within each row lightly so the field reads as a traversability strip.
@@ -593,16 +612,18 @@ public:
             {
                 for (const FMetricFitSample& Sample : State.FitAnalysis.Samples)
                 {
-                    const FLinearColor FitColor = (Sample.bWidthFail || Sample.bHeightFail || !Sample.bHasFloor)
+                    const bool bFitFail = Sample.bWidthFail || Sample.bHeightFail || !Sample.bHasFloor;
+                    const FLinearColor FitColor = bFitFail
                         ? ClearanceFailColor
                         : (Sample.bNearThreshold ? ClearanceWarningColor : ClearancePassColor);
+                    const float FitThickness = StatusThickness(FMath::Max(0.9f, SecondaryLineThickness), bFitFail, Sample.bNearThreshold);
 
                     if (!Sample.bHasFloor)
                     {
                         const FVector P = ProxyLocalToWorld.TransformPosition(Sample.BaseOffset);
                         const float Cross = 10.0f;
-                        PDI->DrawLine(P - FVector::RightVector * Cross, P + FVector::RightVector * Cross, FitColor, SDPG_World, 1.5f, 0.0f, true);
-                        PDI->DrawLine(P - FVector::ForwardVector * Cross, P + FVector::ForwardVector * Cross, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                        PDI->DrawLine(P - FVector::RightVector * Cross, P + FVector::RightVector * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
+                        PDI->DrawLine(P - FVector::ForwardVector * Cross, P + FVector::ForwardVector * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
                         continue;
                     }
 
@@ -613,8 +634,8 @@ public:
 
                     FLinearColor QuietColor = FitColor;
                     QuietColor.A = 0.55f;
-                    PDI->DrawLine(LeftPoint, RightPoint, QuietColor, SDPG_World, 1.25f, 0.0f, true);
-                    PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, 1.25f, 0.0f, true);
+                    PDI->DrawLine(LeftPoint, RightPoint, QuietColor, SDPG_World, FitThickness, 0.0f, true);
+                    PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, FitThickness, 0.0f, true);
 
                     const float Tick = 10.0f;
                     PDI->DrawLine(LeftPoint - FVector::UpVector * Tick, LeftPoint + FVector::UpVector * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
@@ -631,13 +652,14 @@ public:
                     const FLinearColor ThresholdColor = bFail
                         ? ClearanceFailColor
                         : (Sample.bNearThreshold ? ClearanceWarningColor : ClearancePassColor);
+                    const float ThresholdThickness = StatusThickness(FMath::Max(1.0f, SecondaryLineThickness), bFail, Sample.bNearThreshold);
 
                     const FVector BasePoint = ProxyLocalToWorld.TransformPosition(Sample.BaseOffset);
                     if (!Sample.bHasFloor)
                     {
                         const float Cross = 12.0f;
-                        PDI->DrawLine(BasePoint - FVector::RightVector * Cross, BasePoint + FVector::RightVector * Cross, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
-                        PDI->DrawLine(BasePoint - FVector::ForwardVector * Cross, BasePoint + FVector::ForwardVector * Cross, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                        PDI->DrawLine(BasePoint - FVector::RightVector * Cross, BasePoint + FVector::RightVector * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
+                        PDI->DrawLine(BasePoint - FVector::ForwardVector * Cross, BasePoint + FVector::ForwardVector * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
                         continue;
                     }
 
@@ -647,8 +669,8 @@ public:
                     FLinearColor QuietColor = ThresholdColor;
                     QuietColor.A = 0.65f;
 
-                    PDI->DrawLine(LeftPoint, RightPoint, QuietColor, SDPG_World, 1.5f, 0.0f, true);
-                    PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(LeftPoint, RightPoint, QuietColor, SDPG_World, ThresholdThickness, 0.0f, true);
+                    PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, ThresholdThickness, 0.0f, true);
 
                     const float Tick = 12.0f;
                     PDI->DrawLine(LeftPoint - FVector::UpVector * Tick, LeftPoint + FVector::UpVector * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
@@ -661,6 +683,65 @@ public:
                         PDI->DrawLine(BasePoint, StepTop, ClearanceWarningColor, SDPG_World, 2.5f, 0.0f, true);
                     }
                 }
+            }
+
+            if (State.TurnClearance.bVisible)
+            {
+                auto DrawTurnPath = [&](const FMetricTurnPathResult& Path)
+                {
+                    if (!Path.bTested || Path.SampleOffsets.Num() < 2) return;
+                    const FLinearColor PathColor = Path.bBlocked ? ClearanceFailColor : ClearancePassColor;
+                    const float PathThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), Path.bBlocked);
+                    FVector Prev = ProxyLocalToWorld.TransformPosition(Path.SampleOffsets[0]);
+                    for (int32 Index = 1; Index < Path.SampleOffsets.Num(); ++Index)
+                    {
+                        const FVector Next = ProxyLocalToWorld.TransformPosition(Path.SampleOffsets[Index]);
+                        PDI->DrawLine(Prev, Next, PathColor, SDPG_World, PathThickness, 0.0f, true);
+                        Prev = Next;
+                    }
+
+                    const FVector EndCenter = ProxyLocalToWorld.TransformPosition(Path.SampleOffsets.Last());
+                    const FVector PathForward = Path.SampleOffsets.Num() >= 2
+                        ? (Path.SampleOffsets.Last() - Path.SampleOffsets[Path.SampleOffsets.Num() - 2]).GetSafeNormal()
+                        : State.Forward.GetSafeNormal();
+                    FLinearColor GhostColor = PathColor;
+                    GhostColor.A = 0.45f;
+                    const FVector GhostBase = EndCenter - FVector::UpVector * (Height * 0.5f);
+                    switch (State.Hull.HullType)
+                    {
+                    case EMetricHullType::Capsule:
+                        MetricDraw::DrawCapsule(PDI, GhostBase, PathForward, Height, Width, GhostColor, 1.0f);
+                        break;
+                    case EMetricHullType::OrientedBox:
+                        MetricDraw::DrawBox(PDI, GhostBase, PathForward, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
+                        break;
+                    case EMetricHullType::Sphere:
+                        MetricDraw::DrawSphere(PDI, EndCenter, FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
+                        break;
+                    case EMetricHullType::Cylinder:
+                    default:
+                    {
+                        const FVector TurnRight = FVector::CrossProduct(FVector::UpVector, PathForward).GetSafeNormal();
+                        MetricDraw::DrawCircle3D(PDI, GhostBase, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
+                        MetricDraw::DrawCircle3D(PDI, GhostBase + FVector::UpVector * Height, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
+                        break;
+                    }
+                    }
+
+                    if (Path.bBlocked)
+                    {
+                        const FVector Impact = ProxyLocalToWorld.TransformPosition(Path.ImpactPointOffset);
+                        FVector ImpactNormal = ProxyLocalToWorld.TransformVector(Path.ImpactNormal).GetSafeNormal();
+                        if (ImpactNormal.IsNearlyZero()) ImpactNormal = FVector::UpVector;
+                        PDI->DrawLine(Impact, Impact + ImpactNormal * 32.0f, ClearanceFailColor, SDPG_World, PathThickness, 0.0f, true);
+                        const FVector CrossRight = FVector::CrossProduct(ImpactNormal, FVector::UpVector).GetSafeNormal();
+                        const FVector CrossAxis = CrossRight.IsNearlyZero() ? FVector::RightVector : CrossRight;
+                        PDI->DrawLine(Impact - CrossAxis * 10.0f, Impact + CrossAxis * 10.0f, ClearanceFailColor, SDPG_World, PathThickness, 0.0f, true);
+                    }
+                };
+
+                DrawTurnPath(State.TurnClearance.Left);
+                DrawTurnPath(State.TurnClearance.Right);
             }
 
             if (State.SensorField.bVisible && !State.SensorField.Rays.IsEmpty())
@@ -695,7 +776,9 @@ public:
                         RayEnd,
                         RayColor,
                         SDPG_World,
-                        bBoundary ? SecondaryLineThickness + 0.75f : FMath::Max(0.5f, SecondaryLineThickness - 0.15f),
+                        Ray.bBlocked
+                            ? StatusThickness(FMath::Max(0.75f, SecondaryLineThickness), true)
+                            : (bBoundary ? SecondaryLineThickness + 0.75f : FMath::Max(0.5f, SecondaryLineThickness - 0.15f)),
                         0.0f,
                         true);
 
@@ -912,6 +995,9 @@ private:
     FLinearColor PinnedBenchmarkColor;
     float SecondaryLineThickness = 1.0f;
     float Thickness = 1.5f;
+    bool bEmphasizeProblemLines = true;
+    float WarningLineThicknessMultiplier = 1.75f;
+    float FailureLineThicknessMultiplier = 2.5f;
     float AnchorLift = 10.0f;
     float AnchorRadius = 16.0f;
     float AnchorLineThickness = 2.0f;
@@ -983,6 +1069,9 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
             State.ThresholdAnalysisSettings.MaxSideProbeDistance + MaxDimension,
             State.ThresholdAnalysisSettings.MaxCeilingProbeHeight + MaxDimension)
         : 0.0f;
+    const float TurnReach = State.TurnClearance.bVisible
+        ? State.TurnClearanceSettings.TurnRadius * 2.0f + MaxDimension
+        : 0.0f;
     float PinnedReach = 0.0f;
     for (const FMetricPinnedBenchmark& Pin : State.PinnedBenchmarks)
     {
@@ -1000,7 +1089,7 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
     }
     const float SecondaryReach = FMath::Max(
         FMath::Max(FMath::Max3(RangeReach, SensorReach, LocomotionReach), SensorFieldReach),
-        FMath::Max(FMath::Max3(TrajectoryReach, CameraReach, GroundReach), FMath::Max(FMath::Max3(FitReach, SightlineReach, ThresholdReach), PinnedReach)));
+        FMath::Max(FMath::Max3(TrajectoryReach, CameraReach, GroundReach), FMath::Max(FMath::Max3(FitReach, SightlineReach, ThresholdReach), FMath::Max(TurnReach, PinnedReach))));
     const FVector Extent(FMath::Max(FMath::Max3(100.0f, MaxDimension, ProbeReach), SecondaryReach));
     return FBoxSphereBounds(FBox(-Extent, Extent)).TransformBy(LocalToWorld);
 }

@@ -688,9 +688,12 @@ void AMetricRenderHostActor::SetMetricVisible(bool bVisible)
     {
         MetricComponent->SetVisibility(bVisible, true);
     }
-    if (PreviewMeshComponent)
+    if (PreviewMeshComponent && !bVisible)
     {
-        PreviewMeshComponent->SetVisibility(bVisible && PreviewMeshComponent->GetStaticMesh() != nullptr, true);
+        // ApplyMetricState owns the positive preview-mesh visibility decision.
+        // Do not resurrect a live preview mesh merely because pinned benchmarks
+        // keep the render host itself visible.
+        PreviewMeshComponent->SetVisibility(false, true);
     }
     if (PinnedMetricComponent && !bVisible)
     {

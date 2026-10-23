@@ -44,7 +44,11 @@ TArray<TSharedPtr<SLevelViewport>> FMetricViewportController::GetViewportsInVisu
     {
         if (Viewport.IsValid())
         {
-            Ordered.Add(Viewport);
+            const FVector2D Size = Viewport->GetCachedGeometry().GetLocalSize();
+            if (Size.X > 8.0f && Size.Y > 8.0f)
+            {
+                Ordered.Add(Viewport);
+            }
         }
     }
 
@@ -211,19 +215,16 @@ void FMetricViewportController::SyncOverlays()
             continue;
         }
 
-        bool bShouldShow = false;
+        const int32 VisualIndex = OrderedViewports.IndexOfByKey(ExistingViewport);
+        bool bShouldShow = true;
         if (Targeting == EMetricHUDViewportTargeting::FollowLastInteracted)
         {
             bShouldShow = LastInteractedViewport.Pin() == ExistingViewport;
         }
-        else
-        {
-            const int32 VisualIndex = OrderedViewports.IndexOfByKey(ExistingViewport);
-            bShouldShow = VisualIndex != INDEX_NONE && IsViewportSelectedBySettings(VisualIndex);
-        }
 
         if (OverlayEntries[EntryIndex].Widget.IsValid())
         {
+            OverlayEntries[EntryIndex].Widget->SetViewportNumber(VisualIndex != INDEX_NONE ? VisualIndex + 1 : INDEX_NONE);
             OverlayEntries[EntryIndex].Widget->SetTargetEnabled(bShouldShow);
         }
     }

@@ -22,5 +22,6 @@ public:
     TSharedPtr<FUICommandInfo> ToggleMetric;
     TSharedPtr<FUICommandInfo> CycleMetric;
     TSharedPtr<FUICommandInfo> PinMetricBenchmark;
+    TSharedPtr<FUICommandInfo> NextMetricBenchmark;
     TSharedPtr<FUICommandInfo> ClearMetricBenchmarks;
 };

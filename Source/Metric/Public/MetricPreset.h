@@ -51,5 +51,8 @@ public:
     FMetricThresholdAnalysisSettings ThresholdAnalysis;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricTurnClearanceSettings TurnClearance;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricRepresentationSettings Representation;
 };

@@ -31,6 +31,7 @@ namespace MetricBenchmark
         State.GroundValidationSettings.bShowGroundValidation = State.GroundValidationSettings.bShowGroundValidation && Visibility.bGroundVisual;
         State.FitAnalysisSettings.bShowFitAnalysis = State.FitAnalysisSettings.bShowFitAnalysis && Visibility.bFitVisual;
         State.ThresholdAnalysisSettings.bShowThresholdAnalysis = State.ThresholdAnalysisSettings.bShowThresholdAnalysis && Visibility.bThresholdVisual;
+        State.TurnClearanceSettings.bShowTurnClearance = State.TurnClearanceSettings.bShowTurnClearance && Visibility.bTurnVisual;
         State.Sensors.bShowSensorHeights = State.Sensors.bShowSensorHeights && Visibility.bSensorsVisual;
         State.SensorFieldSettings.bShowSensorField = State.SensorFieldSettings.bShowSensorField && Visibility.bSensorFieldVisual;
         State.Ranges.bShowEngagementRanges = State.Ranges.bShowEngagementRanges && Visibility.bRangesVisual;
@@ -97,6 +98,17 @@ namespace MetricBenchmark
                 State.ThresholdAnalysis.MinimumAvailableHeight,
                 State.ThresholdAnalysis.MaxObservedStepUp,
                 State.ThresholdAnalysis.MaxObservedStepDown));
+        }
+
+        if (State.TurnClearance.bVisible)
+        {
+            auto PathStatus = [](const FMetricTurnPathResult& Path) -> FString
+            {
+                if (!Path.bTested) return TEXT("OFF");
+                if (Path.bBlocked) return FString::Printf(TEXT("BLOCKED %.0f deg / %.0fu"), Path.ClearAngle, Path.ClearDistance);
+                return FString::Printf(TEXT("PASS %.0f deg / %.0fu"), Path.ClearAngle, Path.ClearDistance);
+            };
+            Lines.Add(FString::Printf(TEXT("TURN        L %s | R %s"), *PathStatus(State.TurnClearance.Left), *PathStatus(State.TurnClearance.Right)));
         }
 
         if (State.CameraProbe.bVisible)
@@ -387,6 +399,13 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     NewPreset->ThresholdAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
     NewPreset->ThresholdAnalysis.TraceChannel = ECC_Visibility;
 
+    NewPreset->TurnClearance.bShowTurnClearance = false;
+    NewPreset->TurnClearance.TurnRadius = bHeavyStarter ? 400.0f : 250.0f;
+    NewPreset->TurnClearance.TurnAngle = 90.0f;
+    NewPreset->TurnClearance.SampleAngle = bHeavyStarter ? 10.0f : 7.5f;
+    NewPreset->TurnClearance.Direction = EMetricTurnDirection::Both;
+    NewPreset->TurnClearance.TraceChannel = ECC_Visibility;
+
     NewPreset->Representation.bShowStaticMesh = false;
     NewPreset->Representation.StaticMesh.Reset();
     NewPreset->Representation.RelativeTransform = FTransform::Identity;
@@ -457,6 +476,7 @@ void UMetricSubsystem::HandlePreLoadMap(const FString& /*MapName*/)
     LiveState.CameraSightline = FMetricCameraSightlineResult();
     LiveState.GroundValidation = FMetricGroundValidationResult();
     LiveState.FitAnalysis = FMetricFitAnalysisResult();
+    LiveState.TurnClearance = FMetricTurnClearanceResult();
     PinnedBenchmarks.Reset();
     SelectedPinnedBenchmarkIndex = INDEX_NONE;
     ActivePinnedBenchmarkMap.Reset();
@@ -491,6 +511,7 @@ void UMetricSubsystem::HandleWorldBeginTearDown(UWorld* World)
     LiveState.CameraSightline = FMetricCameraSightlineResult();
     LiveState.GroundValidation = FMetricGroundValidationResult();
     LiveState.FitAnalysis = FMetricFitAnalysisResult();
+    LiveState.TurnClearance = FMetricTurnClearanceResult();
     PinnedBenchmarks.Reset();
     SelectedPinnedBenchmarkIndex = INDEX_NONE;
     ActivePinnedBenchmarkMap.Reset();
@@ -594,6 +615,7 @@ void UMetricSubsystem::SavePinnedBenchmarksForWorld(UWorld* World)
         StoredPin.GroundValidationSettings = Pin.GroundValidationSettings;
         StoredPin.FitAnalysisSettings = Pin.FitAnalysisSettings;
         StoredPin.ThresholdAnalysisSettings = Pin.ThresholdAnalysisSettings;
+        StoredPin.TurnClearanceSettings = Pin.TurnClearanceSettings;
     }
 
     Settings->SaveConfig();
@@ -650,6 +672,7 @@ void UMetricSubsystem::LoadPinnedBenchmarksForWorld(UWorld* World)
             Pin.GroundValidationSettings = StoredPin.GroundValidationSettings;
             Pin.FitAnalysisSettings = StoredPin.FitAnalysisSettings;
             Pin.ThresholdAnalysisSettings = StoredPin.ThresholdAnalysisSettings;
+            Pin.TurnClearanceSettings = StoredPin.TurnClearanceSettings;
         }
         break;
     }
@@ -750,6 +773,7 @@ void UMetricSubsystem::PinCurrentBenchmark()
     Pin.GroundValidationSettings = LiveState.GroundValidationSettings;
     Pin.FitAnalysisSettings = LiveState.FitAnalysisSettings;
     Pin.ThresholdAnalysisSettings = LiveState.ThresholdAnalysisSettings;
+    Pin.TurnClearanceSettings = LiveState.TurnClearanceSettings;
     PinnedBenchmarks.Add(MoveTemp(Pin));
     SelectedPinnedBenchmarkIndex = PinnedBenchmarks.Num() - 1;
 
@@ -802,6 +826,21 @@ void UMetricSubsystem::SelectPinnedBenchmark(int32 Index)
     NotifyStateChanged();
 }
 
+void UMetricSubsystem::CyclePinnedBenchmarkSelection()
+{
+    if (PinnedBenchmarks.IsEmpty())
+    {
+        SelectPinnedBenchmark(INDEX_NONE);
+        return;
+    }
+
+    // None is part of the cycle so designers can quickly return to a live-only view.
+    const int32 NextIndex = SelectedPinnedBenchmarkIndex == INDEX_NONE
+        ? 0
+        : (SelectedPinnedBenchmarkIndex + 1 < PinnedBenchmarks.Num() ? SelectedPinnedBenchmarkIndex + 1 : INDEX_NONE);
+    SelectPinnedBenchmark(NextIndex);
+}
+
 void UMetricSubsystem::DeletePinnedBenchmark(int32 Index)
 {
     if (!PinnedBenchmarks.IsValidIndex(Index)) return;
@@ -850,6 +889,7 @@ void UMetricSubsystem::ReplacePinnedBenchmarkWithLive(int32 Index)
     PinnedBenchmarks[Index].GroundValidationSettings = LiveState.GroundValidationSettings;
     PinnedBenchmarks[Index].FitAnalysisSettings = LiveState.FitAnalysisSettings;
     PinnedBenchmarks[Index].ThresholdAnalysisSettings = LiveState.ThresholdAnalysisSettings;
+    PinnedBenchmarks[Index].TurnClearanceSettings = LiveState.TurnClearanceSettings;
     LiveState.PinnedBenchmarks = PinnedBenchmarks;
     if (GEditor) SavePinnedBenchmarksForWorld(GEditor->GetEditorWorldContext().World());
     if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
@@ -1005,6 +1045,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
     InOutState.FitAnalysisSettings = FMetricFitAnalysisSettings();
     InOutState.FitAnalysis = FMetricFitAnalysisResult();
     InOutState.ThresholdAnalysisSettings = FMetricThresholdAnalysisSettings();
+    InOutState.TurnClearanceSettings = FMetricTurnClearanceSettings();
     InOutState.ThresholdAnalysis = FMetricThresholdAnalysisResult();
     InOutState.bShowHull = true;
     InOutState.bShowForward = true;
@@ -1037,6 +1078,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
         InOutState.GroundValidationSettings.bShowGroundValidation = false;
         InOutState.FitAnalysisSettings.bShowFitAnalysis = false;
         InOutState.ThresholdAnalysisSettings.bShowThresholdAnalysis = false;
+        InOutState.TurnClearanceSettings.bShowTurnClearance = false;
         InOutState.PreviewMesh = Entry->NativePreviewMesh;
         return;
     }
@@ -1057,6 +1099,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
             InOutState.GroundValidationSettings = Preset->GroundValidation;
             InOutState.FitAnalysisSettings = Preset->FitAnalysis;
             InOutState.ThresholdAnalysisSettings = Preset->ThresholdAnalysis;
+            InOutState.TurnClearanceSettings = Preset->TurnClearance;
             InOutState.Label = FText::Format(LOCTEXT("PresetLabel", "METRIC - {0}"), Entry->DisplayName);
             if (Preset->Representation.bShowStaticMesh)
             {
@@ -1089,6 +1132,7 @@ void UMetricSubsystem::UpdateLiveState(UWorld* World, const FMetricLiveState& Ne
     EvaluateGroundValidation(World, LiveState);
     EvaluateFitAnalysis(World, LiveState);
     EvaluateThresholdAnalysis(World, LiveState);
+    EvaluateTurnClearance(World, LiveState);
     EnsureRenderHost(World);
 
     if (AMetricRenderHostActor* Host = RenderHost.Get())
@@ -1096,10 +1140,33 @@ void UMetricSubsystem::UpdateLiveState(UWorld* World, const FMetricLiveState& Ne
         FMetricLiveState RenderState = LiveState;
         if (const UMetricEditorSettings* EditorSettings = GetDefault<UMetricEditorSettings>())
         {
-            MetricBenchmark::ApplyVisualVisibility(RenderState, EditorSettings->LiveVisibility);
+            FMetricLayerVisibility EffectiveVisibility = EditorSettings->LiveVisibility;
+            if (!EditorSettings->bShowLiveVisualizer)
+            {
+                EffectiveVisibility.bHullVisual = false;
+                EffectiveVisibility.bClearanceVisual = false;
+                EffectiveVisibility.bGroundVisual = false;
+                EffectiveVisibility.bFitVisual = false;
+                EffectiveVisibility.bThresholdVisual = false;
+                EffectiveVisibility.bSensorsVisual = false;
+                EffectiveVisibility.bSensorFieldVisual = false;
+                EffectiveVisibility.bRangesVisual = false;
+                EffectiveVisibility.bLocomotionVisual = false;
+                EffectiveVisibility.bTrajectoryVisual = false;
+                EffectiveVisibility.bCameraVisual = false;
+                EffectiveVisibility.bSightlineVisual = false;
+            }
+            MetricBenchmark::ApplyVisualVisibility(RenderState, EffectiveVisibility);
+            if (!EditorSettings->bShowLiveVisualizer)
+            {
+                // Suppress every live world-space element, including the anchor,
+                // forward marker, preview mesh and any unconditional proxy drawing.
+                // Pinned benchmarks remain in RenderState and continue to render.
+                RenderState.bHasHit = false;
+            }
         }
         Host->ApplyMetricState(RenderState);
-        Host->SetMetricVisible(LiveState.bHasHit || !PinnedBenchmarks.IsEmpty());
+        Host->SetMetricVisible(RenderState.bHasHit || !PinnedBenchmarks.IsEmpty());
     }
     RefreshSelectedPinnedVisualization(World);
 }
@@ -1137,6 +1204,7 @@ bool UMetricSubsystem::BuildSelectedPinnedVisualState(UWorld* World, FMetricLive
     OutState.GroundValidationSettings = Pin.GroundValidationSettings;
     OutState.FitAnalysisSettings = Pin.FitAnalysisSettings;
     OutState.ThresholdAnalysisSettings = Pin.ThresholdAnalysisSettings;
+    OutState.TurnClearanceSettings = Pin.TurnClearanceSettings;
     OutState.Label = Pin.Label;
     MetricBenchmark::ApplyVisualVisibility(OutState, Pin.Visibility);
 
@@ -1148,6 +1216,7 @@ bool UMetricSubsystem::BuildSelectedPinnedVisualState(UWorld* World, FMetricLive
     EvaluateGroundValidation(World, OutState);
     EvaluateFitAnalysis(World, OutState);
     EvaluateThresholdAnalysis(World, OutState);
+    EvaluateTurnClearance(World, OutState);
     return true;
 }
 
@@ -2229,5 +2298,138 @@ void UMetricSubsystem::NotifyStateChanged()
         GEditor->RedrawAllViewports(false);
     }
 }
+
+
+void UMetricSubsystem::EvaluateTurnClearance(UWorld* World, FMetricLiveState& InOutState) const
+{
+    InOutState.TurnClearance = FMetricTurnClearanceResult();
+
+    if (!World || !InOutState.bHasHit || !InOutState.TurnClearanceSettings.bShowTurnClearance
+        || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    FVector Forward = InOutState.Forward;
+    Forward.Z = 0.0f;
+    Forward = Forward.GetSafeNormal();
+    if (Forward.IsNearlyZero()) Forward = FVector::ForwardVector;
+    const FVector Right = FVector::CrossProduct(FVector::UpVector, Forward).GetSafeNormal();
+
+    const float Height = FMath::Max(1.0f, InOutState.Hull.Height);
+    const float Width = FMath::Max(1.0f, InOutState.Hull.Width);
+    const float Length = FMath::Max(1.0f, InOutState.Hull.Length);
+    const float Radius = FMath::Max(10.0f, InOutState.TurnClearanceSettings.TurnRadius);
+    const float TurnAngle = FMath::Clamp(InOutState.TurnClearanceSettings.TurnAngle, 10.0f, 180.0f);
+    const float StepAngle = FMath::Clamp(InOutState.TurnClearanceSettings.SampleAngle, 2.0f, 30.0f);
+
+    FCollisionShape Shape;
+    float CenterHeight = Height * 0.5f;
+    bool bApproximateShape = false;
+    switch (InOutState.Hull.HullType)
+    {
+    case EMetricHullType::Capsule:
+    {
+        const float HullRadius = FMath::Max(1.0f, Width * 0.5f);
+        const float HalfHeight = FMath::Max(HullRadius, Height * 0.5f);
+        Shape = FCollisionShape::MakeCapsule(HullRadius, HalfHeight);
+        CenterHeight = HalfHeight;
+        break;
+    }
+    case EMetricHullType::OrientedBox:
+        Shape = FCollisionShape::MakeBox(FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f));
+        CenterHeight = Height * 0.5f;
+        break;
+    case EMetricHullType::Sphere:
+    {
+        const float HullRadius = FMath::Max3(Width, Length, Height) * 0.5f;
+        Shape = FCollisionShape::MakeSphere(FMath::Max(1.0f, HullRadius));
+        CenterHeight = HullRadius;
+        break;
+    }
+    case EMetricHullType::Cylinder:
+    default:
+    {
+        const float HullRadius = FMath::Max(1.0f, Width * 0.5f);
+        const float HalfHeight = FMath::Max(HullRadius, Height * 0.5f);
+        Shape = FCollisionShape::MakeCapsule(HullRadius, HalfHeight);
+        CenterHeight = HalfHeight;
+        bApproximateShape = true;
+        break;
+    }
+    }
+
+    const FVector StartOffset = InOutState.Hull.LocalOffset + FVector::UpVector * (CenterHeight + 1.0f);
+    const FVector StartWorld = InOutState.Location + StartOffset;
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricTurnClearanceSweep), true);
+    Params.bTraceComplex = true;
+
+    auto EvaluateSide = [&](float Sign, FMetricTurnPathResult& OutPath)
+    {
+        OutPath = FMetricTurnPathResult();
+        OutPath.bTested = true;
+        OutPath.SampleOffsets.Add(StartOffset);
+
+        const FVector CenterWorld = StartWorld + Right * (Sign * Radius);
+        const FVector RadialStart = -Right * Sign;
+        FVector PreviousWorld = StartWorld;
+        float PreviousAngle = 0.0f;
+        float TravelDistance = 0.0f;
+
+        const int32 Steps = FMath::Max(1, FMath::CeilToInt(TurnAngle / StepAngle));
+        for (int32 Step = 1; Step <= Steps; ++Step)
+        {
+            const float Angle = FMath::Min(TurnAngle, Step * StepAngle);
+            const FQuat ArcRotation(FVector::UpVector, FMath::DegreesToRadians(Sign * Angle));
+            const FVector Radial = ArcRotation.RotateVector(RadialStart);
+            const FVector CurrentWorld = CenterWorld + Radial * Radius;
+            const FVector Tangent = ArcRotation.RotateVector(Forward).GetSafeNormal();
+            FQuat ShapeRotation = FQuat::Identity;
+            if (InOutState.Hull.HullType == EMetricHullType::OrientedBox)
+            {
+                ShapeRotation = FRotationMatrix::MakeFromXZ(Tangent, FVector::UpVector).ToQuat();
+            }
+
+            FHitResult Hit;
+            if (World->SweepSingleByChannel(Hit, PreviousWorld, CurrentWorld, ShapeRotation,
+                InOutState.TurnClearanceSettings.TraceChannel.GetValue(), Shape, Params))
+            {
+                TravelDistance += Hit.Distance;
+                OutPath.bBlocked = true;
+                OutPath.ClearAngle = PreviousAngle + (Angle - PreviousAngle) * Hit.Time;
+                OutPath.ClearDistance = TravelDistance;
+                OutPath.ImpactPointOffset = Hit.ImpactPoint - InOutState.Location;
+                OutPath.ImpactNormal = Hit.ImpactNormal.GetSafeNormal();
+                const FVector HitCenter = FMath::Lerp(PreviousWorld, CurrentWorld, Hit.Time);
+                OutPath.SampleOffsets.Add(HitCenter - InOutState.Location);
+                return;
+            }
+
+            TravelDistance += FVector::Distance(PreviousWorld, CurrentWorld);
+            OutPath.SampleOffsets.Add(CurrentWorld - InOutState.Location);
+            PreviousWorld = CurrentWorld;
+            PreviousAngle = Angle;
+        }
+
+        OutPath.bBlocked = false;
+        OutPath.ClearAngle = TurnAngle;
+        OutPath.ClearDistance = TravelDistance;
+    };
+
+    FMetricTurnClearanceResult& Result = InOutState.TurnClearance;
+    Result.bVisible = true;
+    Result.bApproximateShape = bApproximateShape;
+    if (InOutState.TurnClearanceSettings.Direction == EMetricTurnDirection::Left
+        || InOutState.TurnClearanceSettings.Direction == EMetricTurnDirection::Both)
+    {
+        EvaluateSide(-1.0f, Result.Left);
+    }
+    if (InOutState.TurnClearanceSettings.Direction == EMetricTurnDirection::Right
+        || InOutState.TurnClearanceSettings.Direction == EMetricTurnDirection::Both)
+    {
+        EvaluateSide(1.0f, Result.Right);
+    }
+}
+
 
 #undef LOCTEXT_NAMESPACE

@@ -26,6 +26,13 @@ void FMetricCommands::RegisterCommands()
         FInputChord(EKeys::Backslash, EModifierKey::Control));
 
     UI_COMMAND(
+        NextMetricBenchmark,
+        "Next Metric Benchmark",
+        "Select the next pinned Metric benchmark. Wraps through None after the last benchmark.",
+        EUserInterfaceActionType::Button,
+        FInputChord(EKeys::Backslash, EModifierKey::Alt));
+
+    UI_COMMAND(
         ClearMetricBenchmarks,
         "Clear Metric Benchmarks",
         "Clear all pinned Metric benchmarks in the current editor world.",
