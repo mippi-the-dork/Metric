@@ -1,13 +1,89 @@
-# Metric 0.19.2 Prototype
+# Metric 0.23.0 Prototype
 
-Metric is a viewport-first spatial reference tool for Unreal Engine 5.8 and the Vista Viewport Suite.
-
-Metric 0.15.2 is a compile hotfix for UE 5.8.3. It resolves an ambiguous FVector/FVector4 conditional in the Trajectory Apex Clearance renderer introduced in 0.14.0, while preserving the 0.15.1 pin shortcut fix and all 0.15.0 functionality.
+Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the Vista Viewport Suite. It gives level designers configurable, approximation-oriented measurements for scale, traversal, clearance, movement, camera behavior, combat space, and persistent benchmark comparison directly in the Level Editor viewport.
 
 
 
 
 
+
+
+
+
+
+## 0.23.0 Level-Designer Feature Expansion + View Presets
+
+- Adds **Cover / Exposure Analysis** for low, torso, and head protection against a configurable threat direction.
+- Adds **Jump Takeoff / Landing Runway** so a valid trajectory can still flag inadequate approach or recovery ground.
+- Adds **Interaction Reach** for approximate use/hand reach distance and height.
+- Adds **Shoulder Camera Clearance** for independent left/right third-person shoulder viability.
+- Adds **Combat Spacing Density** for approximate same-size combatant capacity inside a configurable encounter radius.
+- Adds **Alternate Stance Fit** so one Metric Profile can compare standing clearance with an alternate/crouched height.
+- Adds **Mantle / Vault Envelope** for generic obstacle height/depth suitability.
+- Adds **Recovery / Dodge Space** for forward, backward, left, and right short-movement clearance.
+- Adds **Crossfire Exposure** for multi-direction line-of-sight exposure sampling around a position.
+- Adds **Metric View Preset**, a shareable Data Asset that stores only Visual/Results visibility masks and never changes Metric Profile measurement values.
+- Adds built-in view presets: **Full Audit, Traversal, Camera, Combat, Space & Nav, Interaction, Minimal**.
+- Project-authored Metric View Preset assets are discovered automatically from Content and appear in the HUD Display Options menu for both Live Metric and selected benchmarks.
+- All nine analysis systems participate in live analysis, selected benchmark re-evaluation, persistent benchmark data, HUD results, Legend presentation, Visual/Results filtering, and status-driven world rendering.
+- All new analysis layers default **Off** in Human and Heavy starter profiles to keep the default viewport readable and avoid unnecessary tracing.
+- Jump Runway validates support across the full requested takeoff and landing distances rather than checking endpoints only, preventing narrow gaps from producing false passes.
+- Mantle / Vault depth is sampled from the detected top surface with vertical probes, avoiding self-hit depth readings from a trace that begins on the obstacle.
+- Recovery / Dodge Space now sweeps the active Metric hull shape: capsule, oriented box, sphere, or a documented capsule approximation for cylinder profiles.
+- Adds a dedicated **Metric Profile Editor** for existing `UMetricPreset` assets. Opening a Metric Profile now presents task-grouped navigation, a focused settings panel, profile enable state, feature intent, and fidelity classification instead of one long generic Data Asset Details view.
+- Live Display Visibility now separates **Profile** enablement from **Visual** and **Results** visibility. Profile-disabled rows are subdued and their display controls are disabled rather than appearing active.
+- Adds **Edit Active Profile** directly to Live Display Visibility so a designer can jump from the viewport HUD to the active project Metric Profile.
+- Renames the current live-analysis control in the HUD to **Live Analysis** and reports **Live Analysis Disabled** when cursor-driven analysis is paused. The serialized user-setting field remains compatible with previous 0.23 builds.
+
+
+## Metric Profile Editor
+
+Double-click a Metric Profile asset to open the dedicated Metric Profile Editor. Existing Human, Heavy, and custom `UMetricPreset` assets require no migration. Features are grouped by design task, and only the selected feature's settings are shown at once. See `Doc/Metric-Profile-Editor.md`.
+
+The Profile Editor controls whether an analysis runs for that Metric Profile. Display Options and Metric View Presets remain presentation-only controls for enabled analyses.
+
+## Metric View Presets
+
+Use **Display Options** in the viewport HUD to apply one of Metric's built-in focus views or any project-authored **Metric View Preset** Data Asset. View Presets control only the per-layer **Visual** and **Results** masks. They never modify the active Metric Profile's measurement values.
+
+To share a custom view with a team, create a Data Asset using the `MetricViewPreset` class, configure its visibility mask, and commit the asset to source control. Metric discovers project-authored View Presets automatically. See `Doc/View-Presets.md`.
+
+## 0.22.0 Stopping Distance
+
+- Adds **Stopping Distance**, a profile-driven approach/runway check for level-design pacing and maneuver space.
+- Computes approximate required stopping runway as reaction distance plus braking distance using configured speed, deceleration, and reaction time.
+- Sweeps the active hull through the required runway and reports PASS, TIGHT, or FAIL against current geometry.
+- Shows reaction and required-stop markers in-world, plus an impact marker when the runway is obstructed.
+- Fully participates in Live/Benchmark Visual and Results masks, benchmark persistence and re-evaluation, the HUD, legend, and status-driven line thickness.
+- Fresh Human recommendation: 600 cm/s, 1800 cm/s^2 deceleration, 0.15 s reaction, 75 cm warning margin, disabled by default.
+- Fresh Heavy recommendation: 350 cm/s, 900 cm/s^2 deceleration, 0.20 s reaction, 100 cm warning margin, disabled by default.
+- Existing Human/Heavy Metric Profiles are not overwritten automatically.
+
+## 0.21.2 Live Analysis Pause + Result Parity
+
+- **Live Analysis Off** now truly pauses the cursor-driven analyzer: no cursor ray, placement trace, live sweeps, or live sampling are performed.
+- A selected pinned benchmark remains a live stationary analyzer and continues to re-evaluate against current level geometry while Live Metric is Off.
+- The LIVE METRIC HUD section shows **Live Analysis Disabled** while the cursor analyzer is paused, and Live vs Pin reports that Live Metric is disabled.
+- Fixes the minimized Metric icon hover state by keeping the icon above the button hover layer.
+- Trajectory HUD results now include apex height and headroom state so the text reflects the apex-clearance probe shown in-world.
+- No Metric Profile / Human / Heavy data changes in this release.
+
+## 0.21.0 Live Benchmark Results + Ledge Analysis
+
+- Selected benchmark HUD results now re-evaluate against the current level geometry instead of remaining frozen at pin time.
+- Persistent benchmark snapshots still preserve their location, profile settings, visibility mask, and historical captured-result fallback.
+- Benchmark Visual and Results masks are independent during re-evaluation.
+- The minimized/full HUD now uses a rasterized copy of the canonical Metric SVG for reliable Slate rendering.
+- Adds preset-driven Ledge Analysis for edge distance, drop depth, and safe/warning/fail drop classification.
+
+## 0.20.0 Stable Live Results + Overhead Clearance
+
+- Eliminates the remaining live-results HUD blink by keeping one permanent Slate row per Metric layer and updating text, color, and visibility through bound attributes instead of replacing result widgets while the lens moves.
+- Adds **Overhead Clearance**, a fast vertical headroom check at the current Metric position. It compares available floor-to-ceiling height against the active hull height and reports PASS, TIGHT, or FAIL with the actual deficit.
+- Overhead Clearance participates in Live and Benchmark Visual/Results filtering, benchmark snapshots and persistence, the contextual Legend, status-driven line weight, and selected benchmark visualization.
+- Fresh Human defaults: enabled, 320 cm max probe height, 30 cm warning margin.
+- Fresh Heavy defaults: enabled, 450 cm max probe height, 40 cm warning margin.
+- Existing Human/Heavy Metric Profiles are never overwritten automatically.
 
 ## 0.19.2 HUD / Legend Stability Hotfix
 

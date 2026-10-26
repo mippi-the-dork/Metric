@@ -338,6 +338,17 @@ void FMetricViewportController::Tick(float DeltaTime)
         return;
     }
 
+    const UMetricEditorSettings* EditorSettings = GetDefault<UMetricEditorSettings>();
+    if (EditorSettings && !EditorSettings->bShowLiveVisualizer)
+    {
+        // Truly pause the cursor-driven analyzer. No cursor ray, placement trace,
+        // or live Metric sweeps/sampling are performed while Live Metric is Off.
+        // The selected benchmark, if any, is still re-evaluated live.
+        MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, ViewportClient->GetViewLocation());
+        ViewportClient->Invalidate();
+        return;
+    }
+
     FVector RayOrigin;
     FVector RayDirection;
     if (!BuildCursorRay(*ViewportClient, RayOrigin, RayDirection))

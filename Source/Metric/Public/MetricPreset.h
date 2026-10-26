@@ -21,6 +21,9 @@ public:
     FMetricClearanceSettings Clearance;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricOverheadClearanceSettings OverheadClearance;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricSensorSettings Sensors;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
@@ -52,6 +55,22 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricTurnClearanceSettings TurnClearance;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricLedgeAnalysisSettings LedgeAnalysis;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricStoppingDistanceSettings StoppingDistance;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricCoverExposureSettings CoverExposure;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricJumpRunwaySettings JumpRunway;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricInteractionReachSettings InteractionReach;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricShoulderClearanceSettings ShoulderClearance;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricCombatDensitySettings CombatDensity;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricAlternateStanceSettings AlternateStance;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricMantleVaultSettings MantleVault;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricRecoverySpaceSettings RecoverySpace;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric") FMetricCrossfireSettings Crossfire;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricRepresentationSettings Representation;

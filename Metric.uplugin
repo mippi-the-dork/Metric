@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
-  "Version": 192,
-  "VersionName": "0.19.2",
+  "Version": 230,
+  "VersionName": "0.23.0",
   "FriendlyName": "Metric",
   "Description": "Viewport-first spatial scale and gameplay-metric preview tooling for level designers.",
   "Category": "Vista Viewport Suite",

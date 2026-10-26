@@ -62,6 +62,9 @@ struct FMetricPersistentBenchmark
     FMetricClearanceSettings ClearanceSettings;
 
     UPROPERTY()
+    FMetricOverheadClearanceSettings OverheadClearanceSettings;
+
+    UPROPERTY()
     FMetricSensorSettings Sensors;
 
     UPROPERTY()
@@ -93,6 +96,22 @@ struct FMetricPersistentBenchmark
 
     UPROPERTY()
     FMetricTurnClearanceSettings TurnClearanceSettings;
+
+    UPROPERTY()
+    FMetricLedgeAnalysisSettings LedgeAnalysisSettings;
+
+    UPROPERTY()
+    FMetricStoppingDistanceSettings StoppingDistanceSettings;
+
+    UPROPERTY() FMetricCoverExposureSettings CoverExposureSettings;
+    UPROPERTY() FMetricJumpRunwaySettings JumpRunwaySettings;
+    UPROPERTY() FMetricInteractionReachSettings InteractionReachSettings;
+    UPROPERTY() FMetricShoulderClearanceSettings ShoulderClearanceSettings;
+    UPROPERTY() FMetricCombatDensitySettings CombatDensitySettings;
+    UPROPERTY() FMetricAlternateStanceSettings AlternateStanceSettings;
+    UPROPERTY() FMetricMantleVaultSettings MantleVaultSettings;
+    UPROPERTY() FMetricRecoverySpaceSettings RecoverySpaceSettings;
+    UPROPERTY() FMetricCrossfireSettings CrossfireSettings;
 };
 
 USTRUCT()
@@ -122,7 +141,7 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
     bool bHUDMinimized = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Show Live Visualizer"))
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Enable Live Analysis"))
     bool bShowLiveVisualizer = true;
 
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")

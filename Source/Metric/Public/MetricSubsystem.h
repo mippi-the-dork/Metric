@@ -27,6 +27,7 @@ public:
     int32 GetPinnedBenchmarkCount() const { return PinnedBenchmarks.Num(); }
     int32 GetSelectedPinnedBenchmarkIndex() const { return SelectedPinnedBenchmarkIndex; }
     const FMetricPinnedBenchmark* GetPinnedBenchmark(int32 Index) const;
+    const FMetricLiveState* GetSelectedPinnedEvaluatedState() const { return bHasSelectedPinnedEvaluatedState ? &SelectedPinnedEvaluatedState : nullptr; }
     void SelectPinnedBenchmark(int32 Index);
     void CyclePinnedBenchmarkSelection();
     void DeletePinnedBenchmark(int32 Index);
@@ -41,6 +42,7 @@ public:
     int32 GetEntryCount() const { return CycleEntries.Num(); }
 
     void UpdateLiveState(UWorld* World, const FMetricLiveState& NewState);
+    void UpdateWithLiveAnalysisDisabled(UWorld* World, const FVector& ViewerLocation);
     const FMetricLiveState& GetLiveState() const { return LiveState; }
 
     void ClearRenderHost();
@@ -57,6 +59,7 @@ private:
     void EnsureRenderHost(UWorld* World);
     void ApplyEntryToState(FMetricLiveState& InOutState) const;
     void EvaluateClearance(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateOverheadClearance(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateSensorField(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateTrajectory(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateCameraProbe(UWorld* World, FMetricLiveState& InOutState) const;
@@ -65,6 +68,17 @@ private:
     void EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateTurnClearance(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateStoppingDistance(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateCoverExposure(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateJumpRunway(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateInteractionReach(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateShoulderClearance(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateCombatDensity(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateAlternateStance(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateMantleVault(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateRecoverySpace(UWorld* World, FMetricLiveState& InOutState) const;
+    void EvaluateCrossfire(UWorld* World, FMetricLiveState& InOutState) const;
     bool BuildSelectedPinnedVisualState(UWorld* World, FMetricLiveState& OutState) const;
     void RefreshSelectedPinnedVisualization(UWorld* World);
     void NotifyStateChanged();
@@ -76,6 +90,8 @@ private:
     TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
     FString ActivePinnedBenchmarkMap;
     int32 SelectedPinnedBenchmarkIndex = INDEX_NONE;
+    FMetricLiveState SelectedPinnedEvaluatedState;
+    bool bHasSelectedPinnedEvaluatedState = false;
 
     // The render host is owned by its UWorld/ULevel. Metric must not strongly
     // reference a world-owned Actor from this long-lived editor subsystem,

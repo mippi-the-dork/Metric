@@ -29,7 +29,8 @@ public class Metric : ModuleRules
                 "AssetRegistry",
                 "PhysicsCore",
                 "AssetDefinition",
-                "EngineAssetDefinitions"
+                "EngineAssetDefinitions",
+                "PropertyEditor"
             });
     }
 }

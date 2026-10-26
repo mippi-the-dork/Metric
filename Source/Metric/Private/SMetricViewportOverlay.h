@@ -48,6 +48,9 @@ private:
     FReply ToggleComparisonSection();
     FReply RenameSelectedPin();
     FReply ApplyVisibilityPreset(int32 Preset, bool bForBenchmark);
+    FReply ApplyBuiltInViewPreset(int32 Preset, bool bForBenchmark);
+    FReply ApplyViewPresetAsset(FSoftObjectPath AssetPath, bool bForBenchmark);
+    FReply OpenActiveMetricProfile();
     void OnVisibilityChanged(ECheckBoxState NewState, int32 LayerIndex, bool bVisual, bool bForBenchmark);
     ECheckBoxState GetVisibilityCheckedState(int32 LayerIndex, bool bVisual, bool bForBenchmark) const;
     void CommitRename(const FText& NewText, ETextCommit::Type CommitType, int32 Index);
@@ -62,6 +65,7 @@ private:
     bool bLastActive = false;
     bool bLastLegendVisible = true;
     bool bLastHUDMinimized = false;
+    bool bLastLiveVisualizerEnabled = true;
     bool bTargetEnabled = true;
     int32 ViewportNumber = INDEX_NONE;
     bool bLiveSectionExpanded = true;

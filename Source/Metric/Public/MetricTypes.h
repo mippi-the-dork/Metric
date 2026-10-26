@@ -327,6 +327,36 @@ struct FMetricCameraSightlineResult
 
 
 USTRUCT(BlueprintType)
+struct FMetricOverheadClearanceSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance")
+    bool bShowOverheadClearance = false;
+
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ClampMin = "50.0", Units = "cm"))
+    float MaxProbeHeight = 350.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ClampMin = "0.0", Units = "cm"))
+    float WarningMargin = 30.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance"))
+    TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+
+struct FMetricOverheadClearanceResult
+{
+    bool bVisible = false;
+    bool bBlocked = false;
+    bool bNearThreshold = false;
+    float AvailableHeight = 0.0f;
+    float RequiredHeight = 0.0f;
+    float HeightDeficit = 0.0f;
+    FVector ImpactPointOffset = FVector::ZeroVector;
+};
+
+
+USTRUCT(BlueprintType)
 struct FMetricGroundValidationSettings
 {
     GENERATED_BODY()
@@ -584,6 +614,237 @@ struct FMetricTurnClearanceResult
     FMetricTurnPathResult Right;
 };
 
+
+USTRUCT(BlueprintType)
+struct FMetricLedgeAnalysisSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis")
+    bool bShowLedgeAnalysis = false;
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm"))
+    float ForwardDistance = 150.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "5.0", Units = "cm"))
+    float SampleSpacing = 15.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "0.0", Units = "cm"))
+    float MaxSafeDrop = 120.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm"))
+    float MaxProbeDepth = 500.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm"))
+    float TraceHeight = 100.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis"))
+    TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+
+struct FMetricLedgeAnalysisResult
+{
+    bool bVisible = false;
+    bool bHasEdge = false;
+    bool bHasLanding = false;
+    bool bSafeDrop = true;
+    bool bWarning = false;
+    float EdgeDistance = 0.0f;
+    float DropDepth = 0.0f;
+    FVector EdgeOffset = FVector::ZeroVector;
+    FVector LandingOffset = FVector::ZeroVector;
+};
+
+
+USTRUCT(BlueprintType)
+struct FMetricStoppingDistanceSettings
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance")
+    bool bShowStoppingDistance = false;
+
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "1.0", Units = "cm/s"))
+    float Speed = 600.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "1.0", Units = "cm/s^2"))
+    float Deceleration = 1800.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "0.0", Units = "s"))
+    float ReactionTime = 0.15f;
+
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "0.0", Units = "cm"))
+    float WarningMargin = 75.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance"))
+    TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+
+struct FMetricStoppingDistanceResult
+{
+    bool bVisible = false;
+    bool bBlocked = false;
+    bool bNearThreshold = false;
+    bool bHasObstacle = false;
+    bool bApproximateShape = false;
+    float ReactionDistance = 0.0f;
+    float BrakingDistance = 0.0f;
+    float RequiredDistance = 0.0f;
+    float AvailableDistance = 0.0f;
+    float ObstacleDistance = 0.0f;
+    FVector StartOffset = FVector::ZeroVector;
+    FVector EndOffset = FVector::ZeroVector;
+    FVector ImpactPointOffset = FVector::ZeroVector;
+    FVector ImpactNormal = FVector::UpVector;
+};
+
+
+
+USTRUCT(BlueprintType)
+struct FMetricCoverExposureSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure") bool bShowCoverExposure = false;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="50.0", Units="cm")) float ThreatDistance = 1200.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float ThreatHeight = 160.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float LowSampleHeight = 60.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float TorsoSampleHeight = 120.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float HeadSampleHeight = 170.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricCoverExposureResult
+{
+    bool bVisible=false; float ExposurePercent=100.0f; bool bLowCovered=false; bool bTorsoCovered=false; bool bHeadCovered=false;
+    FVector ThreatOffset=FVector::ZeroVector; FVector LowOffset=FVector::ZeroVector; FVector TorsoOffset=FVector::ZeroVector; FVector HeadOffset=FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricJumpRunwaySettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Jump Runway") bool bShowJumpRunway = false;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="0.0", Units="cm")) float TakeoffRunway = 150.0f;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="0.0", Units="cm")) float LandingRunway = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="10.0", Units="cm")) float GroundProbeDepth = 150.0f;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricJumpRunwayResult
+{
+    bool bVisible=false; bool bTakeoffPass=false; bool bLandingPass=false; float TakeoffAvailable=0.0f; float LandingAvailable=0.0f;
+    FVector TakeoffEndOffset=FVector::ZeroVector; FVector LandingStartOffset=FVector::ZeroVector; FVector LandingEndOffset=FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricInteractionReachSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Interaction Reach") bool bShowInteractionReach = false;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="10.0", Units="cm")) float ReachDistance = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="0.0", Units="cm")) float ReachHeight = 130.0f;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="1.0", Units="cm")) float ProbeRadius = 18.0f;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricInteractionReachResult
+{
+    bool bVisible=false; bool bHasTarget=false; float TargetDistance=0.0f; FVector OriginOffset=FVector::ZeroVector; FVector EndOffset=FVector::ZeroVector; FVector HitOffset=FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricShoulderClearanceSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance") bool bShowShoulderClearance = false;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="0.0", Units="cm")) float PivotHeight = 150.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="0.0", Units="cm")) float ShoulderOffset = 55.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="10.0", Units="cm")) float CameraDistance = 300.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="1.0", Units="cm")) float ProbeRadius = 12.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricShoulderClearanceResult
+{
+    bool bVisible=false; bool bLeftBlocked=false; bool bRightBlocked=false; float LeftDistance=0.0f; float RightDistance=0.0f;
+    FVector PivotOffset=FVector::ZeroVector; FVector LeftOffset=FVector::ZeroVector; FVector RightOffset=FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricCombatDensitySettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Combat Spacing Density") bool bShowCombatDensity = false;
+    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta=(EditCondition="bShowCombatDensity", ClampMin="50.0", Units="cm")) float AreaRadius = 600.0f;
+    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta=(EditCondition="bShowCombatDensity", ClampMin="0.0", Units="cm")) float PersonalSpacePadding = 50.0f;
+};
+struct FMetricCombatDensityResult
+{
+    bool bVisible=false; float PersonalDiameter=0.0f; int32 ApproxCapacity=0; float AreaRadius=0.0f;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricAlternateStanceSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit") bool bShowAlternateStance = false;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ClampMin="10.0", Units="cm")) float AlternateHeight = 110.0f;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ClampMin="0.0", Units="cm")) float WarningMargin = 15.0f;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricAlternateStanceResult
+{
+    bool bVisible=false; bool bStandingFits=false; bool bAlternateFits=false; float AvailableHeight=0.0f;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricMantleVaultSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope") bool bShowMantleVault = false;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float ForwardReach = 120.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float MinObstacleHeight = 45.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float MaxObstacleHeight = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float MaxObstacleDepth = 100.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricMantleVaultResult
+{
+    bool bVisible=false; bool bHasObstacle=false; bool bHeightValid=false; bool bDepthValid=false; float ObstacleHeight=0.0f; float ObstacleDepth=0.0f;
+    FVector FrontOffset=FVector::ZeroVector; FVector TopOffset=FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricRecoverySpaceSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space") bool bShowRecoverySpace = false;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm")) float ForwardDistance = 250.0f;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm")) float BackwardDistance = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm")) float SideDistance = 220.0f;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricRecoverySpaceResult
+{
+    bool bVisible=false; bool bForwardClear=false; bool bBackwardClear=false; bool bLeftClear=false; bool bRightClear=false;
+    float ForwardClear=0.0f; float BackwardClear=0.0f; float LeftClear=0.0f; float RightClear=0.0f;
+};
+
+USTRUCT(BlueprintType)
+struct FMetricCrossfireSettings
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure") bool bShowCrossfire = false;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="100.0", Units="cm")) float ThreatDistance = 1200.0f;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="4", ClampMax="16")) int32 DirectionCount = 8;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="0.0", Units="cm")) float SampleHeight = 130.0f;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+};
+struct FMetricCrossfireRay
+{
+    FVector EndOffset=FVector::ZeroVector; bool bExposed=true;
+};
+struct FMetricCrossfireResult
+{
+    bool bVisible=false; int32 ExposedDirections=0; int32 TotalDirections=0; float ExposurePercent=0.0f; TArray<FMetricCrossfireRay> Rays;
+};
+
 USTRUCT(BlueprintType)
 struct FMetricRepresentationSettings
 {
@@ -630,6 +891,12 @@ struct FMetricLayerVisibility
 
     UPROPERTY(EditAnywhere, Category = "Metric Visibility")
     bool bClearanceResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bOverheadVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bOverheadResults = true;
 
     UPROPERTY(EditAnywhere, Category = "Metric Visibility")
     bool bGroundVisual = true;
@@ -692,6 +959,37 @@ struct FMetricLayerVisibility
     bool bTurnResults = true;
 
     UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bLedgeVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bLedgeResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bStoppingVisual = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    bool bStoppingResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCoverVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCoverResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bJumpRunwayVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bJumpRunwayResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bInteractionVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bInteractionResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bShoulderVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bShoulderResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCombatDensityVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCombatDensityResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bAlternateStanceVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bAlternateStanceResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bMantleVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bMantleResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bRecoveryVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bRecoveryResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCrossfireVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCrossfireResults = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
     bool bSightlineVisual = true;
 
     UPROPERTY(EditAnywhere, Category = "Metric Visibility")
@@ -711,6 +1009,7 @@ struct FMetricPinnedBenchmark
     bool bHasVisualSnapshot = false;
     FMetricLayerVisibility Visibility;
     FMetricClearanceSettings ClearanceSettings;
+    FMetricOverheadClearanceSettings OverheadClearanceSettings;
     FMetricSensorSettings Sensors;
     FMetricSensorFieldSettings SensorFieldSettings;
     FMetricRangeSettings Ranges;
@@ -722,6 +1021,17 @@ struct FMetricPinnedBenchmark
     FMetricFitAnalysisSettings FitAnalysisSettings;
     FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
     FMetricTurnClearanceSettings TurnClearanceSettings;
+    FMetricLedgeAnalysisSettings LedgeAnalysisSettings;
+    FMetricStoppingDistanceSettings StoppingDistanceSettings;
+    FMetricCoverExposureSettings CoverExposureSettings;
+    FMetricJumpRunwaySettings JumpRunwaySettings;
+    FMetricInteractionReachSettings InteractionReachSettings;
+    FMetricShoulderClearanceSettings ShoulderClearanceSettings;
+    FMetricCombatDensitySettings CombatDensitySettings;
+    FMetricAlternateStanceSettings AlternateStanceSettings;
+    FMetricMantleVaultSettings MantleVaultSettings;
+    FMetricRecoverySpaceSettings RecoverySpaceSettings;
+    FMetricCrossfireSettings CrossfireSettings;
 };
 
 struct FMetricLiveState
@@ -736,6 +1046,8 @@ struct FMetricLiveState
     FMetricHullSettings Hull;
     FMetricClearanceSettings ClearanceSettings;
     FMetricClearanceResult Clearance;
+    FMetricOverheadClearanceSettings OverheadClearanceSettings;
+    FMetricOverheadClearanceResult OverheadClearance;
     FMetricSensorSettings Sensors;
     FMetricSensorFieldSettings SensorFieldSettings;
     FMetricSensorFieldResult SensorField;
@@ -755,6 +1067,28 @@ struct FMetricLiveState
     FMetricThresholdAnalysisResult ThresholdAnalysis;
     FMetricTurnClearanceSettings TurnClearanceSettings;
     FMetricTurnClearanceResult TurnClearance;
+    FMetricLedgeAnalysisSettings LedgeAnalysisSettings;
+    FMetricLedgeAnalysisResult LedgeAnalysis;
+    FMetricStoppingDistanceSettings StoppingDistanceSettings;
+    FMetricStoppingDistanceResult StoppingDistance;
+    FMetricCoverExposureSettings CoverExposureSettings;
+    FMetricCoverExposureResult CoverExposure;
+    FMetricJumpRunwaySettings JumpRunwaySettings;
+    FMetricJumpRunwayResult JumpRunway;
+    FMetricInteractionReachSettings InteractionReachSettings;
+    FMetricInteractionReachResult InteractionReach;
+    FMetricShoulderClearanceSettings ShoulderClearanceSettings;
+    FMetricShoulderClearanceResult ShoulderClearance;
+    FMetricCombatDensitySettings CombatDensitySettings;
+    FMetricCombatDensityResult CombatDensity;
+    FMetricAlternateStanceSettings AlternateStanceSettings;
+    FMetricAlternateStanceResult AlternateStance;
+    FMetricMantleVaultSettings MantleVaultSettings;
+    FMetricMantleVaultResult MantleVault;
+    FMetricRecoverySpaceSettings RecoverySpaceSettings;
+    FMetricRecoverySpaceResult RecoverySpace;
+    FMetricCrossfireSettings CrossfireSettings;
+    FMetricCrossfireResult Crossfire;
     FText Label;
     EMetricCycleEntryType EntryType = EMetricCycleEntryType::BuiltInMetric;
     FSoftObjectPath PreviewMesh;

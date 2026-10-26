@@ -1,6 +1,7 @@
 #include "AssetDefinition_MetricPreset.h"
 
 #include "MetricPreset.h"
+#include "MetricProfileEditorToolkit.h"
 
 #define LOCTEXT_NAMESPACE "AssetDefinition_MetricPreset"
 
@@ -23,6 +24,22 @@ FLinearColor UAssetDefinition_MetricPreset::GetAssetColor() const
 TSoftClassPtr<UObject> UAssetDefinition_MetricPreset::GetAssetClass() const
 {
     return UMetricPreset::StaticClass();
+}
+
+EAssetCommandResult UAssetDefinition_MetricPreset::OpenAssets(const FAssetOpenArgs& OpenArgs) const
+{
+    for (UMetricPreset* Preset : OpenArgs.LoadObjects<UMetricPreset>())
+    {
+        if (!Preset)
+        {
+            continue;
+        }
+
+        TSharedRef<FMetricProfileEditorToolkit> Editor = MakeShared<FMetricProfileEditorToolkit>();
+        Editor->Initialize(Preset, EToolkitMode::Standalone, nullptr);
+    }
+
+    return EAssetCommandResult::Handled;
 }
 
 #undef LOCTEXT_NAMESPACE

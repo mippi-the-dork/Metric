@@ -29,13 +29,22 @@ void FMetricStyle::Initialize()
     {
         StyleSet->Set(TEXT("ClassIcon.MetricPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
         StyleSet->Set(TEXT("ClassThumbnail.MetricPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
+        StyleSet->Set(TEXT("ClassIcon.MetricViewPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
+        StyleSet->Set(TEXT("ClassThumbnail.MetricViewPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
     }
 
-    // Reuse the exact Metric Profile SVG for viewport chrome as well. Slate's
-    // vector brush stays crisp at both the full HUD and minimized button sizes.
-    if (FPaths::FileExists(ProfileIconPath))
+    // Use a rasterized copy of the exact Metric SVG for viewport chrome.
+    // UE 5.8 reliably renders this through FSlateImageBrush in overlay buttons,
+    // while the Content Browser continues to use the vector asset.
+    const FString HUDIconPath = StyleSet->RootToContentDir(TEXT("MetricHUD_64"), TEXT(".png"));
+    if (FPaths::FileExists(HUDIconPath))
     {
-        StyleSet->Set(TEXT("Metric.HUDIcon"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(28.0f, 28.0f)));
+        StyleSet->Set(TEXT("Metric.HUDIcon"), new FSlateImageBrush(
+            HUDIconPath,
+            FVector2D(32.0f, 32.0f),
+            FLinearColor::White,
+            ESlateBrushTileType::NoTile,
+            ESlateBrushImageType::FullColor));
     }
 
     FSlateStyleRegistry::RegisterSlateStyle(*StyleSet);

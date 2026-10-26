@@ -383,6 +383,180 @@ public:
                 }
             }
 
+            if (State.OverheadClearance.bVisible)
+            {
+                const bool bFail = State.OverheadClearance.bBlocked;
+                const bool bWarn = State.OverheadClearance.bNearThreshold;
+                const FLinearColor Color = bFail ? ClearanceFailColor : (bWarn ? ClearanceWarningColor : ClearancePassColor);
+                const float LineThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
+                const FVector Side = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const float SideOffset = FMath::Max(12.0f, Width * 0.5f + 18.0f);
+                const FVector OverheadBase = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset) + Side * SideOffset;
+                const float VisualHeight = State.OverheadClearance.bBlocked || State.OverheadClearance.bNearThreshold
+                    ? State.OverheadClearance.AvailableHeight
+                    : FMath::Max(State.OverheadClearance.RequiredHeight, State.OverheadClearance.AvailableHeight);
+                const FVector Top = OverheadBase + FVector::UpVector * VisualHeight;
+                PDI->DrawLine(OverheadBase, Top, Color, SDPG_World, LineThickness, 0.0f, true);
+
+                const float Tick = 12.0f;
+                const FVector Required = OverheadBase + FVector::UpVector * State.OverheadClearance.RequiredHeight;
+                PDI->DrawLine(Required - WorldForward * Tick, Required + WorldForward * Tick, Color, SDPG_World, LineThickness, 0.0f, true);
+                PDI->DrawLine(Required - Side * Tick, Required + Side * Tick, Color, SDPG_World, LineThickness, 0.0f, true);
+
+                if (bFail || bWarn)
+                {
+                    const FVector Impact = State.OverheadClearance.ImpactPointOffset.IsNearlyZero()
+                        ? Top
+                        : FVector(ProxyLocalToWorld.TransformPosition(State.OverheadClearance.ImpactPointOffset));
+                    const float Cross = 10.0f;
+                    PDI->DrawLine(Impact - WorldForward * Cross - Side * Cross, Impact + WorldForward * Cross + Side * Cross, Color, SDPG_Foreground, LineThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + WorldForward * Cross - Side * Cross, Impact - WorldForward * Cross + Side * Cross, Color, SDPG_Foreground, LineThickness, 0.0f, true);
+                }
+            }
+
+            if (State.LedgeAnalysis.bVisible)
+            {
+                const bool bFail = State.LedgeAnalysis.bHasEdge && (!State.LedgeAnalysis.bHasLanding || !State.LedgeAnalysis.bSafeDrop);
+                const bool bWarn = State.LedgeAnalysis.bHasEdge && State.LedgeAnalysis.bWarning && !bFail;
+                const FLinearColor LedgeColor = bFail ? ClearanceFailColor : (bWarn ? ClearanceWarningColor : ClearancePassColor);
+                const float LedgeThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
+                const FVector LedgeStart = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset + FVector::UpVector * 2.0f);
+                const FVector Edge = State.LedgeAnalysis.bHasEdge
+                    ? FVector(ProxyLocalToWorld.TransformPosition(State.LedgeAnalysis.EdgeOffset + FVector::UpVector * 2.0f))
+                    : LedgeStart + WorldForward * State.LedgeAnalysis.EdgeDistance;
+                PDI->DrawLine(LedgeStart, Edge, LedgeColor, SDPG_World, LedgeThickness, 0.0f, true);
+
+                if (State.LedgeAnalysis.bHasEdge)
+                {
+                    const FVector LedgeRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const float EdgeMarker = FMath::Max(18.0f, State.Hull.Width * 0.35f);
+                    PDI->DrawLine(Edge - LedgeRight * EdgeMarker, Edge + LedgeRight * EdgeMarker, LedgeColor, SDPG_World, LedgeThickness, 0.0f, true);
+
+                    const FVector Landing = FVector(ProxyLocalToWorld.TransformPosition(State.LedgeAnalysis.LandingOffset));
+                    PDI->DrawLine(Edge, Landing, LedgeColor, SDPG_World, LedgeThickness, 0.0f, true);
+                    MetricDraw::DrawCircle3D(PDI, Landing + FVector::UpVector * 2.0f, WorldForward, LedgeRight, 14.0f, LedgeColor, LedgeThickness, 20);
+                }
+            }
+
+            if (State.StoppingDistance.bVisible)
+            {
+                const bool bFail = State.StoppingDistance.bBlocked;
+                const bool bWarn = State.StoppingDistance.bNearThreshold && !bFail;
+                const FLinearColor StopColor = bFail ? ClearanceFailColor : (bWarn ? ClearanceWarningColor : ClearancePassColor);
+                const float StopThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
+                const FVector StopStart = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.StartOffset);
+                const FVector StopEnd = StopStart + WorldForward * State.StoppingDistance.RequiredDistance;
+                const FVector StopRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector ReactionPoint = StopStart + WorldForward * State.StoppingDistance.ReactionDistance;
+                const float Tick = FMath::Max(14.0f, State.Hull.Width * 0.22f);
+
+                PDI->DrawLine(StopStart, StopEnd, StopColor, SDPG_World, StopThickness, 0.0f, true);
+                PDI->DrawLine(ReactionPoint - StopRight * Tick, ReactionPoint + StopRight * Tick, StopColor, SDPG_World, StopThickness, 0.0f, true);
+                PDI->DrawLine(StopEnd - StopRight * Tick * 1.2f, StopEnd + StopRight * Tick * 1.2f, StopColor, SDPG_World, StopThickness, 0.0f, true);
+
+                if (State.StoppingDistance.bHasObstacle)
+                {
+                    const FVector Impact = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.ImpactPointOffset);
+                    const float Cross = 11.0f;
+                    PDI->DrawLine(Impact - StopRight * Cross - FVector::UpVector * Cross, Impact + StopRight * Cross + FVector::UpVector * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + StopRight * Cross - FVector::UpVector * Cross, Impact - StopRight * Cross + FVector::UpVector * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
+                }
+            }
+
+            if (State.CoverExposure.bVisible)
+            {
+                const FVector Threat = ProxyLocalToWorld.TransformPosition(State.CoverExposure.ThreatOffset);
+                const FVector Samples[3] = { ProxyLocalToWorld.TransformPosition(State.CoverExposure.LowOffset), ProxyLocalToWorld.TransformPosition(State.CoverExposure.TorsoOffset), ProxyLocalToWorld.TransformPosition(State.CoverExposure.HeadOffset) };
+                const bool Covered[3] = { State.CoverExposure.bLowCovered, State.CoverExposure.bTorsoCovered, State.CoverExposure.bHeadCovered };
+                for (int32 I=0; I<3; ++I)
+                {
+                    const FLinearColor C = Covered[I] ? ClearancePassColor : ClearanceFailColor;
+                    PDI->DrawLine(Threat, Samples[I], C, SDPG_World, StatusThickness(1.0f, !Covered[I]), 0.0f, true);
+                }
+            }
+
+            if (State.JumpRunway.bVisible)
+            {
+                const FVector Start = ProxyLocalToWorld.TransformPosition(FVector::ZeroVector);
+                const FVector TakeoffEnd = ProxyLocalToWorld.TransformPosition(State.JumpRunway.TakeoffEndOffset);
+                const FVector LandingStart = ProxyLocalToWorld.TransformPosition(State.JumpRunway.LandingStartOffset);
+                const FVector LandingEnd = ProxyLocalToWorld.TransformPosition(State.JumpRunway.LandingEndOffset);
+                PDI->DrawLine(Start, TakeoffEnd, State.JumpRunway.bTakeoffPass ? ClearancePassColor : ClearanceFailColor, SDPG_World, StatusThickness(1.5f, !State.JumpRunway.bTakeoffPass), 0.0f, true);
+                PDI->DrawLine(LandingStart, LandingEnd, State.JumpRunway.bLandingPass ? ClearancePassColor : ClearanceFailColor, SDPG_World, StatusThickness(1.5f, !State.JumpRunway.bLandingPass), 0.0f, true);
+            }
+
+            if (State.InteractionReach.bVisible)
+            {
+                const FVector A = ProxyLocalToWorld.TransformPosition(State.InteractionReach.OriginOffset);
+                const FVector B = ProxyLocalToWorld.TransformPosition(State.InteractionReach.bHasTarget ? State.InteractionReach.HitOffset : State.InteractionReach.EndOffset);
+                const FLinearColor C = State.InteractionReach.bHasTarget ? ClearancePassColor : SensorColor;
+                PDI->DrawLine(A, B, C, SDPG_World, State.InteractionReach.bHasTarget ? 2.0f : 1.0f, 0.0f, true);
+                MetricDraw::DrawSphere(PDI, B, FMath::Max(5.0f, State.InteractionReachSettings.ProbeRadius), C, 1.0f);
+            }
+
+            if (State.ShoulderClearance.bVisible)
+            {
+                const FVector Pivot = ProxyLocalToWorld.TransformPosition(State.ShoulderClearance.PivotOffset);
+                const FVector L = ProxyLocalToWorld.TransformPosition(State.ShoulderClearance.LeftOffset);
+                const FVector R = ProxyLocalToWorld.TransformPosition(State.ShoulderClearance.RightOffset);
+                PDI->DrawLine(Pivot, L, State.ShoulderClearance.bLeftBlocked ? CameraCompressedColor : CameraProbeColor, SDPG_World, StatusThickness(1.25f, State.ShoulderClearance.bLeftBlocked), 0.0f, true);
+                PDI->DrawLine(Pivot, R, State.ShoulderClearance.bRightBlocked ? CameraCompressedColor : CameraProbeColor, SDPG_World, StatusThickness(1.25f, State.ShoulderClearance.bRightBlocked), 0.0f, true);
+            }
+
+            if (State.CombatDensity.bVisible)
+            {
+                const FVector DensityRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                FLinearColor C = EngagementRangeColor; C.A = 0.65f;
+                MetricDraw::DrawCircle3D(PDI, Base + FVector::UpVector * 2.0f, WorldForward, DensityRight, State.CombatDensity.AreaRadius, C, 1.0f, 48);
+                MetricDraw::DrawCircle3D(PDI, Base + FVector::UpVector * 3.0f, WorldForward, DensityRight, State.CombatDensity.PersonalDiameter * 0.5f, C, 1.5f, 24);
+            }
+
+            if (State.AlternateStance.bVisible)
+            {
+                const bool bFail = !State.AlternateStance.bAlternateFits;
+                const bool bWarn = !State.AlternateStance.bStandingFits && State.AlternateStance.bAlternateFits;
+                const FLinearColor C = bFail ? ClearanceFailColor : (bWarn ? ClearanceWarningColor : ClearancePassColor);
+                const FVector AltBase = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset + FVector::UpVector * 1.0f);
+                MetricDraw::DrawCapsule(PDI, AltBase, WorldForward, State.AlternateStanceSettings.AlternateHeight, State.Hull.Width, C, StatusThickness(1.0f, bFail, bWarn));
+            }
+
+            if (State.MantleVault.bVisible)
+            {
+                const bool bFail = State.MantleVault.bHasObstacle && (!State.MantleVault.bHeightValid || !State.MantleVault.bDepthValid);
+                const FLinearColor C = !State.MantleVault.bHasObstacle ? SensorColor : (bFail ? ClearanceFailColor : ClearancePassColor);
+                const FVector A = Base + FVector::UpVector * State.MantleVaultSettings.MinObstacleHeight;
+                const FVector Front = ProxyLocalToWorld.TransformPosition(State.MantleVault.FrontOffset);
+                PDI->DrawLine(A, Front, C, SDPG_World, StatusThickness(1.25f, bFail), 0.0f, true);
+                if (State.MantleVault.bHasObstacle)
+                {
+                    const FVector Top = ProxyLocalToWorld.TransformPosition(State.MantleVault.TopOffset);
+                    PDI->DrawLine(Front, Top, C, SDPG_World, StatusThickness(1.25f, bFail), 0.0f, true);
+                }
+            }
+
+            if (State.RecoverySpace.bVisible)
+            {
+                const FVector RecoveryRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector Center = Base + FVector::UpVector * 4.0f;
+                struct FDir { FVector D; float Dist; bool Clear; } Dirs[4] = {
+                    {WorldForward, State.RecoverySpace.ForwardClear, State.RecoverySpace.bForwardClear},
+                    {-WorldForward, State.RecoverySpace.BackwardClear, State.RecoverySpace.bBackwardClear},
+                    {-RecoveryRight, State.RecoverySpace.LeftClear, State.RecoverySpace.bLeftClear},
+                    {RecoveryRight, State.RecoverySpace.RightClear, State.RecoverySpace.bRightClear}
+                };
+                for (const FDir& D : Dirs) PDI->DrawLine(Center, Center + D.D * D.Dist, D.Clear ? ClearancePassColor : ClearanceFailColor, SDPG_World, StatusThickness(1.25f, !D.Clear), 0.0f, true);
+            }
+
+            if (State.Crossfire.bVisible)
+            {
+                const FVector Target = Base + FVector::UpVector * State.CrossfireSettings.SampleHeight;
+                for (const FMetricCrossfireRay& Ray : State.Crossfire.Rays)
+                {
+                    const FVector Threat = ProxyLocalToWorld.TransformPosition(Ray.EndOffset);
+                    PDI->DrawLine(Target, Threat, Ray.bExposed ? ClearanceFailColor : ClearancePassColor, SDPG_World, StatusThickness(1.0f, Ray.bExposed), 0.0f, true);
+                }
+            }
+
             if (State.Trajectory.bVisible && State.Trajectory.SampleOffsets.Num() >= 2)
             {
                 const FLinearColor ArcColor = State.Trajectory.bBlocked
@@ -1030,6 +1204,9 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
     const float ProbeReach = State.Clearance.bVisible
         ? State.Clearance.ProbeDistance + State.Clearance.WarningMargin + MaxDimension
         : 0.0f;
+    const float OverheadReach = State.OverheadClearance.bVisible
+        ? State.OverheadClearanceSettings.MaxProbeHeight + MaxDimension
+        : 0.0f;
     const float RangeReach = State.Ranges.bShowEngagementRanges
         ? FMath::Max3(State.Ranges.ShortRange, State.Ranges.MediumRange, State.Ranges.LongRange)
         : 0.0f;
@@ -1072,6 +1249,21 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
     const float TurnReach = State.TurnClearance.bVisible
         ? State.TurnClearanceSettings.TurnRadius * 2.0f + MaxDimension
         : 0.0f;
+    const float LedgeReach = State.LedgeAnalysis.bVisible
+        ? State.LedgeAnalysisSettings.ForwardDistance + State.LedgeAnalysisSettings.MaxProbeDepth + MaxDimension
+        : 0.0f;
+    const float StoppingReach = State.StoppingDistance.bVisible
+        ? State.StoppingDistance.RequiredDistance + State.StoppingDistanceSettings.WarningMargin + MaxDimension
+        : 0.0f;
+    const float CoverReach = State.CoverExposure.bVisible ? State.CoverExposureSettings.ThreatDistance + MaxDimension : 0.0f;
+    const float JumpRunwayReach = State.JumpRunway.bVisible ? FMath::Max(State.JumpRunwaySettings.TakeoffRunway, State.JumpRunwaySettings.LandingRunway) + MaxDimension : 0.0f;
+    const float InteractionReach = State.InteractionReach.bVisible ? State.InteractionReachSettings.ReachDistance + State.InteractionReachSettings.ReachHeight + MaxDimension : 0.0f;
+    const float ShoulderReach = State.ShoulderClearance.bVisible ? State.ShoulderClearanceSettings.CameraDistance + State.ShoulderClearanceSettings.ShoulderOffset + MaxDimension : 0.0f;
+    const float CombatDensityReach = State.CombatDensity.bVisible ? State.CombatDensity.AreaRadius + MaxDimension : 0.0f;
+    const float AlternateStanceReach = State.AlternateStance.bVisible ? FMath::Max(State.Hull.Height, State.AlternateStanceSettings.AlternateHeight) + MaxDimension : 0.0f;
+    const float MantleReach = State.MantleVault.bVisible ? State.MantleVaultSettings.ForwardReach + State.MantleVaultSettings.MaxObstacleHeight + MaxDimension : 0.0f;
+    const float RecoveryReach = State.RecoverySpace.bVisible ? FMath::Max3(State.RecoverySpaceSettings.ForwardDistance, State.RecoverySpaceSettings.BackwardDistance, State.RecoverySpaceSettings.SideDistance) + MaxDimension : 0.0f;
+    const float CrossfireReach = State.Crossfire.bVisible ? State.CrossfireSettings.ThreatDistance + MaxDimension : 0.0f;
     float PinnedReach = 0.0f;
     for (const FMetricPinnedBenchmark& Pin : State.PinnedBenchmarks)
     {
@@ -1087,9 +1279,12 @@ FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToW
         }
         TrajectoryReach += MaxDimension;
     }
+    const float NewAnalysisReach = FMath::Max(
+        FMath::Max3(CoverReach, JumpRunwayReach, InteractionReach),
+        FMath::Max(FMath::Max3(ShoulderReach, CombatDensityReach, AlternateStanceReach), FMath::Max(FMath::Max3(MantleReach, RecoveryReach, CrossfireReach), 0.0f)));
     const float SecondaryReach = FMath::Max(
         FMath::Max(FMath::Max3(RangeReach, SensorReach, LocomotionReach), SensorFieldReach),
-        FMath::Max(FMath::Max3(TrajectoryReach, CameraReach, GroundReach), FMath::Max(FMath::Max3(FitReach, SightlineReach, ThresholdReach), FMath::Max(TurnReach, PinnedReach))));
-    const FVector Extent(FMath::Max(FMath::Max3(100.0f, MaxDimension, ProbeReach), SecondaryReach));
+        FMath::Max(FMath::Max3(TrajectoryReach, CameraReach, GroundReach), FMath::Max(FMath::Max3(FitReach, SightlineReach, ThresholdReach), FMath::Max(FMath::Max(FMath::Max(FMath::Max(TurnReach, LedgeReach), StoppingReach), PinnedReach), NewAnalysisReach))));
+    const FVector Extent(FMath::Max(FMath::Max(FMath::Max3(100.0f, MaxDimension, ProbeReach), OverheadReach), SecondaryReach));
     return FBoxSphereBounds(FBox(-Extent, Extent)).TransformBy(LocalToWorld);
 }
