@@ -41,6 +41,9 @@ struct FMetricPersistentBenchmark
     FMetricHullSettings Hull;
 
     UPROPERTY()
+    FMetricVisualizationTheme VisualTheme;
+
+    UPROPERTY()
     FString Label;
 
     UPROPERTY()
@@ -165,13 +168,13 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Preview Mesh Compatibility")
     bool bIncludeUnrealPreviewMeshes = true;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display")
+    UPROPERTY(Config)
     FLinearColor HullColor = FLinearColor(0.0f, 0.75f, 1.0f, 1.0f);
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0"))
     float HullLineThickness = 1.5f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display")
+    UPROPERTY(Config)
     FLinearColor ForwardColor = FLinearColor::White;
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.0", ClampMax = "100.0", Units = "cm"))
@@ -198,61 +201,61 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.0", ClampMax = "300.0", Units = "cm"))
     float LabelHeightPadding = 35.0f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Clearance Probe")
+    UPROPERTY(Config)
     FLinearColor ClearancePassColor = FLinearColor(0.1f, 1.0f, 0.2f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Clearance Probe")
+    UPROPERTY(Config)
     FLinearColor ClearanceWarningColor = FLinearColor(1.0f, 0.65f, 0.05f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Clearance Probe")
+    UPROPERTY(Config)
     FLinearColor ClearanceFailColor = FLinearColor(1.0f, 0.08f, 0.05f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges")
+    UPROPERTY(Config)
     FLinearColor SensorColor = FLinearColor(0.15f, 0.55f, 1.0f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges")
+    UPROPERTY(Config)
     FLinearColor EngagementRangeColor = FLinearColor(0.1f, 0.45f, 1.0f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges")
+    UPROPERTY(Config)
     FLinearColor SensorFieldColor = FLinearColor(0.12f, 0.72f, 1.0f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges")
+    UPROPERTY(Config)
     FLinearColor SensorFieldBlockedColor = FLinearColor(1.0f, 0.18f, 0.08f, 1.0f);
 
     UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges", meta = (ClampMin = "0.5", ClampMax = "6.0"))
     float SecondaryLineThickness = 1.0f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Locomotion Bands")
+    UPROPERTY(Config)
     FLinearColor LocomotionBandColor = FLinearColor(0.72f, 0.32f, 1.0f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Trajectory")
+    UPROPERTY(Config)
     FLinearColor TrajectoryColor = FLinearColor(1.0f, 0.42f, 0.08f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Trajectory")
+    UPROPERTY(Config)
     FLinearColor TrajectoryLandingColor = FLinearColor(0.2f, 1.0f, 0.35f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Trajectory")
+    UPROPERTY(Config)
     FLinearColor TrajectoryBlockedColor = FLinearColor(1.0f, 0.12f, 0.08f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Camera Probe")
+    UPROPERTY(Config)
     FLinearColor CameraProbeColor = FLinearColor(1.0f, 0.15f, 0.85f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Camera Probe")
+    UPROPERTY(Config)
     FLinearColor CameraCompressedColor = FLinearColor(1.0f, 0.08f, 0.22f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Camera Sightline")
+    UPROPERTY(Config)
     FLinearColor CameraSightlineColor = FLinearColor(0.95f, 0.45f, 1.0f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Ground Validation")
+    UPROPERTY(Config)
     FLinearColor GroundPassColor = FLinearColor(0.12f, 0.95f, 0.25f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Ground Validation")
+    UPROPERTY(Config)
     FLinearColor GroundStepFailColor = FLinearColor(1.0f, 0.62f, 0.08f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Ground Validation")
+    UPROPERTY(Config)
     FLinearColor GroundSlopeFailColor = FLinearColor(1.0f, 0.10f, 0.08f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Ground Validation")
+    UPROPERTY(Config)
     FLinearColor GroundGridColor = FLinearColor(0.25f, 0.85f, 0.85f, 0.55f);
 
     UPROPERTY(Config, EditAnywhere, Category = "Legend")
@@ -264,7 +267,7 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Legend", meta = (EditCondition = "bShowLegend"))
     FLinearColor LegendTextColor = FLinearColor(0.82f, 0.86f, 0.92f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks")
+    UPROPERTY(Config)
     FLinearColor PinnedBenchmarkColor = FLinearColor(0.95f, 0.95f, 0.35f, 1.0f);
 
     UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks", meta = (ClampMin = "1", ClampMax = "32"))

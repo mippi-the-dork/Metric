@@ -11,6 +11,25 @@ Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the
 
 
 
+### 0.23.0 profile themes and live-analysis controls
+
+Metric Profile assets now own **Visualization Colors** at semantic, per-analysis granularity. The profile exposes the actual colors used by each visualization and its matching HUD result, including state-specific colors where that analysis has meaningful states. Examples include Clearance Pass/Tight/Fail, Ground Pass/Step Fail/Slope Fail/Missing Floor/Grid, Trajectory Path/Landing/Tight/Blocked/Apex, Camera Clear/Compressed/Too Close, Cover Covered/Exposed, Recovery Clear/Blocked, and Crossfire Covered/Exposed. Reference visuals expose meaningful aspect colors such as Engagement Short/Medium/Long and Locomotion Near/Mid/Far instead of artificial pass/fail states. Fresh Human and Heavy profiles remain visually distinct, and pinned benchmarks capture the effective colors from their source profile.
+
+The HUD Legend is contextual to both the **Live Metric** and the **active benchmark**. A layer appears when its Visual mask is active in either context, and the legend shows the contributing profile color swatches.
+
+The Live Metric Display Options button now lives in the **LIVE METRIC** section header, matching the benchmark Display Options button in **BENCHMARKS**. The built-in **Core Fit** view replaces the vague `Minimal` label and focuses Hull, Clearance, and Ground Validation.
+
+**Ctrl + Alt + Backslash** toggles Live Analysis without disabling Metric or pinned benchmark analysis. The Backslash shortcut family is now:
+
+- `\`: toggle Metric
+- `Shift + \`: next live Metric profile
+- `Ctrl + \`: pin benchmark
+- `Alt + \`: next active benchmark
+- `Ctrl + Alt + \`: toggle Live Analysis
+- `Ctrl + Shift + \`: clear all benchmarks
+
+Recovery / Dodge Space sweeps begin 1 cm above the placement surface to avoid distance-zero false blocks caused by tangency/floating-point overlap on otherwise flat floors.
+
 ## 0.23.0 Level-Designer Feature Expansion + View Presets
 
 - Adds **Cover / Exposure Analysis** for low, torso, and head protection against a configurable threat direction.
@@ -23,7 +42,7 @@ Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the
 - Adds **Recovery / Dodge Space** for forward, backward, left, and right short-movement clearance.
 - Adds **Crossfire Exposure** for multi-direction line-of-sight exposure sampling around a position.
 - Adds **Metric View Preset**, a shareable Data Asset that stores only Visual/Results visibility masks and never changes Metric Profile measurement values.
-- Adds built-in view presets: **Full Audit, Traversal, Camera, Combat, Space & Nav, Interaction, Minimal**.
+- Adds built-in view presets: **Full Audit, Traversal, Camera, Combat, Space & Nav, Interaction, Core Fit**.
 - Project-authored Metric View Preset assets are discovered automatically from Content and appear in the HUD Display Options menu for both Live Metric and selected benchmarks.
 - All nine analysis systems participate in live analysis, selected benchmark re-evaluation, persistent benchmark data, HUD results, Legend presentation, Visual/Results filtering, and status-driven world rendering.
 - All new analysis layers default **Off** in Human and Heavy starter profiles to keep the default viewport readable and avoid unnecessary tracing.
@@ -154,7 +173,7 @@ To share a custom view with a team, create a Data Asset using the `MetricViewPre
 
 - Viewport 1-4 targeting is now assigned by visible viewport position, row-major from top-left, instead of Unreal's internal viewport array order.
 - Benchmark selection is collapsed into a scrollable dropdown suitable for larger pin sets.
-- Selected benchmarks now re-evaluate and render their captured Metric configuration at the pinned location, while the yellow benchmark hull remains the persistent identity marker.
+- Selected benchmarks now re-evaluate and render their captured Metric configuration at the pinned location, while each benchmark retains the captured profile palette as its persistent visual identity.
 - The Metric legend is now a screen-space Slate panel with its own anchor setting and a Show/Hide button on the HUD.
 - Legend placement supports the same eight anchor positions as the HUD.
 
@@ -250,7 +269,7 @@ Each preset exposes:
 - **Horizontal Ray Count**
 - **Trace Channel**
 
-The viewport draws the nominal field boundary in blue, individual sampled rays through the horizontal field, and red truncation markers where geometry blocks a sample. The readout reports either `SENSOR OPEN` or a compact coverage summary such as `SENSOR 67% CLEAR | 3/9 blocked | nearest 420u`.
+The viewport draws the nominal field boundary and clear rays with **Sensor Field Clear**, and blocked samples with **Sensor Field Blocked**. The readout reports either `SENSOR OPEN` or a compact coverage summary such as `SENSOR 67% CLEAR | 3/9 blocked | nearest 420u`.
 
 The vertical angle is currently a visualization reference only. Obstruction percentage is derived from the horizontal ray fan at Primary Sensor Height, so Metric does not claim to reproduce a project's AI Perception component, sight affiliation rules, peripheral vision implementation, target filtering, vertical sampling, or gameplay-specific visibility logic.
 
@@ -263,7 +282,7 @@ The vertical angle is currently a visualization reference only. Obstruction perc
 - Persistent pins are stored in editor user settings, never as level Actors or level-owned objects. Unsaved `/Temp/` maps remain session-only.
 - Returning to a saved map automatically restores its pins. Clearing pins also clears the stored pin set for that map.
 - The oldest pin is removed automatically when the configurable maximum pin count is reached.
-- Pinned hulls use the dedicated user-configurable yellow benchmark color and appear in the contextual legend.
+- Pinned hull markers use the captured profile palette and appear in the contextual legend alongside the Live Metric layers that are currently visible.
 
 ## Clearance Probe
 
@@ -286,8 +305,8 @@ Supported query shapes:
 Viewport result language:
 
 - **Green**: the full requested distance is clear.
-- **Amber**: the requested distance is clear, but an obstacle lies inside the configured warning margin beyond it.
-- **Red**: the configured hull blocks before reaching the requested distance.
+- **TIGHT**: the requested distance is clear, but an obstacle lies inside the configured warning margin beyond it. Metric uses the profile's layer-specific **Tight** color plus thicker/explicit status presentation.
+- **FAIL**: the configured hull blocks before reaching the requested distance. Metric uses the profile's layer-specific **Fail** color plus failure markers and heavier line weight.
 
 The viewport shows a measurement line, a ghost hull at the resolved/requested end position, a contact marker when an obstacle is found, and a compact readout such as `CLEAR 300u+`, `CLEAR 300u | obstacle +14u`, or `BLOCKED 142u / 300u`.
 
@@ -302,8 +321,8 @@ The current hull is swept between trajectory samples rather than tracing only a 
 
 Viewport states:
 
-- **Orange**: the configured arc is still in flight when the simulation window ends, so no landing was found.
-- **Green**: the descending hull contacted a surface at or below the configured maximum landing slope.
+- **NO LANDING**: the configured arc is still in flight when the simulation window ends. The profile Traversal palette remains the visual identity.
+- **LANDING OK**: the descending hull contacted a surface at or below the configured maximum landing slope. Status is explicit in the label and landing marker rather than encoded by a universal green rule.
 - **Red**: the hull hit obstructing geometry before reaching a valid landing.
 
 The readout reports flight time and horizontal distance, for example `LANDING OK 1.1s / 660u`, `ARC BLOCKED 0.6s / 360u`, or `NO LANDING 2.0s / 1200u`.
@@ -330,7 +349,7 @@ Viewport states:
 
 - **Magenta / CAM CLEAR**: the full requested camera position is unobstructed.
 - **Compressed / CAM COMPRESSED**: geometry pushes the camera closer than the requested position.
-- **Red / CAM TOO CLOSE**: the resolved distance falls below the preset's configured minimum usable camera distance.
+- **CAM TOO CLOSE**: the resolved distance falls below the preset's configured minimum usable camera distance. The profile Camera/Accent palette plus status text communicates compression/failure.
 
 The requested camera endpoint remains visible while compressed, so the designer can compare desired and resolved placement directly. Metric also draws the sphere at the resolved camera position and a contact normal when blocked.
 
@@ -373,9 +392,9 @@ Metric uses three lanes when Lateral Coverage is greater than zero: left, center
 
 Viewport language:
 
-- **Green**: sampled ground is within the configured traversal limits.
-- **Amber**: step-up or step-down exceeds the configured limit.
-- **Red**: the sampled surface exceeds the slope limit or no ground is found within the configured trace depth.
+- **PASS**: sampled ground is within the configured traversal limits and uses the profile Primary family.
+- **STEP FAIL**: step-up or step-down exceeds the configured limit and uses the profile Secondary family plus the failure marker.
+- **SLOPE / NO GROUND FAIL**: the sample exceeds limits and uses the profile Accent family plus explicit failure geometry.
 
 The label summarizes the field as `GROUND OK` or `GROUND FAIL` and reports the worst observed slope and step values. This is a geometric approximation only. It does not run CharacterMovement floor finding, navmesh generation, step-up code, movement modes, or project-specific traversal logic.
 
@@ -398,8 +417,8 @@ Each preset exposes:
 Viewport states:
 
 - **Green / FIT OK**: the sampled cross-sections meet or exceed the current hull width and height.
-- **Amber / FIT TIGHT**: the hull fits, but one or more measurements fall inside the configured warning margin.
-- **Red / FIT FAIL**: at least one sample is too narrow or too low. The readout reports the largest measured width and height deficits directly.
+- **FIT TIGHT**: the hull fits, but one or more measurements fall inside the configured warning margin. Profile color plus line weight and status text communicate the condition.
+- **FIT FAIL**: at least one sample is too narrow or too low. The readout reports the largest measured width and height deficits directly, with profile Accent geometry reinforcing the failure.
 - **FIT NO FLOOR**: a sample could not establish a floor within the configured vertical trace range, so Metric does not pretend that width/height measurements there are trustworthy.
 
 Fit Analysis measures against the preset hull dimensions at the current Metric centerline. It is a geometric blockout instrument, not navmesh, movement-component, crouch, avoidance, or path-planning simulation. A space may be globally wide enough but still fail at the current centerline if the hull is positioned too close to one side.
@@ -541,7 +560,7 @@ Metric presets now include two additional viewport-only measurement groups.
 - **Low Profile Sensor Z Offset**
 - **Marker Radius**
 
-The primary sensor is drawn as a continuous blue ring/cross at the configured height. The low-profile sensor uses a segmented ring so the two stances remain distinguishable even without relying only on color. These are informational reference heights and do not perform visibility or AI perception queries.
+The primary sensor is drawn as a continuous profile Secondary-color ring/cross at the configured height. The low-profile sensor uses a segmented ring so the two stances remain distinguishable even without relying only on color. These are informational reference heights and do not perform visibility or AI perception queries.
 
 ### Engagement Ranges
 
@@ -580,7 +599,7 @@ For a full Metric preset it can identify active layers such as:
 - **ENGAGEMENT**
 - **MOVE**
 
-It also summarizes the visual language currently in use, such as cyan hull geometry, green/amber/red clearance states, blue informational layers, and purple locomotion bands. When Locomotion Bands are active, the legend includes the configured time bands and movement speed.
+It summarizes the profile-owned visual language currently in use. Layer families use the profile palette, while pass/tight/fail meaning is reinforced by geometry, line weight, markers, and explicit HUD labels rather than a universal green/amber/red contract. When Locomotion Bands are active, the legend includes the configured time bands and movement speed.
 
 Inherited Unreal Preview Mesh entries remain explicitly visual-only and the legend reports **VISUAL SCALE REFERENCE ONLY** instead of implying Metric gameplay analysis.
 

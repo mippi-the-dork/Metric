@@ -874,6 +874,99 @@ struct FMetricCycleEntry
 };
 
 
+USTRUCT(BlueprintType)
+struct FMetricStatusColors
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Colors")
+    FLinearColor Pass = FLinearColor(0.10f, 0.82f, 1.00f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Colors")
+    FLinearColor Tight = FLinearColor(0.72f, 0.42f, 1.00f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Colors")
+    FLinearColor Fail = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+};
+
+USTRUCT(BlueprintType)
+struct FMetricVisualizationTheme
+{
+    GENERATED_BODY()
+
+    // Every color below is profile-owned. The same semantic color is used by
+    // the viewport visualization and the matching HUD/result readout.
+    UPROPERTY(EditAnywhere, Category = "Core|Hull") FLinearColor Hull = FLinearColor(0.05f, 0.78f, 1.0f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Core|Hull") FLinearColor Forward = FLinearColor(0.68f, 0.70f, 0.74f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Core|Hull") FLinearColor Anchor = FLinearColor(0.92f, 0.94f, 0.98f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Clearance") FMetricStatusColors Clearance;
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Overhead") FMetricStatusColors Overhead;
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Fit") FMetricStatusColors Fit;
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Threshold") FMetricStatusColors Threshold;
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Stopping Distance") FMetricStatusColors Stopping;
+
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Ground") FLinearColor GroundPass = FLinearColor(0.10f, 0.82f, 1.00f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Ground") FLinearColor GroundStepFail = FLinearColor(0.96f, 0.66f, 0.20f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Ground") FLinearColor GroundSlopeFail = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Ground") FLinearColor GroundMissingFloor = FLinearColor(0.92f, 0.18f, 0.52f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Space & Fit|Ground") FLinearColor GroundGrid = FLinearColor(0.42f, 0.48f, 0.56f, 0.55f);
+
+    UPROPERTY(EditAnywhere, Category = "Movement|Turn Clearance") FLinearColor TurnClear = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Turn Clearance") FLinearColor TurnBlocked = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Ledge") FLinearColor LedgeSafe = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Ledge") FLinearColor LedgeWarning = FLinearColor(0.96f, 0.66f, 0.20f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Ledge") FLinearColor LedgeFail = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Ledge") FLinearColor LedgeNone = FLinearColor(0.55f, 0.58f, 0.64f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Sensors|Sensor Heights") FLinearColor SensorPrimary = FLinearColor(0.28f, 0.58f, 1.0f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Sensors|Sensor Heights") FLinearColor SensorLow = FLinearColor(0.50f, 0.72f, 1.0f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Sensors|Sensor Field") FLinearColor SensorFieldClear = FLinearColor(0.28f, 0.58f, 1.0f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Sensors|Sensor Field") FLinearColor SensorFieldBlocked = FLinearColor(0.92f, 0.18f, 0.52f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Ranges|Engagement") FLinearColor EngagementShort = FLinearColor(0.95f, 0.36f, 0.20f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Ranges|Engagement") FLinearColor EngagementMedium = FLinearColor(0.95f, 0.52f, 0.22f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Ranges|Engagement") FLinearColor EngagementLong = FLinearColor(0.95f, 0.70f, 0.28f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Locomotion") FLinearColor LocomotionNear = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Locomotion") FLinearColor LocomotionMid = FLinearColor(0.16f, 0.78f, 0.82f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Locomotion") FLinearColor LocomotionFar = FLinearColor(0.30f, 0.64f, 0.92f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Movement|Trajectory") FLinearColor TrajectoryPath = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Trajectory") FLinearColor TrajectoryLanding = FLinearColor(0.10f, 0.82f, 1.00f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Trajectory") FLinearColor TrajectoryTight = FLinearColor(0.72f, 0.42f, 1.00f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Trajectory") FLinearColor TrajectoryBlocked = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Trajectory") FLinearColor TrajectoryApex = FLinearColor(0.20f, 0.84f, 0.92f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Camera|Probe") FLinearColor CameraClear = FLinearColor(0.98f, 0.30f, 0.82f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Probe") FLinearColor CameraCompressed = FLinearColor(0.76f, 0.38f, 1.00f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Probe") FLinearColor CameraTooClose = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Sightline") FLinearColor SightlineClear = FLinearColor(0.98f, 0.30f, 0.82f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Sightline") FLinearColor SightlineFramingFail = FLinearColor(0.96f, 0.66f, 0.20f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Sightline") FLinearColor SightlineOccluded = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Combat|Cover") FLinearColor CoverCovered = FLinearColor(0.24f, 0.78f, 0.72f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Combat|Cover") FLinearColor CoverExposed = FLinearColor(1.00f, 0.32f, 0.20f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Jump Runway") FLinearColor JumpRunwayPass = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Jump Runway") FLinearColor JumpRunwayFail = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Interaction|Reach") FLinearColor InteractionOpen = FLinearColor(0.96f, 0.82f, 0.24f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Interaction|Reach") FLinearColor InteractionTarget = FLinearColor(0.30f, 0.92f, 0.58f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Shoulder") FLinearColor ShoulderClear = FLinearColor(0.98f, 0.30f, 0.82f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Camera|Shoulder") FLinearColor ShoulderBlocked = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Combat|Density") FLinearColor CombatDensityArea = FLinearColor(1.00f, 0.42f, 0.18f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Combat|Density") FLinearColor CombatDensityPersonal = FLinearColor(1.00f, 0.68f, 0.28f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Alternate Stance") FMetricStatusColors AlternateStance;
+    UPROPERTY(EditAnywhere, Category = "Movement|Mantle Vault") FLinearColor MantlePass = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Mantle Vault") FLinearColor MantleFail = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Mantle Vault") FLinearColor MantleNone = FLinearColor(0.55f, 0.58f, 0.64f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Recovery") FLinearColor RecoveryClear = FLinearColor(0.05f, 0.92f, 0.70f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Movement|Recovery") FLinearColor RecoveryBlocked = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Combat|Crossfire") FLinearColor CrossfireCovered = FLinearColor(0.24f, 0.78f, 0.72f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Combat|Crossfire") FLinearColor CrossfireExposed = FLinearColor(1.00f, 0.32f, 0.20f, 1.0f);
+
+    UPROPERTY(EditAnywhere, Category = "Benchmarks") FLinearColor PinnedBenchmark = FLinearColor(0.96f, 0.88f, 0.34f, 1.0f);
+    UPROPERTY(EditAnywhere, Category = "Neutral") FLinearColor Neutral = FLinearColor(0.68f, 0.70f, 0.74f, 1.0f);
+};
+
 
 USTRUCT(BlueprintType)
 struct FMetricLayerVisibility
@@ -1003,6 +1096,7 @@ struct FMetricPinnedBenchmark
     FVector SurfaceNormal = FVector::UpVector;
     FVector Forward = FVector::ForwardVector;
     FMetricHullSettings Hull;
+    FMetricVisualizationTheme VisualTheme;
     FText Label;
     FText SourceProfileLabel;
     FString CapturedResults;
@@ -1044,6 +1138,7 @@ struct FMetricLiveState
     FVector Forward = FVector::ForwardVector;
     FVector ViewerLocation = FVector::ZeroVector;
     FMetricHullSettings Hull;
+    FMetricVisualizationTheme VisualTheme;
     FMetricClearanceSettings ClearanceSettings;
     FMetricClearanceResult Clearance;
     FMetricOverheadClearanceSettings OverheadClearanceSettings;

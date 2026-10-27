@@ -12,6 +12,13 @@ void FMetricCommands::RegisterCommands()
         FInputChord(EKeys::Backslash));
 
     UI_COMMAND(
+        ToggleLiveAnalysis,
+        "Toggle Live Metric Analysis",
+        "Enable or pause the cursor-driven Live Metric analyzer while leaving Metric and pinned benchmarks active.",
+        EUserInterfaceActionType::Button,
+        FInputChord(EKeys::Backslash, EModifierKey::FromBools(true, true, false, false)));
+
+    UI_COMMAND(
         CycleMetric,
         "Cycle Metric Entry",
         "Cycle to the next Metric preset or included Unreal preview mesh.",

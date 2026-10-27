@@ -11,11 +11,20 @@ class METRIC_API UMetricPreset : public UPrimaryDataAsset
     GENERATED_BODY()
 
 public:
+    virtual void PostLoad() override;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FText DisplayName;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricHullSettings Hull;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
+    FMetricVisualizationTheme VisualTheme;
+
+    // Internal migration guard for profile-owned visualization themes.
+    UPROPERTY()
+    int32 VisualizationThemeVersion = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric")
     FMetricClearanceSettings Clearance;

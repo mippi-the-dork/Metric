@@ -2,6 +2,7 @@
 
 #include "MetricCommands.h"
 #include "MetricSubsystem.h"
+#include "MetricEditorSettings.h"
 #include "MetricViewportController.h"
 #include "Editor.h"
 
@@ -63,6 +64,8 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     const bool bNoAltOrCmd = !InKeyEvent.IsAltDown() && !InKeyEvent.IsCommandDown();
     const bool bPhysicalNextBenchmark = bBackslash
         && InKeyEvent.IsAltDown() && !InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown() && !InKeyEvent.IsCommandDown();
+    const bool bPhysicalToggleLiveAnalysis = bBackslash
+        && InKeyEvent.IsAltDown() && InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown() && !InKeyEvent.IsCommandDown();
 
     // Always recognize Metric's documented Backslash chords directly. This is
     // intentionally independent of FUICommandInfo so Ctrl-modified Backslash
@@ -82,16 +85,18 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     // chords are still supported in addition to the documented defaults.
     const bool bClearPins = bPhysicalClearPins
         || MetricInput::MatchesCommand(InKeyEvent, Commands.ClearMetricBenchmarks);
-    const bool bPin = !bClearPins && (bPhysicalPin
+    const bool bToggleLiveAnalysis = !bClearPins && (bPhysicalToggleLiveAnalysis
+        || MetricInput::MatchesCommand(InKeyEvent, Commands.ToggleLiveAnalysis));
+    const bool bPin = !bClearPins && !bToggleLiveAnalysis && (bPhysicalPin
         || MetricInput::MatchesCommand(InKeyEvent, Commands.PinMetricBenchmark));
-    const bool bNextBenchmark = !bClearPins && !bPin && (bPhysicalNextBenchmark
+    const bool bNextBenchmark = !bClearPins && !bToggleLiveAnalysis && !bPin && (bPhysicalNextBenchmark
         || MetricInput::MatchesCommand(InKeyEvent, Commands.NextMetricBenchmark));
-    const bool bCycle = !bClearPins && !bPin && !bNextBenchmark && (bLegacyShiftBackslash
+    const bool bCycle = !bClearPins && !bToggleLiveAnalysis && !bPin && !bNextBenchmark && (bLegacyShiftBackslash
         || MetricInput::MatchesCommand(InKeyEvent, Commands.CycleMetric));
-    const bool bToggle = !bClearPins && !bPin && !bNextBenchmark && !bCycle && (bLegacyPlainBackslash
+    const bool bToggle = !bClearPins && !bToggleLiveAnalysis && !bPin && !bNextBenchmark && !bCycle && (bLegacyPlainBackslash
         || MetricInput::MatchesCommand(InKeyEvent, Commands.ToggleMetric));
 
-    if (!bToggle && !bCycle && !bPin && !bClearPins && !bNextBenchmark)
+    if (!bToggle && !bToggleLiveAnalysis && !bCycle && !bPin && !bClearPins && !bNextBenchmark)
     {
         return false;
     }
@@ -105,6 +110,14 @@ bool FMetricInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, cons
     if (bClearPins)
     {
         MetricSubsystem->ClearPinnedBenchmarks();
+    }
+    else if (bToggleLiveAnalysis)
+    {
+        if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+        {
+            Settings->bShowLiveVisualizer = !Settings->bShowLiveVisualizer;
+            Settings->SaveConfig();
+        }
     }
     else if (bPin)
     {

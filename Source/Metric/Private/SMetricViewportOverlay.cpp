@@ -132,6 +132,132 @@ namespace MetricOverlay
         }
     }
 
+    static FLinearColor GetLayerThemeColor(const FMetricVisualizationTheme& Theme, int32 LayerIndex)
+    {
+        switch (static_cast<ELayer>(LayerIndex))
+        {
+        case ELayer::Hull: return Theme.Hull;
+        case ELayer::Clearance: return Theme.Clearance.Pass;
+        case ELayer::Overhead: return Theme.Overhead.Pass;
+        case ELayer::Ground: return Theme.GroundPass;
+        case ELayer::Fit: return Theme.Fit.Pass;
+        case ELayer::Threshold: return Theme.Threshold.Pass;
+        case ELayer::Turn: return Theme.TurnClear;
+        case ELayer::Ledge: return Theme.LedgeSafe;
+        case ELayer::Stopping: return Theme.Stopping.Pass;
+        case ELayer::Sensors: return Theme.SensorPrimary;
+        case ELayer::SensorField: return Theme.SensorFieldClear;
+        case ELayer::Ranges: return Theme.EngagementMedium;
+        case ELayer::Locomotion: return Theme.LocomotionMid;
+        case ELayer::Trajectory: return Theme.TrajectoryPath;
+        case ELayer::Camera: return Theme.CameraClear;
+        case ELayer::Cover: return Theme.CoverCovered;
+        case ELayer::JumpRunway: return Theme.JumpRunwayPass;
+        case ELayer::Interaction: return Theme.InteractionOpen;
+        case ELayer::Shoulder: return Theme.ShoulderClear;
+        case ELayer::CombatDensity: return Theme.CombatDensityArea;
+        case ELayer::AlternateStance: return Theme.AlternateStance.Pass;
+        case ELayer::Mantle: return Theme.MantlePass;
+        case ELayer::Recovery: return Theme.RecoveryClear;
+        case ELayer::Crossfire: return Theme.CrossfireCovered;
+        case ELayer::Sightline: return Theme.SightlineClear;
+        default: return Theme.Neutral;
+        }
+    }
+
+    static FLinearColor GetLayerResultColor(const FMetricLiveState& State, int32 LayerIndex)
+    {
+        const FMetricVisualizationTheme& T = State.VisualTheme;
+        switch (static_cast<ELayer>(LayerIndex))
+        {
+        case ELayer::Hull: return T.Hull;
+        case ELayer::Clearance: return State.Clearance.bBlocked ? T.Clearance.Fail : (State.Clearance.bNearThreshold ? T.Clearance.Tight : T.Clearance.Pass);
+        case ELayer::Overhead: return State.OverheadClearance.bBlocked ? T.Overhead.Fail : (State.OverheadClearance.bNearThreshold ? T.Overhead.Tight : T.Overhead.Pass);
+        case ELayer::Ground:
+            if (!State.GroundValidation.bPass)
+            {
+                return T.GroundSlopeFail;
+            }
+            return T.GroundPass;
+        case ELayer::Fit: return !State.FitAnalysis.bPass ? T.Fit.Fail : (State.FitAnalysis.bNearThreshold ? T.Fit.Tight : T.Fit.Pass);
+        case ELayer::Threshold: return !State.ThresholdAnalysis.bPass ? T.Threshold.Fail : (State.ThresholdAnalysis.bNearThreshold ? T.Threshold.Tight : T.Threshold.Pass);
+        case ELayer::Turn: return (State.TurnClearance.Left.bBlocked || State.TurnClearance.Right.bBlocked) ? T.TurnBlocked : T.TurnClear;
+        case ELayer::Ledge:
+            if (!State.LedgeAnalysis.bHasEdge) return T.LedgeNone;
+            if (!State.LedgeAnalysis.bHasLanding || !State.LedgeAnalysis.bSafeDrop) return T.LedgeFail;
+            return State.LedgeAnalysis.bWarning ? T.LedgeWarning : T.LedgeSafe;
+        case ELayer::Stopping: return State.StoppingDistance.bBlocked ? T.Stopping.Fail : (State.StoppingDistance.bNearThreshold ? T.Stopping.Tight : T.Stopping.Pass);
+        case ELayer::Sensors: return T.SensorPrimary;
+        case ELayer::SensorField: return State.SensorField.ClearPercent >= 99.5f ? T.SensorFieldClear : T.SensorFieldBlocked;
+        case ELayer::Ranges: return T.EngagementMedium;
+        case ELayer::Locomotion: return T.LocomotionMid;
+        case ELayer::Trajectory:
+            if (State.Trajectory.bBlocked || !State.Trajectory.bLandingValid) return T.TrajectoryBlocked;
+            if (State.Trajectory.bApexTight) return T.TrajectoryTight;
+            return T.TrajectoryLanding;
+        case ELayer::Camera:
+            if (State.CameraProbe.bBelowMinimum) return T.CameraTooClose;
+            return State.CameraProbe.bCompressed ? T.CameraCompressed : T.CameraClear;
+        case ELayer::Cover: return State.CoverExposure.ExposurePercent > 0.0f ? T.CoverExposed : T.CoverCovered;
+        case ELayer::JumpRunway: return (State.JumpRunway.bTakeoffPass && State.JumpRunway.bLandingPass) ? T.JumpRunwayPass : T.JumpRunwayFail;
+        case ELayer::Interaction: return State.InteractionReach.bHasTarget ? T.InteractionTarget : T.InteractionOpen;
+        case ELayer::Shoulder: return (State.ShoulderClearance.bLeftBlocked || State.ShoulderClearance.bRightBlocked) ? T.ShoulderBlocked : T.ShoulderClear;
+        case ELayer::CombatDensity: return T.CombatDensityArea;
+        case ELayer::AlternateStance:
+            if (!State.AlternateStance.bStandingFits && !State.AlternateStance.bAlternateFits) return T.AlternateStance.Fail;
+            if (!State.AlternateStance.bStandingFits && State.AlternateStance.bAlternateFits) return T.AlternateStance.Tight;
+            return T.AlternateStance.Pass;
+        case ELayer::Mantle:
+            if (!State.MantleVault.bHasObstacle) return T.MantleNone;
+            return (State.MantleVault.bHeightValid && State.MantleVault.bDepthValid) ? T.MantlePass : T.MantleFail;
+        case ELayer::Recovery: return (State.RecoverySpace.bForwardClear && State.RecoverySpace.bBackwardClear && State.RecoverySpace.bLeftClear && State.RecoverySpace.bRightClear) ? T.RecoveryClear : T.RecoveryBlocked;
+        case ELayer::Crossfire: return State.Crossfire.ExposedDirections > 0 ? T.CrossfireExposed : T.CrossfireCovered;
+        case ELayer::Sightline:
+            if (State.CameraSightline.bOccluded) return T.SightlineOccluded;
+            if (State.CameraSightline.bFramingFail) return T.SightlineFramingFail;
+            return T.SightlineClear;
+        default: return T.Neutral;
+        }
+    }
+
+    static bool IsLayerVisuallyActive(const FMetricLiveState& State, const FMetricLayerVisibility& V, int32 LayerIndex)
+    {
+        if (!GetVisibilityFlag(V, LayerIndex, true))
+        {
+            return false;
+        }
+
+        switch (static_cast<ELayer>(LayerIndex))
+        {
+        case ELayer::Hull: return State.bShowHull;
+        case ELayer::Clearance: return State.Clearance.bVisible;
+        case ELayer::Overhead: return State.OverheadClearance.bVisible;
+        case ELayer::Ground: return State.GroundValidation.bVisible;
+        case ELayer::Fit: return State.FitAnalysis.bVisible;
+        case ELayer::Threshold: return State.ThresholdAnalysis.bVisible;
+        case ELayer::Turn: return State.TurnClearance.bVisible;
+        case ELayer::Ledge: return State.LedgeAnalysis.bVisible;
+        case ELayer::Stopping: return State.StoppingDistance.bVisible;
+        case ELayer::Sensors: return State.Sensors.bShowSensorHeights;
+        case ELayer::SensorField: return State.SensorField.bVisible;
+        case ELayer::Ranges: return State.Ranges.bShowEngagementRanges;
+        case ELayer::Locomotion: return State.Locomotion.bShowLocomotionBands;
+        case ELayer::Trajectory: return State.Trajectory.bVisible;
+        case ELayer::Camera: return State.CameraProbe.bVisible;
+        case ELayer::Cover: return State.CoverExposure.bVisible;
+        case ELayer::JumpRunway: return State.JumpRunway.bVisible;
+        case ELayer::Interaction: return State.InteractionReach.bVisible;
+        case ELayer::Shoulder: return State.ShoulderClearance.bVisible;
+        case ELayer::CombatDensity: return State.CombatDensity.bVisible;
+        case ELayer::AlternateStance: return State.AlternateStance.bVisible;
+        case ELayer::Mantle: return State.MantleVault.bVisible;
+        case ELayer::Recovery: return State.RecoverySpace.bVisible;
+        case ELayer::Crossfire: return State.Crossfire.bVisible;
+        case ELayer::Sightline: return State.CameraSightline.bVisible;
+        default: return false;
+        }
+    }
+
     static bool IsLayerEnabledByProfile(const FMetricLiveState& State, int32 LayerIndex)
     {
         switch (static_cast<ELayer>(LayerIndex))
@@ -679,7 +805,17 @@ namespace MetricOverlay
                 + SHorizontalBox::Slot().FillWidth(0.42f).VAlign(VAlign_Center)
                 [ SNew(STextBlock).Text(FText::FromString(Layers[LayerIndex].Name)).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground()) ]
                 + SHorizontalBox::Slot().FillWidth(0.58f).HAlign(HAlign_Right).VAlign(VAlign_Center)
-                [ SNew(STextBlock).Text_Lambda([LayerIndex]() { return FText::FromString(PinnedLayerValue(LayerIndex)); }).ColorAndOpacity_Lambda([LayerIndex]() { return ResultValueColor(PinnedLayerValue(LayerIndex), GetDefault<UMetricEditorSettings>()); }).Font(FAppStyle::GetFontStyle("SmallFont")).Justification(ETextJustify::Right) ]
+                [ SNew(STextBlock).Text_Lambda([LayerIndex]() { return FText::FromString(PinnedLayerValue(LayerIndex)); }).ColorAndOpacity_Lambda([LayerIndex]()
+                {
+                    if (UMetricSubsystem* Subsystem = GetSubsystem())
+                    {
+                        if (const FMetricLiveState* State = Subsystem->GetSelectedPinnedEvaluatedState())
+                        {
+                            return FSlateColor(GetLayerResultColor(*State, LayerIndex));
+                        }
+                    }
+                    return FSlateColor::UseForeground();
+                }).Font(FAppStyle::GetFontStyle("SmallFont")).Justification(ETextJustify::Right) ]
             ];
         }
         return Rows;
@@ -705,7 +841,14 @@ namespace MetricOverlay
                 [
                     SNew(STextBlock)
                     .Text_Lambda([LayerIndex]() { return FText::FromString(LiveLayerValue(LayerIndex)); })
-                    .ColorAndOpacity_Lambda([LayerIndex]() { const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>(); return ResultValueColor(LiveLayerValue(LayerIndex), Settings); })
+                    .ColorAndOpacity_Lambda([LayerIndex]()
+                    {
+                        if (UMetricSubsystem* Subsystem = GetSubsystem())
+                        {
+                            return FSlateColor(GetLayerResultColor(Subsystem->GetLiveState(), LayerIndex));
+                        }
+                        return FSlateColor::UseForeground();
+                    })
                     .Font(FAppStyle::GetFontStyle("SmallFont"))
                     .Justification(ETextJustify::Right)
                 ]
@@ -927,13 +1070,6 @@ void SMetricViewportOverlay::Rebuild()
         ]
         + SHorizontalBox::Slot().AutoWidth().Padding(1,0)
         [
-            SNew(SComboButton)
-            .ToolTipText(LOCTEXT("EditLiveTip", "Display Options: control visibility for analyses enabled by the active Metric Profile. Profile-disabled analyses are shown as Off and cannot be displayed until enabled in the profile."))
-            .ButtonContent()[ SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit")) ]
-            .OnGetMenuContent(this, &SMetricViewportOverlay::BuildVisibilityMenu, false)
-        ]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)
-        [
             SNew(SButton)
             .Text(this, &SMetricViewportOverlay::BuildLegendButtonText)
             .ToolTipText(LOCTEXT("LegendToggleTip", "Show or hide the Metric legend in this viewport."))
@@ -950,24 +1086,52 @@ void SMetricViewportOverlay::Rebuild()
         .ToolTipText(FText::FromString(ProfileName))
     ];
 
-    auto AddSectionHeader = [this](const FText& Title, bool bExpanded, FReply (SMetricViewportOverlay::*Handler)())
+    auto AddSectionHeader = [this](const FText& Title, bool bExpanded, FReply (SMetricViewportOverlay::*Handler)(), bool bShowDisplayOptions = false, bool bForBenchmark = false)
     {
         RootBox->AddSlot().AutoHeight().Padding(0,2,0,1)
         [
-            SNew(SButton)
-            .ContentPadding(FMargin(2.0f, 2.0f))
-            .OnClicked(this, Handler)
+            SNew(SBorder)
+            .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+            .Padding(0.0f)
             [
                 SNew(SHorizontalBox)
-                + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,4,0)
-                [ SNew(SImage).Image(FAppStyle::GetBrush(bExpanded ? TEXT("Icons.ChevronDown") : TEXT("Icons.ChevronRight"))) ]
-                + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-                [ SNew(STextBlock).Text(Title).Font(FAppStyle::GetFontStyle("SmallFont")) ]
+                + SHorizontalBox::Slot().FillWidth(1.0f)
+                [
+                    SNew(SButton)
+                    .ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>("SimpleButton"))
+                    .ContentPadding(FMargin(2.0f, 2.0f))
+                    .OnClicked(this, Handler)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,4,0)
+                        [ SNew(SImage).Image(FAppStyle::GetBrush(bExpanded ? TEXT("Icons.ChevronDown") : TEXT("Icons.ChevronRight"))) ]
+                        + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+                        [ SNew(STextBlock).Text(Title).Font(FAppStyle::GetFontStyle("SmallFont")) ]
+                    ]
+                ]
+                + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(2,0,2,0)
+                [
+                    SNew(SComboButton)
+                    .Visibility(bShowDisplayOptions ? EVisibility::Visible : EVisibility::Collapsed)
+                    .IsEnabled_Lambda([this, bForBenchmark]()
+                    {
+                        return !bForBenchmark || LastSelectedPin != INDEX_NONE;
+                    })
+                    .ToolTipText(bForBenchmark
+                        ? LOCTEXT("BenchmarkSectionDisplayTip", "Benchmark Display Options: choose which layers the active benchmark draws and reports.")
+                        : LOCTEXT("LiveSectionDisplayTip", "Live Metric Display Options: choose which profile-enabled layers draw in the viewport and appear in results."))
+                    .ContentPadding(FMargin(3.0f, 1.0f))
+                    .ButtonContent()
+                    [
+                        SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit"))
+                    ]
+                    .OnGetMenuContent(this, &SMetricViewportOverlay::BuildVisibilityMenu, bForBenchmark)
+                ]
             ]
         ];
     };
 
-    AddSectionHeader(LOCTEXT("LiveSection", "LIVE METRIC"), bLiveSectionExpanded, &SMetricViewportOverlay::ToggleLiveSection);
+    AddSectionHeader(LOCTEXT("LiveSection", "LIVE METRIC"), bLiveSectionExpanded, &SMetricViewportOverlay::ToggleLiveSection, true, false);
     if (bLiveSectionExpanded)
     {
         RootBox->AddSlot().AutoHeight().Padding(4,1,2,2)
@@ -1014,7 +1178,7 @@ void SMetricViewportOverlay::Rebuild()
 
     RootBox->AddSlot().AutoHeight().Padding(0,2,0,2)[SNew(SSeparator)];
 
-    AddSectionHeader(FText::Format(LOCTEXT("BenchmarksSection", "BENCHMARKS ({0})"), FText::AsNumber(LastPinCount)), bBenchmarkSectionExpanded, &SMetricViewportOverlay::ToggleBenchmarkSection);
+    AddSectionHeader(FText::Format(LOCTEXT("BenchmarksSection", "BENCHMARKS ({0})"), FText::AsNumber(LastPinCount)), bBenchmarkSectionExpanded, &SMetricViewportOverlay::ToggleBenchmarkSection, true, true);
     if (bBenchmarkSectionExpanded)
     {
         RootBox->AddSlot().AutoHeight().Padding(4,2,2,3)
@@ -1025,14 +1189,6 @@ void SMetricViewportOverlay::Rebuild()
                 SNew(SComboButton)
                 .ButtonContent()[ SNew(STextBlock).Text(this, &SMetricViewportOverlay::BuildBenchmarkSelectionText) ]
                 .OnGetMenuContent(this, &SMetricViewportOverlay::BuildBenchmarkMenu)
-            ]
-            + SHorizontalBox::Slot().AutoWidth().Padding(3,0,0,0)
-            [
-                SNew(SComboButton)
-                .IsEnabled(LastSelectedPin != INDEX_NONE)
-                .ToolTipText(LOCTEXT("EditBenchmarkTip", "Display Options: choose which layers this benchmark draws and reports."))
-                .ButtonContent()[ SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit")) ]
-                .OnGetMenuContent(this, &SMetricViewportOverlay::BuildVisibilityMenu, true)
             ]
         ];
 
@@ -1085,7 +1241,7 @@ void SMetricViewportOverlay::Rebuild()
     }
 
     RootBox->AddSlot().AutoHeight().Padding(2,5,0,0)
-    [ SNew(STextBlock).Text(LOCTEXT("Shortcuts", "Ctrl+\\ Pin   |   Alt+\\ Next   |   Ctrl+Shift+\\ Clear")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground()) ];
+    [ SNew(STextBlock).Text(LOCTEXT("Shortcuts", "Ctrl+Alt+\\ Live   |   Ctrl+\\ Pin   |   Alt+\\ Next   |   Ctrl+Shift+\\ Clear")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground()) ];
 
     if (LegendBorder.IsValid())
     {
@@ -1200,7 +1356,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
         SNew(SHorizontalBox)
         + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewSpace", "Space & Nav")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(4,bForBenchmark); })]
         + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewInteraction", "Interaction")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(5,bForBenchmark); })]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewMinimal", "Minimal")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(6,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCoreFit", "Core Fit")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(6,bForBenchmark); })]
     ];
 
     {
@@ -1299,7 +1455,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
                     if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
                     {
                         return MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index)
-                            ? FSlateColor(FLinearColor(0.35f, 0.90f, 0.48f, 1.0f))
+                            ? FSlateColor(MetricOverlay::GetLayerResultColor(Subsystem->GetLiveState(), Index))
                             : FSlateColor::UseSubduedForeground();
                     }
                     return FSlateColor::UseSubduedForeground();
@@ -1390,7 +1546,10 @@ FReply SMetricViewportOverlay::OpenActiveMetricProfile()
 TSharedRef<SWidget> SMetricViewportOverlay::BuildLegendContent()
 {
     TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
-    Box->AddSlot().AutoHeight().Padding(0,0,0,4)[SNew(STextBlock).Text(LOCTEXT("LegendHeader", "METRIC LEGEND")).Font(FAppStyle::GetFontStyle("SmallFont"))];
+    Box->AddSlot().AutoHeight().Padding(0,0,0,4)
+    [
+        SNew(STextBlock).Text(LOCTEXT("LegendHeader", "METRIC LEGEND")).Font(FAppStyle::GetFontStyle("SmallFont"))
+    ];
 
     UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
@@ -1399,40 +1558,67 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLegendContent()
         return Box;
     }
 
-    const FMetricLiveState& State = Subsystem->GetLiveState();
-    if (State.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    const FMetricLiveState& LiveState = Subsystem->GetLiveState();
+    const FMetricLayerVisibility& LiveVisibility = Settings->LiveVisibility;
+    const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Subsystem->GetSelectedPinnedBenchmarkIndex());
+    const FMetricLiveState* PinState = Subsystem->GetSelectedPinnedEvaluatedState();
+
+    if (LiveState.EntryType == EMetricCycleEntryType::NativePreviewMesh && !PinState)
     {
-        Box->AddSlot().AutoHeight()[SNew(STextBlock).Text(LOCTEXT("NativeLegend", "Visual scale reference only")).Font(FAppStyle::GetFontStyle("SmallFont"))];
+        Box->AddSlot().AutoHeight()
+        [
+            SNew(STextBlock).Text(LOCTEXT("NativeLegend", "Visual scale reference only")).Font(FAppStyle::GetFontStyle("SmallFont"))
+        ];
         return Box;
     }
 
-    const FMetricLayerVisibility& V = Settings->LiveVisibility;
-    if (State.bShowHull && V.bHullVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendHull", "Hull / footprint"), { Settings->HullColor });
-    if (State.Clearance.bVisible && V.bClearanceVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendClearance", "Clearance: pass / tight / fail"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.OverheadClearance.bVisible && V.bOverheadVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendOverhead", "Overhead: pass / tight / fail"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.GroundValidation.bVisible && V.bGroundVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendGround", "Ground: pass / step / slope"), { Settings->GroundPassColor, Settings->GroundStepFailColor, Settings->GroundSlopeFailColor });
-    if (State.FitAnalysis.bVisible && V.bFitVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendFit", "Fit: pass / tight / fail"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.ThresholdAnalysis.bVisible && V.bThresholdVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendThreshold", "Threshold: pass / tight / fail"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.TurnClearance.bVisible && V.bTurnVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendTurn", "Turn clearance"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
-    if (State.LedgeAnalysis.bVisible && V.bLedgeVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendLedge", "Ledge / drop"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.StoppingDistance.bVisible && V.bStoppingVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendStopping", "Stopping distance"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.CoverExposure.bVisible && V.bCoverVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendCover", "Cover / exposure"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
-    if (State.JumpRunway.bVisible && V.bJumpRunwayVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendRunway", "Jump runway"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
-    if (State.InteractionReach.bVisible && V.bInteractionVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendReach", "Interaction reach"), { Settings->SensorColor, Settings->ClearancePassColor });
-    if (State.ShoulderClearance.bVisible && V.bShoulderVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendShoulder", "Shoulder camera"), { Settings->CameraProbeColor, Settings->CameraCompressedColor });
-    if (State.CombatDensity.bVisible && V.bCombatDensityVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendDensity", "Combat density"), { Settings->EngagementRangeColor });
-    if (State.AlternateStance.bVisible && V.bAlternateStanceVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendStance", "Alternate stance"), { Settings->ClearancePassColor, Settings->ClearanceWarningColor, Settings->ClearanceFailColor });
-    if (State.MantleVault.bVisible && V.bMantleVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendMantle", "Mantle / vault"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
-    if (State.RecoverySpace.bVisible && V.bRecoveryVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendRecovery", "Recovery space"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
-    if (State.Crossfire.bVisible && V.bCrossfireVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendCrossfire", "Crossfire exposure"), { Settings->ClearancePassColor, Settings->ClearanceFailColor });
-    if (State.Sensors.bShowSensorHeights && V.bSensorsVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendSensors", "Sensor heights"), { Settings->SensorColor });
-    if (State.SensorField.bVisible && V.bSensorFieldVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendSensorField", "Sensor field / blocked"), { Settings->SensorFieldColor, Settings->SensorFieldBlockedColor });
-    if (State.Ranges.bShowEngagementRanges && V.bRangesVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendRange", "Engagement ranges"), { Settings->EngagementRangeColor });
-    if (State.Locomotion.bShowLocomotionBands && V.bLocomotionVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendMove", "Locomotion bands"), { Settings->LocomotionBandColor });
-    if (State.Trajectory.bVisible && V.bTrajectoryVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendTrajectory", "Trajectory / landing / blocked"), { Settings->TrajectoryColor, Settings->TrajectoryLandingColor, Settings->TrajectoryBlockedColor });
-    if (State.CameraProbe.bVisible && V.bCameraVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendCamera", "Camera / compressed"), { Settings->CameraProbeColor, Settings->CameraCompressedColor });
-    if (State.CameraSightline.bVisible && V.bSightlineVisual) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendView", "Camera sightline"), { Settings->CameraSightlineColor });
-    if (Subsystem->GetPinnedBenchmarkCount() > 0) MetricOverlay::AddLegendRow(Box, LOCTEXT("LegendPin", "Pinned benchmark"), { Settings->PinnedBenchmarkColor });
+    for (int32 LayerIndex = 0; LayerIndex < static_cast<int32>(MetricOverlay::ELayer::Count); ++LayerIndex)
+    {
+        const bool bLiveVisible = LiveState.bHasHit
+            && LiveState.EntryType != EMetricCycleEntryType::NativePreviewMesh
+            && MetricOverlay::IsLayerVisuallyActive(LiveState, LiveVisibility, LayerIndex);
+        const bool bPinVisible = Pin && PinState
+            && MetricOverlay::IsLayerVisuallyActive(*PinState, Pin->Visibility, LayerIndex);
+
+        if (!bLiveVisible && !bPinVisible)
+        {
+            continue;
+        }
+
+        TArray<FLinearColor> Colors;
+        if (bLiveVisible)
+        {
+            Colors.Add(MetricOverlay::GetLayerResultColor(LiveState, LayerIndex));
+        }
+        if (bPinVisible)
+        {
+            const FLinearColor PinColor = MetricOverlay::GetLayerResultColor(*PinState, LayerIndex);
+            if (!Colors.ContainsByPredicate([&PinColor](const FLinearColor& Existing) { return Existing.Equals(PinColor, 0.001f); }))
+            {
+                Colors.Add(PinColor);
+            }
+            else if (bLiveVisible)
+            {
+                // Two identical swatches still communicate that both the live
+                // context and selected benchmark contribute this legend row.
+                Colors.Add(PinColor);
+            }
+        }
+
+        MetricOverlay::AddLegendRow(Box, FText::FromString(MetricOverlay::Layers[LayerIndex].Name), Colors);
+    }
+
+    if (PinState)
+    {
+        Box->AddSlot().AutoHeight().Padding(0,4,0,0)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("LegendContextTip", "Swatches reflect Live Metric + active benchmark visibility."))
+            .Font(FAppStyle::GetFontStyle("SmallFont"))
+            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        ];
+    }
+
     return Box;
 }
 

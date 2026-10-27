@@ -20,6 +20,7 @@ public:
     virtual void RegisterCommands() override;
 
     TSharedPtr<FUICommandInfo> ToggleMetric;
+    TSharedPtr<FUICommandInfo> ToggleLiveAnalysis;
     TSharedPtr<FUICommandInfo> CycleMetric;
     TSharedPtr<FUICommandInfo> PinMetricBenchmark;
     TSharedPtr<FUICommandInfo> NextMetricBenchmark;

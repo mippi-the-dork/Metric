@@ -35,9 +35,11 @@ FMetricProfileEditorToolkit::FMetricProfileEditorToolkit()
     const FText Traversal = LOCTEXT("GroupTraversal", "MOVEMENT & TRAVERSAL");
     const FText Camera = LOCTEXT("GroupCamera", "CAMERA & INTERACTION");
     const FText Combat = LOCTEXT("GroupCombat", "COMBAT & EXPOSURE");
+    const FText VisualIdentity = LOCTEXT("GroupVisualIdentity", "VISUALIZATION COLORS");
     const FText Visual = LOCTEXT("GroupVisual", "REPRESENTATION");
 
     Sections = {
+        { GET_MEMBER_NAME_CHECKED(UMetricPreset, VisualTheme), LOCTEXT("VisualTheme", "Visualization Colors"), VisualIdentity, LOCTEXT("VisualThemeDesc", "Defines every semantic color used by this Metric Profile. World visualization and HUD/result colors are paired: changing a state or aspect here changes both surfaces together. Each analysis exposes only the colors that are meaningful to its visualization and states."), LOCTEXT("VisualIdentityFidelity", "Visual identity"), false },
         { GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull), LOCTEXT("Hull", "Hull"), Core, LOCTEXT("HullDesc", "Defines the gameplay entity's reference shape and dimensions used by Metric analyses."), LOCTEXT("ReferenceFidelity", "Reference"), false },
         { GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors), LOCTEXT("Sensors", "Sensor Heights"), Core, LOCTEXT("SensorsDesc", "Reference points for primary and low-profile sensing or eye-height comparisons."), LOCTEXT("ReferenceFidelity2", "Reference"), true },
         { GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance), LOCTEXT("Clearance", "Clearance"), Space, LOCTEXT("ClearanceDesc", "Tests forward usable space with the active Metric hull."), LOCTEXT("MeasuredFidelity", "Measured"), true },
@@ -472,6 +474,7 @@ bool FMetricProfileEditorToolkit::IsSectionEnabled(FName PropertyName) const
         return false;
     }
 
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, VisualTheme)) return true;
     if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull)) return true;
     if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance)) return Preset->Clearance.bShowClearanceProbe;
     if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, OverheadClearance)) return Preset->OverheadClearance.bShowOverheadClearance;

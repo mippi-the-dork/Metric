@@ -604,6 +604,15 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     NewPreset->Crossfire.SampleHeight = bHeavyStarter ? 220.0f : 130.0f;
     NewPreset->Crossfire.TraceChannel = ECC_Visibility;
 
+    // Starter profiles intentionally use distinct visual identities. Custom profiles
+    // start with the Human/cool defaults from FMetricVisualizationTheme and can
+    // override every theme color in the Metric Profile Editor.
+    if (bHeavyStarter)
+    {
+    }
+
+    NewPreset->VisualizationThemeVersion = 1;
+
     NewPreset->Representation.bShowStaticMesh = false;
     NewPreset->Representation.StaticMesh.Reset();
     NewPreset->Representation.RelativeTransform = FTransform::Identity;
@@ -804,6 +813,7 @@ void UMetricSubsystem::SavePinnedBenchmarksForWorld(UWorld* World)
         StoredPin.WorldLocation = Pin.WorldLocation;
         StoredPin.Forward = Pin.Forward;
         StoredPin.Hull = Pin.Hull;
+        StoredPin.VisualTheme = Pin.VisualTheme;
         StoredPin.Label = Pin.Label.ToString();
         StoredPin.SourceProfileLabel = Pin.SourceProfileLabel.ToString();
         StoredPin.CapturedResults = Pin.CapturedResults;
@@ -873,6 +883,7 @@ void UMetricSubsystem::LoadPinnedBenchmarksForWorld(UWorld* World)
             Pin.WorldLocation = StoredPin.WorldLocation;
             Pin.Forward = StoredPin.Forward.GetSafeNormal(SMALL_NUMBER, FVector::ForwardVector);
             Pin.Hull = StoredPin.Hull;
+            Pin.VisualTheme = StoredPin.VisualTheme;
             Pin.Label = FText::FromString(StoredPin.Label);
             Pin.SourceProfileLabel = StoredPin.SourceProfileLabel.IsEmpty() ? Pin.Label : FText::FromString(StoredPin.SourceProfileLabel);
             Pin.CapturedResults = StoredPin.CapturedResults;
@@ -989,6 +1000,7 @@ void UMetricSubsystem::PinCurrentBenchmark()
     Pin.SurfaceNormal = LiveState.SurfaceNormal;
     Pin.Forward = LiveState.Forward;
     Pin.Hull = LiveState.Hull;
+    Pin.VisualTheme = LiveState.VisualTheme;
     Pin.Label = LiveState.Label;
     Pin.SourceProfileLabel = LiveState.Label;
     Pin.CapturedResults = MetricBenchmark::BuildCapturedResults(LiveState);
@@ -1120,6 +1132,7 @@ void UMetricSubsystem::ReplacePinnedBenchmarkWithLive(int32 Index)
     PinnedBenchmarks[Index].SurfaceNormal = LiveState.SurfaceNormal;
     PinnedBenchmarks[Index].Forward = LiveState.Forward;
     PinnedBenchmarks[Index].Hull = LiveState.Hull;
+    PinnedBenchmarks[Index].VisualTheme = LiveState.VisualTheme;
     PinnedBenchmarks[Index].Label = ExistingLabel;
     PinnedBenchmarks[Index].SourceProfileLabel = LiveState.Label;
     PinnedBenchmarks[Index].CapturedResults = MetricBenchmark::BuildCapturedResults(LiveState);
@@ -1285,6 +1298,7 @@ const FMetricCycleEntry* UMetricSubsystem::GetActiveEntry() const
 void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
 {
     InOutState.Hull = FMetricHullSettings();
+    InOutState.VisualTheme = FMetricVisualizationTheme();
     InOutState.ClearanceSettings = FMetricClearanceSettings();
     InOutState.Clearance = FMetricClearanceResult();
     InOutState.OverheadClearanceSettings = FMetricOverheadClearanceSettings();
@@ -1383,6 +1397,7 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
         if (const UMetricPreset* Preset = Entry->Preset.LoadSynchronous())
         {
             InOutState.Hull = Preset->Hull;
+            InOutState.VisualTheme = Preset->VisualTheme;
             InOutState.ClearanceSettings = Preset->Clearance;
             InOutState.OverheadClearanceSettings = Preset->OverheadClearance;
             InOutState.Sensors = Preset->Sensors;
@@ -1545,6 +1560,7 @@ bool UMetricSubsystem::BuildSelectedPinnedVisualState(UWorld* World, FMetricLive
     OutState.Forward = Pin.Forward.GetSafeNormal(SMALL_NUMBER, FVector::ForwardVector);
     OutState.ViewerLocation = LiveState.ViewerLocation;
     OutState.Hull = Pin.Hull;
+    OutState.VisualTheme = Pin.VisualTheme;
     OutState.ClearanceSettings = Pin.ClearanceSettings;
     OutState.OverheadClearanceSettings = Pin.OverheadClearanceSettings;
     OutState.Sensors = Pin.Sensors;
@@ -3231,9 +3247,13 @@ void UMetricSubsystem::EvaluateRecoverySpace(UWorld* World, FMetricLiveState& In
     }
     }
 
+    // Lift the recovery sweep a tiny amount above the placement surface. Starting
+    // exactly tangent to a flat floor can produce initial-overlap / floating-point
+    // hits at distance zero, which read as false blocked directions.
+    constexpr float RecoveryFloorEpsilon = 1.0f;
     const FVector Start = InOutState.Location
         + InOutState.Hull.LocalOffset
-        + FVector::UpVector * CenterHeight;
+        + FVector::UpVector * (CenterHeight + RecoveryFloorEpsilon);
 
     FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricRecoverySpace), true);
     Params.bTraceComplex = true;
