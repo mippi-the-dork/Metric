@@ -1,6 +1,7 @@
 #include "MetricSubsystem.h"
 
 #include "MetricEditorSettings.h"
+#include "MetricEnvironmentQuery.h"
 #include "MetricPreset.h"
 #include "MetricProjectSettings.h"
 #include "MetricRenderHostActor.h"
@@ -1723,7 +1724,7 @@ void UMetricSubsystem::EvaluateClearance(UWorld* World, FMetricLiveState& InOutS
     const FVector Start = InOutState.Location + StartOffset;
     const FVector End = InOutState.Location + ExtendedEndOffset;
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricClearanceSweep), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricClearanceSweep), true);
     QueryParams.bTraceComplex = true;
 
     FHitResult Hit;
@@ -1782,7 +1783,7 @@ void UMetricSubsystem::EvaluateOverheadClearance(UWorld* World, FMetricLiveState
 
     const FVector Start = InOutState.Location + FVector::UpVector * 1.0f;
     const FVector End = InOutState.Location + FVector::UpVector * MaxProbe;
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricOverheadClearanceTrace), true);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricOverheadClearanceTrace), true);
     Params.bTraceComplex = true;
 
     FHitResult Hit;
@@ -1832,7 +1833,7 @@ void UMetricSubsystem::EvaluateSensorField(UWorld* World, FMetricLiveState& InOu
     const FVector OriginOffset = InOutState.Hull.LocalOffset + Up * FMath::Max(0.0f, InOutState.Sensors.PrimarySensorZOffset);
     const FVector Origin = InOutState.Location + OriginOffset;
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricSensorFieldTrace), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricSensorFieldTrace), true);
     QueryParams.bTraceComplex = true;
 
     FMetricSensorFieldResult& Result = InOutState.SensorField;
@@ -1961,7 +1962,7 @@ void UMetricSubsystem::EvaluateTrajectory(UWorld* World, FMetricLiveState& InOut
     Result.bApproximateShape = bApproximateShape;
     Result.SampleOffsets.Add(StartOffset);
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricTrajectorySweep), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricTrajectorySweep), true);
     QueryParams.bTraceComplex = true;
 
     FVector PreviousWorld = StartWorld;
@@ -2130,7 +2131,7 @@ void UMetricSubsystem::EvaluateCameraProbe(UWorld* World, FMetricLiveState& InOu
     const FVector PivotWorld = InOutState.Location + PivotOffset;
     const FVector DesiredWorld = InOutState.Location + DesiredCameraOffset;
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricCameraProbeSweep), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCameraProbeSweep), true);
     QueryParams.bTraceComplex = true;
 
     FHitResult Hit;
@@ -2213,7 +2214,7 @@ void UMetricSubsystem::EvaluateCameraSightline(UWorld* World, FMetricLiveState& 
         return;
     }
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricCameraSightlineTrace), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCameraSightlineTrace), true);
     QueryParams.bTraceComplex = true;
 
     FHitResult Hit;
@@ -2290,7 +2291,7 @@ void UMetricSubsystem::EvaluateGroundValidation(UWorld* World, FMetricLiveState&
     TArray<float> PreviousZ;
     PreviousZ.Init(InOutState.Location.Z, LaneCount);
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricGroundValidationTrace), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricGroundValidationTrace), true);
     QueryParams.bTraceComplex = true;
 
     for (int32 Row = 0; Row <= RowCount; ++Row)
@@ -2388,7 +2389,7 @@ void UMetricSubsystem::EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& In
     const float MaxSafeDrop = FMath::Max(0.0f, Settings.MaxSafeDrop);
     const int32 SampleCount = FMath::Max(1, FMath::CeilToInt(ForwardDistance / SampleSpacing));
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricLedgeAnalysisTrace), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricLedgeAnalysisTrace), true);
     QueryParams.bTraceComplex = true;
 
     float LastGroundZ = InOutState.Location.Z;
@@ -2499,7 +2500,7 @@ void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOu
     Result.MinimumAvailableWidth = TNumericLimits<float>::Max();
     Result.MinimumAvailableHeight = TNumericLimits<float>::Max();
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricFitAnalysisTrace), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricFitAnalysisTrace), true);
     QueryParams.bTraceComplex = true;
 
     for (int32 SampleIndex = 0; SampleIndex <= SampleCount; ++SampleIndex)
@@ -2662,7 +2663,7 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
     Result.MinimumAvailableWidth = TNumericLimits<float>::Max();
     Result.MinimumAvailableHeight = TNumericLimits<float>::Max();
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricThresholdAnalysisTrace), true);
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricThresholdAnalysisTrace), true);
     QueryParams.bTraceComplex = true;
 
     bool bHavePreviousFloor = false;
@@ -2902,7 +2903,7 @@ void UMetricSubsystem::EvaluateStoppingDistance(UWorld* World, FMetricLiveState&
     const FVector Start = InOutState.Location + StartOffset;
     const FVector End = Start + Forward * (RequiredDistance + WarningMargin);
 
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricStoppingDistanceSweep), true);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricStoppingDistanceSweep), true);
     Params.bTraceComplex = true;
     FHitResult Hit;
     const bool bHit = World->SweepSingleByChannel(Hit, Start, End, Rotation,
@@ -2945,7 +2946,7 @@ void UMetricSubsystem::EvaluateCoverExposure(UWorld* World, FMetricLiveState& In
     const FVector Low = InOutState.Location + FVector::UpVector * S.LowSampleHeight;
     const FVector Torso = InOutState.Location + FVector::UpVector * S.TorsoSampleHeight;
     const FVector Head = InOutState.Location + FVector::UpVector * S.HeadSampleHeight;
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricCoverExposure), true); Params.bTraceComplex = true;
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCoverExposure), true);
     auto Covered=[&](const FVector& Target){ FHitResult H; const bool bHit=World->LineTraceSingleByChannel(H,Threat,Target,S.TraceChannel.GetValue(),Params); return bHit && H.Distance + 2.0f < FVector::Distance(Threat,Target); };
     FMetricCoverExposureResult& R=InOutState.CoverExposure; R.bVisible=true; R.ThreatOffset=Threat-InOutState.Location; R.LowOffset=Low-InOutState.Location; R.TorsoOffset=Torso-InOutState.Location; R.HeadOffset=Head-InOutState.Location;
     R.bLowCovered=Covered(Low); R.bTorsoCovered=Covered(Torso); R.bHeadCovered=Covered(Head);
@@ -2970,7 +2971,7 @@ void UMetricSubsystem::EvaluateJumpRunway(UWorld* World, FMetricLiveState& InOut
         Forward = FVector::ForwardVector;
     }
 
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricJumpRunway), true);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricJumpRunway), true);
     Params.bTraceComplex = true;
 
     const float ProbeDepth = FMath::Max(20.0f, S.GroundProbeDepth);
@@ -3042,7 +3043,7 @@ void UMetricSubsystem::EvaluateInteractionReach(UWorld* World, FMetricLiveState&
     if(!World||!InOutState.bHasHit||!S.bShowInteractionReach||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
     FVector Forward=InOutState.Forward.GetSafeNormal(); if(Forward.IsNearlyZero())Forward=FVector::ForwardVector;
     const FVector Start=InOutState.Location+FVector::UpVector*S.ReachHeight; const FVector End=Start+Forward*FMath::Max(10.0f,S.ReachDistance);
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricInteractionReach),true); Params.bTraceComplex=true; FHitResult H;
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricInteractionReach), true); FHitResult H;
     const bool bHit=World->SweepSingleByChannel(H,Start,End,FQuat::Identity,S.TraceChannel.GetValue(),FCollisionShape::MakeSphere(FMath::Max(1.0f,S.ProbeRadius)),Params);
     auto& R=InOutState.InteractionReach; R.bVisible=true; R.bHasTarget=bHit; R.TargetDistance=bHit?H.Distance:S.ReachDistance; R.OriginOffset=Start-InOutState.Location; R.EndOffset=End-InOutState.Location; if(bHit)R.HitOffset=H.ImpactPoint-InOutState.Location;
 }
@@ -3054,7 +3055,7 @@ void UMetricSubsystem::EvaluateShoulderClearance(UWorld* World, FMetricLiveState
     FVector Forward=InOutState.Forward; Forward.Z=0; Forward=Forward.GetSafeNormal(); if(Forward.IsNearlyZero())Forward=FVector::ForwardVector; const FVector Right=FVector::CrossProduct(FVector::UpVector,Forward).GetSafeNormal();
     const FVector Pivot=InOutState.Location+FVector::UpVector*S.PivotHeight; const float Dist=FMath::Max(10.0f,S.CameraDistance); const float Side=FMath::Max(0.0f,S.ShoulderOffset);
     const FVector LeftDesired=Pivot-Forward*Dist-Right*Side; const FVector RightDesired=Pivot-Forward*Dist+Right*Side;
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricShoulderClearance),true); Params.bTraceComplex=true; const FCollisionShape Shape=FCollisionShape::MakeSphere(FMath::Max(1.0f,S.ProbeRadius));
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricShoulderClearance), true); const FCollisionShape Shape=FCollisionShape::MakeSphere(FMath::Max(1.0f,S.ProbeRadius));
     FHitResult LH,RH; const bool bL=World->SweepSingleByChannel(LH,Pivot,LeftDesired,FQuat::Identity,S.TraceChannel.GetValue(),Shape,Params); const bool bR=World->SweepSingleByChannel(RH,Pivot,RightDesired,FQuat::Identity,S.TraceChannel.GetValue(),Shape,Params);
     auto& R=InOutState.ShoulderClearance; R.bVisible=true; R.bLeftBlocked=bL; R.bRightBlocked=bR; R.LeftDistance=bL?LH.Distance:FVector::Distance(Pivot,LeftDesired); R.RightDistance=bR?RH.Distance:FVector::Distance(Pivot,RightDesired); R.PivotOffset=Pivot-InOutState.Location; R.LeftOffset=(bL?LH.Location:LeftDesired)-InOutState.Location; R.RightOffset=(bR?RH.Location:RightDesired)-InOutState.Location;
 }
@@ -3071,7 +3072,7 @@ void UMetricSubsystem::EvaluateAlternateStance(UWorld* World, FMetricLiveState& 
 {
     InOutState.AlternateStance=FMetricAlternateStanceResult(); const auto& S=InOutState.AlternateStanceSettings;
     if(!World||!InOutState.bHasHit||!S.bShowAlternateStance||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
-    const float MaxProbe=FMath::Max(InOutState.Hull.Height,S.AlternateHeight)+FMath::Max(0.0f,S.WarningMargin)+100.0f; FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricAlternateStance),true); Params.bTraceComplex=true; FHitResult H;
+    const float MaxProbe=FMath::Max(InOutState.Hull.Height,S.AlternateHeight)+FMath::Max(0.0f,S.WarningMargin)+100.0f; FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricAlternateStance), true); FHitResult H;
     const FVector Start=InOutState.Location+FVector::UpVector; const FVector End=InOutState.Location+FVector::UpVector*MaxProbe; const bool bHit=World->LineTraceSingleByChannel(H,Start,End,S.TraceChannel.GetValue(),Params); const float Available=bHit?FMath::Max(0.0f,H.Location.Z-InOutState.Location.Z):MaxProbe;
     auto& R=InOutState.AlternateStance; R.bVisible=true; R.AvailableHeight=Available; R.bStandingFits=Available+KINDA_SMALL_NUMBER>=InOutState.Hull.Height; R.bAlternateFits=Available+KINDA_SMALL_NUMBER>=S.AlternateHeight;
 }
@@ -3094,7 +3095,7 @@ void UMetricSubsystem::EvaluateMantleVault(UWorld* World, FMetricLiveState& InOu
         Forward = FVector::ForwardVector;
     }
 
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricMantleVault), true);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricMantleVault), true);
     Params.bTraceComplex = true;
 
     const float ForwardReach = FMath::Max(10.0f, S.ForwardReach);
@@ -3255,7 +3256,7 @@ void UMetricSubsystem::EvaluateRecoverySpace(UWorld* World, FMetricLiveState& In
         + InOutState.Hull.LocalOffset
         + FVector::UpVector * (CenterHeight + RecoveryFloorEpsilon);
 
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricRecoverySpace), true);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricRecoverySpace), true);
     Params.bTraceComplex = true;
 
     auto Sweep = [&](const FVector& Direction, float RequestedDistance, float& OutClearDistance)
@@ -3287,7 +3288,7 @@ void UMetricSubsystem::EvaluateCrossfire(UWorld* World, FMetricLiveState& InOutS
 {
     InOutState.Crossfire=FMetricCrossfireResult(); const auto& S=InOutState.CrossfireSettings;
     if(!World||!InOutState.bHasHit||!S.bShowCrossfire||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
-    const int32 Count=FMath::Clamp(S.DirectionCount,4,16); const FVector Target=InOutState.Location+FVector::UpVector*S.SampleHeight; FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricCrossfire),true); Params.bTraceComplex=true; auto& R=InOutState.Crossfire; R.bVisible=true; R.TotalDirections=Count; R.Rays.Reserve(Count);
+    const int32 Count=FMath::Clamp(S.DirectionCount,4,16); const FVector Target=InOutState.Location+FVector::UpVector*S.SampleHeight; FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCrossfire), true); auto& R=InOutState.Crossfire; R.bVisible=true; R.TotalDirections=Count; R.Rays.Reserve(Count);
     for(int32 i=0;i<Count;++i){const float A=2.0f*PI*float(i)/float(Count); const FVector Dir(FMath::Cos(A),FMath::Sin(A),0); const FVector Threat=Target+Dir*FMath::Max(100.0f,S.ThreatDistance); FHitResult H; const bool bHit=World->LineTraceSingleByChannel(H,Threat,Target,S.TraceChannel.GetValue(),Params); FMetricCrossfireRay& Ray=R.Rays.AddDefaulted_GetRef(); Ray.EndOffset=Threat-InOutState.Location; Ray.bExposed=!bHit || H.Distance+2.0f>=FVector::Distance(Threat,Target); if(Ray.bExposed)++R.ExposedDirections;}
     R.ExposurePercent=100.0f*float(R.ExposedDirections)/float(FMath::Max(1,R.TotalDirections));
 }
@@ -3353,7 +3354,7 @@ void UMetricSubsystem::EvaluateTurnClearance(UWorld* World, FMetricLiveState& In
 
     const FVector StartOffset = InOutState.Hull.LocalOffset + FVector::UpVector * (CenterHeight + 1.0f);
     const FVector StartWorld = InOutState.Location + StartOffset;
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(MetricTurnClearanceSweep), true);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricTurnClearanceSweep), true);
     Params.bTraceComplex = true;
 
     auto EvaluateSide = [&](float Sign, FMetricTurnPathResult& OutPath)

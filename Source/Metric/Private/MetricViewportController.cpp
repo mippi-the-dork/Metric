@@ -9,6 +9,7 @@
 
 #include "MetricProjectSettings.h"
 #include "MetricEditorSettings.h"
+#include "MetricEnvironmentQuery.h"
 #include "MetricSubsystem.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
@@ -360,8 +361,7 @@ void FMetricViewportController::Tick(float DeltaTime)
     const float TraceDistance = ProjectSettings ? ProjectSettings->PlacementTraceDistance : 1000000.0f;
     const ECollisionChannel TraceChannel = ProjectSettings ? ProjectSettings->PlacementTraceChannel.GetValue() : ECC_Visibility;
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MetricPlacementTrace), true);
-    QueryParams.bTraceComplex = true;
+    FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricPlacementTrace), true);
 
     FHitResult Hit;
     const bool bHit = World->LineTraceSingleByChannel(

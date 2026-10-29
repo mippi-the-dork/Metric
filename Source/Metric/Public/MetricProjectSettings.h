@@ -6,6 +6,8 @@
 #include "MetricProjectSettings.generated.h"
 
 class UMetricPreset;
+class AActor;
+class UActorComponent;
 
 UCLASS(Config = Editor, DefaultConfig, meta = (DisplayName = "Metric"))
 class METRIC_API UMetricProjectSettings : public UDeveloperSettings
@@ -35,6 +37,21 @@ public:
 
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (ClampMin = "1000.0", Units = "cm"))
     float PlacementTraceDistance = 1000000.0f;
+
+    // Shared project exclusion policy. Instance-specific exclusions live in
+    // Metric User settings because level-object references are user/editor
+    // workflow state rather than portable project defaults.
+    UPROPERTY(Config, EditAnywhere, Category = "Geometry Exclusions")
+    TArray<TSoftClassPtr<AActor>> ExcludedActorClasses;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Geometry Exclusions")
+    TArray<FName> ExcludedActorTags;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Geometry Exclusions")
+    TArray<TSoftClassPtr<UActorComponent>> ExcludedComponentClasses;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Geometry Exclusions")
+    TArray<FName> ExcludedComponentTags;
 
     virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
     virtual FText GetSectionText() const override;

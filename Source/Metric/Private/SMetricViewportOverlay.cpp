@@ -1,9 +1,11 @@
 #include "SMetricViewportOverlay.h"
 
 #include "MetricEditorSettings.h"
+#include "MetricEnvironmentQuery.h"
 #include "MetricStyle.h"
 #include "MetricSubsystem.h"
 #include "MetricPreset.h"
+#include "MetricProfileEditorToolkit.h"
 #include "MetricTypes.h"
 #include "MetricViewPreset.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -97,6 +99,76 @@ namespace MetricOverlay
     static UMetricSubsystem* GetSubsystem()
     {
         return GEditor ? GEditor->GetEditorSubsystem<UMetricSubsystem>() : nullptr;
+    }
+
+    static FName GetProfilePropertyForLayer(int32 LayerIndex)
+    {
+        switch (static_cast<ELayer>(LayerIndex))
+        {
+        case ELayer::Hull: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull);
+        case ELayer::Clearance: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance);
+        case ELayer::Overhead: return GET_MEMBER_NAME_CHECKED(UMetricPreset, OverheadClearance);
+        case ELayer::Ground: return GET_MEMBER_NAME_CHECKED(UMetricPreset, GroundValidation);
+        case ELayer::Fit: return GET_MEMBER_NAME_CHECKED(UMetricPreset, FitAnalysis);
+        case ELayer::Threshold: return GET_MEMBER_NAME_CHECKED(UMetricPreset, ThresholdAnalysis);
+        case ELayer::Turn: return GET_MEMBER_NAME_CHECKED(UMetricPreset, TurnClearance);
+        case ELayer::Ledge: return GET_MEMBER_NAME_CHECKED(UMetricPreset, LedgeAnalysis);
+        case ELayer::Stopping: return GET_MEMBER_NAME_CHECKED(UMetricPreset, StoppingDistance);
+        case ELayer::Sensors: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors);
+        case ELayer::SensorField: return GET_MEMBER_NAME_CHECKED(UMetricPreset, SensorField);
+        case ELayer::Ranges: return GET_MEMBER_NAME_CHECKED(UMetricPreset, EngagementRanges);
+        case ELayer::Locomotion: return GET_MEMBER_NAME_CHECKED(UMetricPreset, LocomotionBands);
+        case ELayer::Trajectory: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Trajectory);
+        case ELayer::Camera: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraProbe);
+        case ELayer::Cover: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CoverExposure);
+        case ELayer::JumpRunway: return GET_MEMBER_NAME_CHECKED(UMetricPreset, JumpRunway);
+        case ELayer::Interaction: return GET_MEMBER_NAME_CHECKED(UMetricPreset, InteractionReach);
+        case ELayer::Shoulder: return GET_MEMBER_NAME_CHECKED(UMetricPreset, ShoulderClearance);
+        case ELayer::CombatDensity: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CombatDensity);
+        case ELayer::AlternateStance: return GET_MEMBER_NAME_CHECKED(UMetricPreset, AlternateStance);
+        case ELayer::Mantle: return GET_MEMBER_NAME_CHECKED(UMetricPreset, MantleVault);
+        case ELayer::Recovery: return GET_MEMBER_NAME_CHECKED(UMetricPreset, RecoverySpace);
+        case ELayer::Crossfire: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Crossfire);
+        case ELayer::Sightline: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraSightline);
+        default: return NAME_None;
+        }
+    }
+
+    static bool CanEditLiveProfile()
+    {
+        if (UMetricSubsystem* Subsystem = GetSubsystem())
+        {
+            if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
+            {
+                return Entry->IsMetricEntry() && !Entry->Preset.IsNull();
+            }
+        }
+        return false;
+    }
+
+    static FReply OpenLiveProfileSection(int32 LayerIndex)
+    {
+        UMetricSubsystem* Subsystem = GetSubsystem();
+        if (!Subsystem)
+        {
+            return FReply::Handled();
+        }
+
+        const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry();
+        if (!Entry || !Entry->IsMetricEntry())
+        {
+            return FReply::Handled();
+        }
+
+        if (UMetricPreset* Preset = Entry->Preset.LoadSynchronous())
+        {
+            const FName PropertyName = GetProfilePropertyForLayer(LayerIndex);
+            if (!PropertyName.IsNone())
+            {
+                FMetricProfileEditorToolkit::OpenAndFocusProfileSection(Preset, PropertyName);
+            }
+        }
+        return FReply::Handled();
     }
 
     static bool GetVisibilityFlag(const FMetricLayerVisibility& V, int32 LayerIndex, bool bVisual)
@@ -832,10 +904,19 @@ namespace MetricOverlay
                 .Visibility_Lambda([LayerIndex]() { return LiveLayerValue(LayerIndex).IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
                 + SHorizontalBox::Slot().FillWidth(0.42f).VAlign(VAlign_Center)
                 [
-                    SNew(STextBlock)
-                    .Text(FText::FromString(Layers[LayerIndex].Name))
-                    .Font(FAppStyle::GetFontStyle("SmallFont"))
-                    .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+                    SNew(SButton)
+                    .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
+                    .ContentPadding(FMargin(0.0f))
+                    .HAlign(HAlign_Left)
+                    .IsEnabled_Lambda([]() { return CanEditLiveProfile(); })
+                    .ToolTipText(LOCTEXT("EditLiveMetricRowTip", "Open the active Metric Profile directly to this metric."))
+                    .OnClicked_Lambda([LayerIndex]() { return OpenLiveProfileSection(LayerIndex); })
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(Layers[LayerIndex].Name))
+                        .Font(FAppStyle::GetFontStyle("SmallFont"))
+                        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+                    ]
                 ]
                 + SHorizontalBox::Slot().FillWidth(0.58f).HAlign(HAlign_Right).VAlign(VAlign_Center)
                 [
@@ -1299,7 +1380,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
         Box->AddSlot().AutoHeight().Padding(8,0,8,5)
         [
             SNew(STextBlock)
-            .Text(LOCTEXT("LiveVisibilityExplanation", "Profile controls whether an analysis runs. Visual and Results only control how enabled analyses are displayed."))
+            .Text(LOCTEXT("LiveVisibilityExplanation", "Profile controls analysis. This panel controls what the Live Metric draws and reports."))
             .AutoWrapText(true)
             .Font(FAppStyle::GetFontStyle("SmallFont"))
             .ColorAndOpacity(FSlateColor::UseSubduedForeground())
@@ -1337,11 +1418,94 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
             })
             .OnClicked(this, &SMetricViewportOverlay::OpenActiveMetricProfile)
         ];
+
+        Box->AddSlot().AutoHeight().Padding(8,2,8,2)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("ExclusionsHeader", "GEOMETRY EXCLUSIONS · CURRENT LEVEL"))
+            .Font(FAppStyle::GetFontStyle("SmallFont"))
+            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        ];
+
+        Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+        [
+            SNew(SButton)
+            .HAlign(HAlign_Left)
+            .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetSelectedActorCount() > 0; })
+            .Text_Lambda([]()
+            {
+                const int32 Count = MetricEnvironmentQuery::GetSelectedActorCount();
+                return Count == 1
+                    ? LOCTEXT("IgnoreSelectedActor", "Ignore Selected Actor")
+                    : FText::Format(LOCTEXT("IgnoreSelectedActors", "Ignore Selected Actors ({0})"), FText::AsNumber(Count));
+            })
+            .ToolTipText(LOCTEXT("IgnoreSelectedActorsTip", "Temporarily exclude the selected Actor or Actors from Metric queries in their current level. These exclusions are not saved to Editor Settings and are cleared with the editor session."))
+            .OnClicked_Lambda([]()
+            {
+                MetricEnvironmentQuery::ExcludeSelectedActors();
+                return FReply::Handled();
+            })
+        ];
+
+        Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+        [
+            SNew(SButton)
+            .HAlign(HAlign_Left)
+            .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetSelectedComponentCount() > 0; })
+            .Text_Lambda([]()
+            {
+                const int32 Count = MetricEnvironmentQuery::GetSelectedComponentCount();
+                return Count == 1
+                    ? LOCTEXT("IgnoreSelectedComponent", "Ignore Selected Component")
+                    : FText::Format(LOCTEXT("IgnoreSelectedComponents", "Ignore Selected Components ({0})"), FText::AsNumber(Count));
+            })
+            .ToolTipText(LOCTEXT("IgnoreSelectedComponentsTip", "Temporarily exclude the selected Primitive Component or Components from Metric queries in their current level. These exclusions are not saved to Editor Settings and are cleared with the editor session."))
+            .OnClicked_Lambda([]()
+            {
+                MetricEnvironmentQuery::ExcludeSelectedComponents();
+                return FReply::Handled();
+            })
+        ];
+
+        Box->AddSlot().AutoHeight().Padding(8,0,8,5)
+        [
+            SNew(SButton)
+            .HAlign(HAlign_Left)
+            .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetInstanceExclusionCount() > 0; })
+            .Text_Lambda([]()
+            {
+                return FText::Format(LOCTEXT("ClearInstanceExclusions", "Clear Current-Level Exclusions ({0})"),
+                    FText::AsNumber(MetricEnvironmentQuery::GetInstanceExclusionCount()));
+            })
+            .ToolTipText(LOCTEXT("ClearInstanceExclusionsTip", "Clear temporary Actor and Component exclusions for the current editor world. Project-wide class/tag rules are unchanged."))
+            .OnClicked_Lambda([]()
+            {
+                MetricEnvironmentQuery::ClearInstanceExclusions();
+                return FReply::Handled();
+            })
+        ];
+
+        Box->AddSlot().AutoHeight().Padding(8,0,8,6)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("ProjectExclusionsTip", "Temporary Actor/Component exclusions are current-level session state. Persistent Actor Class, Actor Tag, Component Class and Component Tag rules live in Project Settings > Plugins > Metric."))
+            .AutoWrapText(true)
+            .Font(FAppStyle::GetFontStyle("SmallFont"))
+            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        ];
     }
 
+    Box->AddSlot().AutoHeight().Padding(8,3,8,5)
+    [
+        SNew(SSeparator)
+    ];
     Box->AddSlot().AutoHeight().Padding(8,0,8,2)
     [
-        SNew(STextBlock).Text(LOCTEXT("ViewPresetHeader", "VIEW PRESETS")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        SNew(STextBlock).Text(LOCTEXT("ViewHeader", "VIEW")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+    Box->AddSlot().AutoHeight().Padding(8,2,8,2)
+    [
+        SNew(STextBlock).Text(LOCTEXT("ViewPresetHeader", "Presets")).Font(FAppStyle::GetFontStyle("SmallFont"))
     ];
     Box->AddSlot().AutoHeight().Padding(6,0,6,2)
     [
@@ -1419,23 +1583,37 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
             [
-                SNew(STextBlock)
-                .Text(FText::FromString(MetricOverlay::Layers[Index].Name))
-                .Font(FAppStyle::GetFontStyle("SmallFont"))
-                .ColorAndOpacity_Lambda([Index, bForBenchmark]()
+                SNew(SButton)
+                .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
+                .ContentPadding(FMargin(0.0f))
+                .HAlign(HAlign_Left)
+                .IsEnabled_Lambda([bForBenchmark]() { return !bForBenchmark && MetricOverlay::CanEditLiveProfile(); })
+                .ToolTipText_Lambda([bForBenchmark]()
                 {
-                    if (bForBenchmark)
-                    {
-                        return FSlateColor::UseForeground();
-                    }
-                    if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
-                    {
-                        return MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index)
-                            ? FSlateColor::UseForeground()
-                            : FSlateColor::UseSubduedForeground();
-                    }
-                    return FSlateColor::UseSubduedForeground();
+                    return bForBenchmark
+                        ? LOCTEXT("BenchmarkLayerLabelTip", "This row controls the active benchmark's display visibility.")
+                        : LOCTEXT("EditLiveLayerTip", "Open the active Metric Profile directly to this metric.");
                 })
+                .OnClicked_Lambda([Index]() { return MetricOverlay::OpenLiveProfileSection(Index); })
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(MetricOverlay::Layers[Index].Name))
+                    .Font(FAppStyle::GetFontStyle("SmallFont"))
+                    .ColorAndOpacity_Lambda([Index, bForBenchmark]()
+                    {
+                        if (bForBenchmark)
+                        {
+                            return FSlateColor::UseForeground();
+                        }
+                        if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+                        {
+                            return MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index)
+                                ? FSlateColor::UseForeground()
+                                : FSlateColor::UseSubduedForeground();
+                        }
+                        return FSlateColor::UseSubduedForeground();
+                    })
+                ]
             ]
             + SHorizontalBox::Slot().AutoWidth().Padding(8,0).VAlign(VAlign_Center)
             [

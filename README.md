@@ -55,11 +55,18 @@ Recovery / Dodge Space sweeps begin 1 cm above the placement surface to avoid di
 - Renames the current live-analysis control in the HUD to **Live Analysis** and reports **Live Analysis Disabled** when cursor-driven analysis is paused. The serialized user-setting field remains compatible with previous 0.23 builds.
 
 
+
+### Viewport-to-profile editing
+
+Live Metric HUD result labels and Live Display layer names are direct authoring links. Clicking a metric such as Clearance, Ground, Trajectory, Camera, or Crossfire opens the active Metric Profile directly to that section. Existing Profile Editor windows are reused and retargeted rather than duplicated. This is available only when the active Live Metric entry is a project Metric Profile.
+
 ## Metric Profile Editor
 
 Double-click a Metric Profile asset to open the dedicated Metric Profile Editor. Existing Human, Heavy, and custom `UMetricPreset` assets require no migration. Features are grouped by design task, and only the selected feature's settings are shown at once. See `Doc/Metric-Profile-Editor.md`.
 
 The Profile Editor controls whether an analysis runs for that Metric Profile. Display Options and Metric View Presets remain presentation-only controls for enabled analyses.
+
+The Profile Editor also provides feature search, category-level On/Off actions, and advisory profile validation. Validation highlights contradictory or suspicious authored values in the relevant feature without silently changing the asset.
 
 ## Metric View Presets
 
@@ -645,3 +652,19 @@ Locomotion uses a purple visual family and distinct segmented line patterns so i
 Metric's screen-space HUD can be anchored to Top Left, Middle Left, Bottom Left, Top Middle, Bottom Middle, Top Right, Middle Right, or Bottom Right from **Editor Preferences > Plugins > Metric - User > Viewport HUD**.
 
 HUD viewport targeting defaults to **Follow Last Interacted Viewport**. In this mode Metric waits for a real Level Editor viewport interaction/focus before attaching the HUD, then follows the last viewport you use. **Selected Viewports** mode can instead show the HUD in any combination of Viewport 1 through Viewport 4.
+
+### Profile comparison
+
+The Metric Profile Editor can compare the current profile against another Metric Profile. Differing analysis blocks are marked directly in the navigation list, and a selected block can be copied from the comparison profile with full Undo/Redo support. Comparison is editor context only and does not add a serialized reference between profiles.
+
+### Profile comparison details
+
+The Metric Profile Editor can compare another Metric Profile at individual value level. Differing sections show the number of changed values, and selecting a section exposes a Current vs Compare table with one-click per-value copying as well as whole-section copy. This makes profile comparison useful for inspection and selective tuning, not only for detecting that two sections differ.
+
+### Profile comparison navigation and defaults
+
+Profile comparison uses native-style plain-language change indicators (`1 change`, `N changes`) rather than symbolic diff notation. **Show Changed Only** filters the Profile Editor navigation to changed sections, while **Previous** / **Next** steps directly between them. The selected section can also be restored independently with **Reset to Default**, which copies only that section from Metric's class defaults and supports Undo/Redo.
+
+### Geometry Exclusions
+
+Metric can exclude level geometry from its spatial analysis without modifying collision or the level. Live Metric Display Options provides selection-aware **Ignore Selected Actor(s)** and **Ignore Selected Component(s)** actions, including multi-selection. Project Settings additionally supports Actor Class, Actor Tag, Component Class, and Component Tag exclusion rules. All Metric analyses and placement queries share the same exclusion policy.
