@@ -14,6 +14,23 @@ namespace MetricPerformance
         TArray<double> SamplesMs;
     };
 
+    struct FPipelineStageStats
+    {
+        double TotalMs = 0.0;
+        double MaxMs = 0.0;
+        int64 Calls = 0;
+        TArray<double> SamplesMs;
+    };
+
+    struct FPipelineCaptureSummary
+    {
+        int32 TargetPublishes = 0;
+        int32 Publishes = 0;
+        TMap<FName, FPipelineStageStats> Stages;
+
+        FString ToString() const;
+    };
+
     struct FCaptureSummary
     {
         FString Label;
@@ -38,6 +55,22 @@ namespace MetricPerformance
     void RecordBudgetFrame(double ElapsedMs, double BudgetMs);
     void RecordLineTrace();
     void RecordSweep();
+
+    void BeginPipelineCapture(int32 TargetPublishes);
+    bool IsPipelineCapturing();
+    void RecordPipelinePublish();
+    void RecordPipelineStage(FName Name, double ElapsedMs);
+
+    class FScopedPipelineStage
+    {
+    public:
+        explicit FScopedPipelineStage(FName InName);
+        ~FScopedPipelineStage();
+    private:
+        FName Name;
+        double StartSeconds = 0.0;
+        bool bActive = false;
+    };
 
     class FScopedAnalysis
     {

@@ -1568,7 +1568,11 @@ void UMetricSubsystem::EvaluatePresetAtLocation(
 
 void UMetricSubsystem::PublishLiveState(UWorld* World)
 {
-    EnsureRenderHost(World);
+    MetricPerformance::FScopedPipelineStage PublishScope(TEXT("Publish.Total"));
+    {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Publish.EnsureRenderHost"));
+        EnsureRenderHost(World);
+    }
 
     if (AMetricRenderHostActor* Host = RenderHost.Get())
     {
@@ -1600,9 +1604,16 @@ void UMetricSubsystem::PublishLiveState(UWorld* World)
                 RenderState.bHasHit = false;
             }
         }
-        Host->ApplyMetricState(RenderState);
-        Host->SetMetricVisible(RenderState.bHasHit || !PinnedBenchmarks.IsEmpty());
+        {
+            MetricPerformance::FScopedPipelineStage Scope(TEXT("Publish.HostApplyMetricState"));
+            Host->ApplyMetricState(RenderState);
+        }
+        {
+            MetricPerformance::FScopedPipelineStage Scope(TEXT("Publish.HostVisibility"));
+            Host->SetMetricVisible(RenderState.bHasHit || !PinnedBenchmarks.IsEmpty());
+        }
     }
+    MetricPerformance::RecordPipelinePublish();
 }
 
 void UMetricSubsystem::CancelPendingLiveAnalysis()
@@ -3929,6 +3940,20 @@ void UMetricSubsystem::BuildQueryEvidence(FMetricLiveState& InOutState) const
 
 namespace
 {
+    static FAutoConsoleCommand MetricProfileLivePipelineCommand(
+        TEXT("Metric.ProfileLivePipeline"),
+        TEXT("Profiles the next N live Metric publish/update cycles. Usage: Metric.ProfileLivePipeline 120"),
+        FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+        {
+            int32 Publishes = 120;
+            if (!Args.IsEmpty())
+            {
+                Publishes = FMath::Clamp(FCString::Atoi(*Args[0]), 1, 5000);
+            }
+            MetricPerformance::BeginPipelineCapture(Publishes);
+            UE_LOG(LogTemp, Display, TEXT("Metric Live Pipeline capture started for %d publishes. Move Metric normally until the report prints."), Publishes);
+        }));
+
     static FAutoConsoleCommand MetricProfilePerformanceCommand(
         TEXT("Metric.ProfilePerformance"),
         TEXT("Profile Metric analysis at the current Live Metric location. Optional argument: iterations (default 120)."),

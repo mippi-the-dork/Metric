@@ -11,6 +11,7 @@
 #include "MetricEditorSettings.h"
 #include "MetricEnvironmentQuery.h"
 #include "MetricFrameUtils.h"
+#include "MetricPerformance.h"
 #include "MetricSubsystem.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
@@ -316,7 +317,11 @@ bool FMetricViewportController::BuildCursorRay(
 
 void FMetricViewportController::Tick(float DeltaTime)
 {
-    SyncOverlays();
+    MetricPerformance::FScopedPipelineStage TickScope(TEXT("Controller.Tick.Total"));
+    {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.SyncOverlays"));
+        SyncOverlays();
+    }
     if (!GEditor)
     {
         return;
@@ -357,7 +362,7 @@ void FMetricViewportController::Tick(float DeltaTime)
     {
         const double TimeBudgetMs = EditorSettings ? static_cast<double>(EditorSettings->LiveAnalysisTimeBudgetMs) : 2.0;
         MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
-        ViewportClient->Invalidate();
+        { MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate")); ViewportClient->Invalidate(); }
         if (MetricSubsystem->HasPendingLiveAnalysis())
         {
             return;
@@ -421,7 +426,7 @@ void FMetricViewportController::Tick(float DeltaTime)
         // The selected benchmark, if any, is still re-evaluated at the same
         // bounded update rate as Live Metric.
         MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, CurrentViewLocation);
-        ViewportClient->Invalidate();
+        { MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate")); ViewportClient->Invalidate(); }
         return;
     }
 
@@ -439,12 +444,16 @@ void FMetricViewportController::Tick(float DeltaTime)
     FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricPlacementTrace), true);
 
     FHitResult Hit;
-    const bool bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-        Hit,
-        RayOrigin,
-        RayOrigin + RayDirection * TraceDistance,
-        TraceChannel,
-        QueryParams);
+    bool bHit = false;
+    {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.PlacementTrace"));
+        bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
+            Hit,
+            RayOrigin,
+            RayOrigin + RayDirection * TraceDistance,
+            TraceChannel,
+            QueryParams);
+    }
 
     FMetricLiveState State = MetricSubsystem->GetLiveState();
     State.bHasHit = bHit;
@@ -469,5 +478,5 @@ void FMetricViewportController::Tick(float DeltaTime)
     MetricSubsystem->BeginLiveAnalysis(World, State);
     const double TimeBudgetMs = EditorSettings ? static_cast<double>(EditorSettings->LiveAnalysisTimeBudgetMs) : 2.0;
     MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
-    ViewportClient->Invalidate();
+    { MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate")); ViewportClient->Invalidate(); }
 }

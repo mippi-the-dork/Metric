@@ -2,6 +2,7 @@
 
 #include "MetricViewportComponent.h"
 #include "MetricEditorSettings.h"
+#include "MetricPerformance.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
@@ -145,7 +146,8 @@ void AMetricRenderHostActor::EnsureUnlitTextMaterial()
 
 void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
 {
-    SetActorLocation(State.Location);
+    MetricPerformance::FScopedPipelineStage ApplyScope(TEXT("Host.ApplyMetricState.Total"));
+    { MetricPerformance::FScopedPipelineStage Scope(TEXT("Host.SetActorLocation")); SetActorLocation(State.Location); }
 
     if (MetricComponent)
     {
@@ -155,12 +157,13 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
         {
             Pin.WorldLocation -= State.Location;
         }
-        MetricComponent->SetMetricState(LocalState);
-        MetricComponent->SetVisibility(State.bHasHit || !State.PinnedBenchmarks.IsEmpty(), true);
+        { MetricPerformance::FScopedPipelineStage Scope(TEXT("Host.MetricComponent.SetState")); MetricComponent->SetMetricState(LocalState); }
+        { MetricPerformance::FScopedPipelineStage Scope(TEXT("Host.MetricComponent.Visibility")); MetricComponent->SetVisibility(State.bHasHit || !State.PinnedBenchmarks.IsEmpty(), true); }
     }
 
     if (PreviewMeshComponent)
     {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Host.PreviewMesh"));
         UStaticMesh* StaticMesh = Cast<UStaticMesh>(State.PreviewMesh.TryLoad());
         PreviewMeshComponent->SetStaticMesh(StaticMesh);
 
@@ -179,6 +182,7 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
 
     if (LabelComponent)
     {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Host.WorldLabel"));
         EnsureUnlitTextMaterial();
 
         const UMetricEditorSettings* MetricSettings = GetDefault<UMetricEditorSettings>();
@@ -460,6 +464,7 @@ void AMetricRenderHostActor::ApplyMetricState(const FMetricLiveState& State)
 
     if (LegendComponent)
     {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Host.WorldLegend"));
         EnsureUnlitTextMaterial();
 
         const UMetricEditorSettings* MetricSettings = GetDefault<UMetricEditorSettings>();

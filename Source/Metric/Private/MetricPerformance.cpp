@@ -1,5 +1,7 @@
 #include "MetricPerformance.h"
 #include "HAL/PlatformTime.h"
+#include "HAL/CriticalSection.h"
+#include "Misc/ScopeLock.h"
 
 namespace MetricPerformance
 {
@@ -9,6 +11,10 @@ namespace MetricPerformance
         bool bCapturing = false;
         FName CurrentAnalysis = NAME_None;
         double GenerationStartSeconds = 0.0;
+
+        FCriticalSection PipelineMutex;
+        FPipelineCaptureSummary PipelineSummary;
+        bool bPipelineCapturing = false;
     }
 
     static double Percentile(TArray<double> Values, double P)
@@ -19,6 +25,28 @@ namespace MetricPerformance
         return Values[Index];
     }
 
+
+    FString FPipelineCaptureSummary::ToString() const
+    {
+        FString Out = FString::Printf(TEXT("Metric Live Pipeline | %d publishes\n"), Publishes);
+        Out += TEXT("Stage                              Avg ms  Median     P95   Max ms   Calls  Calls/Publish  Total ms\n");
+        TArray<FName> Names;
+        Stages.GetKeys(Names);
+        Names.Sort([this](const FName& A, const FName& B)
+        {
+            return Stages[A].TotalMs > Stages[B].TotalMs;
+        });
+        for (const FName Name : Names)
+        {
+            const FPipelineStageStats& S = Stages[Name];
+            const double CallsPerPublish = Publishes > 0 ? double(S.Calls) / double(Publishes) : 0.0;
+            Out += FString::Printf(TEXT("%-34s %7.3f %7.3f %7.3f %8.3f %7lld %13.2f %9.3f\n"),
+                *Name.ToString(), S.Calls ? S.TotalMs / double(S.Calls) : 0.0,
+                Percentile(S.SamplesMs, 0.50), Percentile(S.SamplesMs, 0.95), S.MaxMs,
+                S.Calls, CallsPerPublish, S.TotalMs);
+        }
+        return Out;
+    }
     FString FCaptureSummary::ToString() const
     {
         const double AvgGeneration = Generations > 0 ? TotalGenerationMs / Generations : 0.0;
@@ -87,6 +115,66 @@ namespace MetricPerformance
     void RecordSweep()
     {
         if (bCapturing && !CurrentAnalysis.IsNone()) ++Summary.Analyses.FindOrAdd(CurrentAnalysis).Sweeps;
+    }
+
+    void BeginPipelineCapture(int32 TargetPublishes)
+    {
+        FScopeLock Lock(&PipelineMutex);
+        PipelineSummary = FPipelineCaptureSummary();
+        PipelineSummary.TargetPublishes = FMath::Max(1, TargetPublishes);
+        bPipelineCapturing = true;
+    }
+
+    bool IsPipelineCapturing()
+    {
+        FScopeLock Lock(&PipelineMutex);
+        return bPipelineCapturing;
+    }
+
+    void RecordPipelineStage(FName Name, double ElapsedMs)
+    {
+        FScopeLock Lock(&PipelineMutex);
+        if (!bPipelineCapturing) return;
+        FPipelineStageStats& S = PipelineSummary.Stages.FindOrAdd(Name);
+        ++S.Calls;
+        S.TotalMs += ElapsedMs;
+        S.MaxMs = FMath::Max(S.MaxMs, ElapsedMs);
+        S.SamplesMs.Add(ElapsedMs);
+    }
+
+    void RecordPipelinePublish()
+    {
+        FPipelineCaptureSummary Completed;
+        bool bCompleted = false;
+        {
+            FScopeLock Lock(&PipelineMutex);
+            if (!bPipelineCapturing) return;
+            ++PipelineSummary.Publishes;
+            if (PipelineSummary.Publishes >= PipelineSummary.TargetPublishes)
+            {
+                Completed = PipelineSummary;
+                bPipelineCapturing = false;
+                bCompleted = true;
+            }
+        }
+        if (bCompleted)
+        {
+            UE_LOG(LogTemp, Display, TEXT("%s"), *Completed.ToString());
+        }
+    }
+
+    FScopedPipelineStage::FScopedPipelineStage(FName InName)
+        : Name(InName)
+    {
+        if (!IsPipelineCapturing()) return;
+        bActive = true;
+        StartSeconds = FPlatformTime::Seconds();
+    }
+
+    FScopedPipelineStage::~FScopedPipelineStage()
+    {
+        if (!bActive) return;
+        RecordPipelineStage(Name, (FPlatformTime::Seconds() - StartSeconds) * 1000.0);
     }
 
     FScopedAnalysis::FScopedAnalysis(FName InName)

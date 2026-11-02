@@ -1,4 +1,5 @@
 #include "MetricViewportComponent.h"
+#include "MetricPerformance.h"
 
 #include "MetricEditorSettings.h"
 #include "PrimitiveSceneProxy.h"
@@ -332,6 +333,7 @@ public:
         uint32 VisibilityMap,
         FMeshElementCollector& Collector) const override
     {
+        MetricPerformance::FScopedPipelineStage PipelineScope(TEXT("Render.GetDynamicMeshElements"));
         if (!State.bHasHit && State.PinnedBenchmarks.IsEmpty())
         {
             return;
@@ -1397,12 +1399,19 @@ void UMetricViewportComponent::SetAllowQueryInspection(bool bAllow)
 
 void UMetricViewportComponent::SetMetricState(const FMetricLiveState& NewState)
 {
-    State = NewState;
-    MarkRenderStateDirty();
+    {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Component.StateCopy"));
+        State = NewState;
+    }
+    {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Component.MarkRenderStateDirty"));
+        MarkRenderStateDirty();
+    }
 }
 
 FPrimitiveSceneProxy* UMetricViewportComponent::CreateSceneProxy()
 {
+    MetricPerformance::FScopedPipelineStage Scope(TEXT("Render.CreateSceneProxy"));
     return (State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) ? new FMetricViewportSceneProxy(this, State, bAllowQueryInspection) : nullptr;
 }
 
