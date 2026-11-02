@@ -182,6 +182,14 @@ struct FMetricLocomotionSettings
 };
 
 
+UENUM(BlueprintType)
+enum class EMetricTrajectoryDisplayMode : uint8
+{
+    SingleArc UMETA(DisplayName = "Single Arc"),
+    JumpEnvelope UMETA(DisplayName = "Jump Envelope"),
+    AnimatedEnvelope UMETA(DisplayName = "Animated Envelope")
+};
+
 USTRUCT(BlueprintType)
 struct FMetricTrajectorySettings
 {
@@ -222,6 +230,36 @@ struct FMetricTrajectorySettings
 
     UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory"))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory"))
+    EMetricTrajectoryDisplayMode DisplayMode = EMetricTrajectoryDisplayMode::SingleArc;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode != EMetricTrajectoryDisplayMode::SingleArc", ClampMin = "2", ClampMax = "12"))
+    int32 JumpEnvelopeArcCount = 7;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode != EMetricTrajectoryDisplayMode::SingleArc", ClampMin = "0.0", ClampMax = "1.0"))
+    float MinimumHorizontalSpeedFraction = 0.05f;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm"))
+    float MaximumDropDistance = 1000.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode == EMetricTrajectoryDisplayMode::AnimatedEnvelope", ClampMin = "0.05", ClampMax = "2.0", Units = "Hz"))
+    float EnvelopeAnimationRate = 0.25f;
+};
+
+struct FMetricTrajectoryArcResult
+{
+    float HorizontalSpeedFraction = 1.0f;
+    float FlightTime = 0.0f;
+    float HorizontalDistance = 0.0f;
+    float LandingDrop = 0.0f;
+    bool bBlocked = false;
+    bool bHasLanding = false;
+    bool bLandingValid = false;
+    bool bExceededMaxDrop = false;
+    FVector ImpactPointOffset = FVector::ZeroVector;
+    FVector ImpactNormal = FVector::UpVector;
+    TArray<FVector> SampleOffsets;
 };
 
 struct FMetricTrajectoryResult
@@ -243,6 +281,10 @@ struct FMetricTrajectoryResult
     bool bApexHasObstacle = false;
     bool bApexTight = false;
     TArray<FVector> SampleOffsets;
+    TArray<FMetricTrajectoryArcResult> EnvelopeArcs;
+    int32 ValidEnvelopeLandings = 0;
+    int32 TestedEnvelopeArcs = 0;
+    int32 ActiveEnvelopeArcIndex = INDEX_NONE;
 };
 
 
@@ -1094,6 +1136,7 @@ struct FMetricPinnedBenchmark
 {
     FVector WorldLocation = FVector::ZeroVector;
     FVector SurfaceNormal = FVector::UpVector;
+    FVector AnalysisUp = FVector::UpVector;
     FVector Forward = FVector::ForwardVector;
     FMetricHullSettings Hull;
     FMetricVisualizationTheme VisualTheme;
@@ -1128,6 +1171,54 @@ struct FMetricPinnedBenchmark
     FMetricCrossfireSettings CrossfireSettings;
 };
 
+
+UENUM()
+enum class EMetricInspectionTarget : uint8
+{
+    Auto UMETA(DisplayName = "Auto (Most Relevant)"),
+    Clearance UMETA(DisplayName = "Clearance"),
+    GroundValidation UMETA(DisplayName = "Ground Validation"),
+    FitAnalysis UMETA(DisplayName = "Fit Analysis"),
+    ThresholdAnalysis UMETA(DisplayName = "Threshold Analysis"),
+    LedgeAnalysis UMETA(DisplayName = "Ledge Analysis"),
+    StoppingDistance UMETA(DisplayName = "Stopping Distance"),
+    MantleVault UMETA(DisplayName = "Mantle / Vault"),
+    RecoverySpace UMETA(DisplayName = "Recovery Space"),
+    CameraProbe UMETA(DisplayName = "Camera Probe"),
+    CameraSightline UMETA(DisplayName = "Camera Sightline"),
+    Trajectory UMETA(DisplayName = "Trajectory")
+};
+
+enum class EMetricQueryEvidenceKind : uint8
+{
+    Trace,
+    Sweep,
+    Sample,
+    Contact,
+    Threshold
+};
+
+enum class EMetricQueryEvidenceStatus : uint8
+{
+    Info,
+    Pass,
+    Warning,
+    Fail
+};
+
+struct FMetricQueryEvidence
+{
+    EMetricInspectionTarget Target = EMetricInspectionTarget::Clearance;
+    EMetricQueryEvidenceKind Kind = EMetricQueryEvidenceKind::Trace;
+    EMetricQueryEvidenceStatus Status = EMetricQueryEvidenceStatus::Info;
+    FVector StartOffset = FVector::ZeroVector;
+    FVector EndOffset = FVector::ZeroVector;
+    FVector ImpactOffset = FVector::ZeroVector;
+    FVector ImpactNormal = FVector::UpVector;
+    bool bHasImpact = false;
+    FString Label;
+};
+
 struct FMetricLiveState
 {
     bool bHasHit = false;
@@ -1136,6 +1227,9 @@ struct FMetricLiveState
     FVector Location = FVector::ZeroVector;
     FVector SurfaceNormal = FVector::UpVector;
     FVector Forward = FVector::ForwardVector;
+    FVector AnalysisUp = FVector::UpVector;
+    FVector AnalysisForward = FVector::ForwardVector;
+    FVector AnalysisRight = FVector::RightVector;
     FVector ViewerLocation = FVector::ZeroVector;
     FMetricHullSettings Hull;
     FMetricVisualizationTheme VisualTheme;
@@ -1189,5 +1283,6 @@ struct FMetricLiveState
     FSoftObjectPath PreviewMesh;
     FTransform PreviewRelativeTransform = FTransform::Identity;
     TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
+    TArray<FMetricQueryEvidence> QueryEvidence;
     int32 SelectedPinnedBenchmarkIndex = INDEX_NONE;
 };

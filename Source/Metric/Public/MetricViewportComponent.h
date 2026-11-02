@@ -14,10 +14,12 @@ public:
     UMetricViewportComponent();
 
     void SetMetricState(const FMetricLiveState& NewState);
+    void SetAllowQueryInspection(bool bAllow);
 
     virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
     virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 
 private:
     FMetricLiveState State;
+    bool bAllowQueryInspection = true;
 };

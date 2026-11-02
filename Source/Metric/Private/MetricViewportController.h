@@ -41,4 +41,15 @@ private:
     uint8 LastHUDAnchorValue = 255;
     uint8 LastHUDTargetingValue = 255;
     uint8 LastLegendAnchorValue = 255;
+
+    double LastLiveAnalysisTime = -1.0;
+    FIntPoint LastAnalysisMouse = FIntPoint(MIN_int32, MIN_int32);
+    FVector LastAnalysisViewLocation = FVector(FLT_MAX);
+    FRotator LastAnalysisViewRotation = FRotator(FLT_MAX, FLT_MAX, FLT_MAX);
+    int32 LastAnalysisEntryIndex = INDEX_NONE;
+    uint8 LastAnalysisEnvironmentSource = 255;
+    uint8 LastAnalysisFrameMode = 255;
+    bool bLastLiveAnalysisEnabled = false;
+    TWeakObjectPtr<UWorld> LastAnalysisWorld;
+    bool bHasLiveAnalysisSample = false;
 };

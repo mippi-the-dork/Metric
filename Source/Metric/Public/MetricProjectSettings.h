@@ -38,9 +38,9 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (ClampMin = "1000.0", Units = "cm"))
     float PlacementTraceDistance = 1000000.0f;
 
-    // Shared project exclusion policy. Instance-specific exclusions live in
-    // Metric User settings because level-object references are user/editor
-    // workflow state rather than portable project defaults.
+    // Shared persistent project exclusion policy. Explicit Actor/Component
+    // instance exclusions are intentionally session + world scoped and are not
+    // serialized into either Project Settings or Metric User settings.
     UPROPERTY(Config, EditAnywhere, Category = "Geometry Exclusions")
     TArray<TSoftClassPtr<AActor>> ExcludedActorClasses;
 

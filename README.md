@@ -15,7 +15,7 @@ Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the
 
 Metric Profile assets now own **Visualization Colors** at semantic, per-analysis granularity. The editor presents each visualization once as a collapsible parent, with its applicable state/aspect colors beneath it. For example, Clearance contains Pass/Tight/Fail, Ground Validation contains Pass/Step Fail/Slope Fail/Missing Floor/Grid, Trajectory contains Path/Landing/Tight/Blocked/Apex, and Camera Probe contains Clear/Compressed/Too Close. The same semantic color drives both the world visualization and its matching HUD result. Reference visuals expose meaningful aspect colors such as Engagement Short/Medium/Long and Locomotion Near/Mid/Far instead of artificial pass/fail states. Fresh Human and Heavy profiles remain visually distinct, and pinned benchmarks capture the effective colors from their source profile.
 
-The HUD Legend is contextual to both the **Live Metric** and the **active benchmark**. A layer appears when its Visual mask is active in either context, and the legend shows the contributing profile color swatches.
+The HUD Legend is contextual to both the **Live Metric** and the **active benchmark**. A layer appears when its Visual mask is active in either context, and the legend shows the contributing profile color swatches. When two swatches are shown, Live Metric is first and the active benchmark is second.
 
 The Live Metric Display Options button now lives in the **LIVE METRIC** section header, matching the benchmark Display Options button in **BENCHMARKS**. The built-in **Core Fit** view replaces the vague `Minimal` label and focuses Hull, Clearance, and Ground Validation.
 
@@ -649,7 +649,7 @@ Locomotion uses a purple visual family and distinct segmented line patterns so i
 
 ## Viewport HUD placement
 
-Metric's screen-space HUD can be anchored to Top Left, Middle Left, Bottom Left, Top Middle, Bottom Middle, Top Right, Middle Right, or Bottom Right from **Editor Preferences > Plugins > Metric - User > Viewport HUD**.
+Metric's screen-space HUD can be anchored to Top Left, Middle Left, Bottom Left, Top Right, Middle Right, or Bottom Right from **Editor Preferences > Plugins > Metric - User > Viewport HUD**.
 
 HUD viewport targeting defaults to **Follow Last Interacted Viewport**. In this mode Metric waits for a real Level Editor viewport interaction/focus before attaching the HUD, then follows the last viewport you use. **Selected Viewports** mode can instead show the HUD in any combination of Viewport 1 through Viewport 4.
 
@@ -668,3 +668,49 @@ Profile comparison uses native-style plain-language change indicators (`1 change
 ### Geometry Exclusions
 
 Metric can exclude level geometry from its spatial analysis without modifying collision or the level. Live Metric Display Options provides selection-aware **Ignore Selected Actor(s)** and **Ignore Selected Component(s)** actions, including multi-selection. Project Settings additionally supports Actor Class, Actor Tag, Component Class, and Component Tag exclusion rules. All Metric analyses and placement queries share the same exclusion policy.
+
+
+### Environment Source
+
+Live Metric can evaluate the level through three environment sources:
+
+- **Collision** - uses authored Unreal collision and configured trace channels. This is the authoritative gameplay-oriented mode.
+- **Hybrid** - uses authored collision, then supplements visible Primitive Components whose collision is disabled with approximate component-bounds queries. This is useful while collision coverage is incomplete.
+- **Visual Geometry (Approx.)** - ignores authored collision and evaluates editor-visible Primitive Component bounds. This is intended for blockout and early layout work. It is conservative around irregular or concave meshes and should not be treated as final gameplay collision validation.
+
+Environment Source is available directly from Live Metric Display Options and from Metric user settings. Geometry exclusions apply consistently in every mode.
+
+### Non-world-aligned analysis
+Metric can use World Up, the placement Surface Normal, or a Custom Up direction as its analysis frame. Directional spatial tests and trajectory calculations follow that frame, allowing Metric to evaluate wall-crawling and variable-orientation gameplay spaces without assuming a horizontal world.
+
+### Jump Envelope
+Trajectory analysis supports a single arc, a sampled Jump Envelope, or an Animated Envelope. Envelope arcs vary horizontal launch contribution while preserving vertical launch capability, can land below the launch surface, and report valid landing coverage across the sampled family.
+
+### Query Inspection and Failure Evidence
+Query Inspection focuses the viewport on one analysis and draws the query span, measured contact, impact normal, and status evidence that produced the result. Auto mode prioritizes failures and warnings, while explicit targets let designers inspect Clearance, Ground, Fit, Threshold, Ledge, Stopping Distance, Mantle/Vault, Recovery Space, Camera Probe/Sightline, or Trajectory. The evidence layer is presentation-only and does not change analysis thresholds or query behavior.
+
+
+Unavailable live analyses remain in the HUD as `N/A` when their Profile and Results visibility are enabled. This keeps the HUD structure stable while the cursor crosses UI or empty space.
+
+### Metric Actor and Overview
+
+Place persistent `Metric Actor` validators in a level, assign a Metric Profile, choose Environment Source and Analysis Frame, and evaluate using On Relevant Change / Transform, Continuous, or Manual update modes. On Relevant Change reacts to editor-world Actor add/delete/move events and Actor/Component property edits without keeping every validator on a continuous tick. Actor results are transient calculated state and remain independent from Live Metric benchmarks and tool toggles. Open **Tools > Metric Dashboard** for a native list with status/profile filters, search, level navigation, issue counts, and Query Evidence breakdown. Metric Actor is currently editor-only because Metric has not yet been split into runtime/editor modules.
+
+## Native Automation
+
+Metric includes native Unreal Automation Framework coverage. Run the complete plugin gate from the Output Log with:
+
+```text
+Automation RunTests MetricPlugin
+```
+
+The suite is independent of Probe. See `Doc/AUTOMATION_TESTS.md` for the current test catalog and expansion plan.
+
+
+### Live analysis scheduling
+
+Live Metric decouples expensive spatial analysis from viewport rendering. It skips reevaluation when the cursor, camera and active analysis context are unchanged and caps new moving-cursor analysis generations to **30 Hz by default**. Each generation is then advanced across editor frames using a soft **2.0 ms Live Analysis Time Budget**. Metric yields between whole analysis jobs rather than exposing half-computed results; a single expensive analysis can therefore exceed the budget for one frame. Both controls live under **Metric - User > Queries**. Set either value to `0` only when uncapped behavior is specifically desired for profiling or comparison.
+
+### Performance profiling
+
+Metric includes native per-analysis timing and query-count instrumentation. Run `Automation RunTests MetricPlugin.Performance` for repeatable synthetic diagnostics, or `Metric.ProfilePerformance 120` in the editor console to profile the current Live Metric location against the actual level. See `Doc/PERFORMANCE_PROFILING.md`.

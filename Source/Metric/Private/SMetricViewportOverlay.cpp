@@ -31,6 +31,107 @@
 
 namespace MetricOverlay
 {
+
+    static TSharedRef<SWidget> BuildEnvironmentSourceMenu()
+    {
+        FMenuBuilder MenuBuilder(true, nullptr);
+        auto Add = [&MenuBuilder](const FText& Label, const FText& Tip, EMetricEnvironmentSource Value)
+        {
+            MenuBuilder.AddMenuEntry(
+                Label, Tip, FSlateIcon(),
+                FUIAction(
+                    FExecuteAction::CreateLambda([Value]()
+                    {
+                        if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+                        {
+                            Settings->EnvironmentSource = Value;
+                            Settings->SaveConfig();
+                        }
+                    }),
+                    FCanExecuteAction(),
+                    FIsActionChecked::CreateLambda([Value]()
+                    {
+                        const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                        return Settings && Settings->EnvironmentSource == Value;
+                    })),
+                NAME_None, EUserInterfaceActionType::RadioButton);
+        };
+        Add(LOCTEXT("EnvironmentCollisionMenu", "Collision"), LOCTEXT("EnvironmentCollisionTip", "Use authored Unreal collision only. This is the authoritative gameplay-oriented mode."), EMetricEnvironmentSource::Collision);
+        Add(LOCTEXT("EnvironmentHybridMenu", "Hybrid"), LOCTEXT("EnvironmentHybridTip", "Use authored collision and supplement visible Primitive Components that have collision disabled with approximate editor bounds."), EMetricEnvironmentSource::Hybrid);
+        Add(LOCTEXT("EnvironmentVisualMenu", "Visual Geometry (Approx.)"), LOCTEXT("EnvironmentVisualTip", "Ignore authored collision and evaluate editor-visible Primitive Component bounds. Useful for blockout and incomplete collision, but intentionally approximate."), EMetricEnvironmentSource::VisualGeometry);
+        return MenuBuilder.MakeWidget();
+    }
+
+    static TSharedRef<SWidget> BuildAnalysisFrameMenu()
+    {
+        FMenuBuilder MenuBuilder(true, nullptr);
+        auto Add = [&MenuBuilder](const FText& Label, const FText& Tip, EMetricAnalysisFrameMode Value)
+        {
+            MenuBuilder.AddMenuEntry(
+                Label, Tip, FSlateIcon(),
+                FUIAction(
+                    FExecuteAction::CreateLambda([Value]()
+                    {
+                        if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+                        {
+                            Settings->AnalysisFrame = Value;
+                            Settings->SaveConfig();
+                        }
+                    }),
+                    FCanExecuteAction(),
+                    FIsActionChecked::CreateLambda([Value]()
+                    {
+                        const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                        return Settings && Settings->AnalysisFrame == Value;
+                    })),
+                NAME_None, EUserInterfaceActionType::RadioButton);
+        };
+        Add(LOCTEXT("FrameWorldMenu", "World Up"), LOCTEXT("FrameWorldTip", "Use conventional world +Z as Metric Up."), EMetricAnalysisFrameMode::World);
+        Add(LOCTEXT("FrameSurfaceMenu", "Surface Normal"), LOCTEXT("FrameSurfaceTip", "Align Metric Up to the placement surface normal. Useful for wall-crawling, curved worlds and non-horizontal traversal."), EMetricAnalysisFrameMode::SurfaceNormal);
+        Add(LOCTEXT("FrameCustomMenu", "Custom Up"), LOCTEXT("FrameCustomTip", "Use Metric User Settings > Queries > Custom Up Direction as the analysis Up axis."), EMetricAnalysisFrameMode::CustomUp);
+        return MenuBuilder.MakeWidget();
+    }
+
+    static TSharedRef<SWidget> BuildInspectionTargetMenu()
+    {
+        FMenuBuilder MenuBuilder(true, nullptr);
+        auto Add = [&MenuBuilder](const FText& Label, EMetricInspectionTarget Value)
+        {
+            MenuBuilder.AddMenuEntry(
+                Label, FText::GetEmpty(), FSlateIcon(),
+                FUIAction(
+                    FExecuteAction::CreateLambda([Value]()
+                    {
+                        if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+                        {
+                            Settings->QueryInspectionTarget = Value;
+                            Settings->SaveConfig();
+                        }
+                    }),
+                    FCanExecuteAction(),
+                    FIsActionChecked::CreateLambda([Value]()
+                    {
+                        const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                        return Settings && Settings->QueryInspectionTarget == Value;
+                    })),
+                NAME_None, EUserInterfaceActionType::RadioButton);
+        };
+        Add(LOCTEXT("InspectAutoMenu", "Auto (Most Relevant)"), EMetricInspectionTarget::Auto);
+        MenuBuilder.AddMenuSeparator();
+        Add(LOCTEXT("InspectClearanceMenu", "Clearance"), EMetricInspectionTarget::Clearance);
+        Add(LOCTEXT("InspectGroundMenu", "Ground Validation"), EMetricInspectionTarget::GroundValidation);
+        Add(LOCTEXT("InspectFitMenu", "Fit Analysis"), EMetricInspectionTarget::FitAnalysis);
+        Add(LOCTEXT("InspectThresholdMenu", "Threshold Analysis"), EMetricInspectionTarget::ThresholdAnalysis);
+        Add(LOCTEXT("InspectLedgeMenu", "Ledge Analysis"), EMetricInspectionTarget::LedgeAnalysis);
+        Add(LOCTEXT("InspectStoppingMenu", "Stopping Distance"), EMetricInspectionTarget::StoppingDistance);
+        Add(LOCTEXT("InspectMantleMenu", "Mantle / Vault"), EMetricInspectionTarget::MantleVault);
+        Add(LOCTEXT("InspectRecoveryMenu", "Recovery Space"), EMetricInspectionTarget::RecoverySpace);
+        MenuBuilder.AddMenuSeparator();
+        Add(LOCTEXT("InspectCameraMenu", "Camera Probe"), EMetricInspectionTarget::CameraProbe);
+        Add(LOCTEXT("InspectSightlineMenu", "Camera Sightline"), EMetricInspectionTarget::CameraSightline);
+        Add(LOCTEXT("InspectTrajectoryMenu", "Trajectory"), EMetricInspectionTarget::Trajectory);
+        return MenuBuilder.MakeWidget();
+    }
     enum class ELayer : int32
     {
         Hull = 0,
@@ -513,6 +614,19 @@ namespace MetricOverlay
         return OutputLines.IsEmpty() ? TEXT("No pinned metric results enabled") : FString::Join(OutputLines, TEXT("\n"));
     }
 
+    static bool IsCornerAnchor(EMetricHUDAnchor Anchor)
+    {
+        return Anchor == EMetricHUDAnchor::TopLeft
+            || Anchor == EMetricHUDAnchor::BottomLeft
+            || Anchor == EMetricHUDAnchor::TopRight
+            || Anchor == EMetricHUDAnchor::BottomRight;
+    }
+
+    static bool IsRightCornerAnchor(EMetricHUDAnchor Anchor)
+    {
+        return Anchor == EMetricHUDAnchor::TopRight || Anchor == EMetricHUDAnchor::BottomRight;
+    }
+
     static void ResolveAnchor(EMetricHUDAnchor Anchor, EHorizontalAlignment& H, EVerticalAlignment& V, FMargin& Padding, bool bToolbarAware)
     {
         H = HAlign_Left;
@@ -672,6 +786,13 @@ namespace MetricOverlay
         return Rows;
     }
 
+    static bool ShouldShowLiveResultRow(const FMetricLiveState& State, const FMetricLayerVisibility& V, int32 LayerIndex)
+    {
+        return State.EntryType != EMetricCycleEntryType::NativePreviewMesh
+            && GetVisibilityFlag(V, LayerIndex, false)
+            && IsLayerEnabledByProfile(State, LayerIndex);
+    }
+
     static FString LiveLayerValue(int32 LayerIndex)
     {
         UMetricSubsystem* Subsystem = GetSubsystem();
@@ -679,97 +800,100 @@ namespace MetricOverlay
         if (!Subsystem || !Settings || !Subsystem->IsMetricActive()) return FString();
         const FMetricLiveState& State = Subsystem->GetLiveState();
         const FMetricLayerVisibility& V = Settings->LiveVisibility;
-        if (State.EntryType == EMetricCycleEntryType::NativePreviewMesh) return FString();
+        if (!ShouldShowLiveResultRow(State, V, LayerIndex)) return FString();
         switch (static_cast<ELayer>(LayerIndex))
         {
         case ELayer::Hull:
-            return (V.bHullResults && State.bShowHull) ? FString::Printf(TEXT("%.0f W x %.0f H x %.0f L"), State.Hull.Width, State.Hull.Height, State.Hull.Length) : FString();
+            return State.bShowHull ? FString::Printf(TEXT("%.0f W x %.0f H x %.0f L"), State.Hull.Width, State.Hull.Height, State.Hull.Length) : FString(TEXT("N/A"));
         case ELayer::Clearance:
-            if (!V.bClearanceResults || !State.Clearance.bVisible) return FString();
+            if (!State.Clearance.bVisible) return TEXT("N/A");
             if (State.Clearance.bBlocked) return FString::Printf(TEXT("FAIL  %.0fu / %.0fu"), State.Clearance.ClearDistance, State.Clearance.ProbeDistance);
             if (State.Clearance.bNearThreshold) return FString::Printf(TEXT("TIGHT  %.0fu"), State.Clearance.ProbeDistance);
             return FString::Printf(TEXT("PASS  %.0fu+"), State.Clearance.ProbeDistance);
         case ELayer::Overhead:
-            if (!V.bOverheadResults || !State.OverheadClearance.bVisible) return FString();
+            if (!State.OverheadClearance.bVisible) return TEXT("N/A");
             if (State.OverheadClearance.bBlocked) return FString::Printf(TEXT("FAIL  %.0fu / %.0fu  -%.0fu"), State.OverheadClearance.AvailableHeight, State.OverheadClearance.RequiredHeight, State.OverheadClearance.HeightDeficit);
             if (State.OverheadClearance.bNearThreshold) return FString::Printf(TEXT("TIGHT  %.0fu / %.0fu"), State.OverheadClearance.AvailableHeight, State.OverheadClearance.RequiredHeight);
             return FString::Printf(TEXT("PASS  %.0fu+"), State.OverheadClearance.AvailableHeight);
         case ELayer::Ground:
-            return (V.bGroundResults && State.GroundValidation.bVisible) ? FString::Printf(TEXT("%s  %d/%d"), State.GroundValidation.bPass ? TEXT("PASS") : TEXT("FAIL"), State.GroundValidation.TotalSamples - State.GroundValidation.FailedSamples, State.GroundValidation.TotalSamples) : FString();
+            return State.GroundValidation.bVisible ? FString::Printf(TEXT("%s  %d/%d"), State.GroundValidation.bPass ? TEXT("PASS") : TEXT("FAIL"), State.GroundValidation.TotalSamples - State.GroundValidation.FailedSamples, State.GroundValidation.TotalSamples) : FString(TEXT("N/A"));
         case ELayer::Fit:
-            return (V.bFitResults && State.FitAnalysis.bVisible) ? FString::Printf(TEXT("%s  W %.0fu  H %.0fu"), State.FitAnalysis.bPass ? (State.FitAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL"), State.FitAnalysis.MinimumAvailableWidth, State.FitAnalysis.MinimumAvailableHeight) : FString();
+            return State.FitAnalysis.bVisible ? FString::Printf(TEXT("%s  W %.0fu  H %.0fu"), State.FitAnalysis.bPass ? (State.FitAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL"), State.FitAnalysis.MinimumAvailableWidth, State.FitAnalysis.MinimumAvailableHeight) : FString(TEXT("N/A"));
         case ELayer::Threshold:
-            return (V.bThresholdResults && State.ThresholdAnalysis.bVisible) ? FString::Printf(TEXT("%s  %d/%d"), State.ThresholdAnalysis.bPass ? (State.ThresholdAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL"), State.ThresholdAnalysis.TotalSamples - State.ThresholdAnalysis.FailedSamples, State.ThresholdAnalysis.TotalSamples) : FString();
+            return State.ThresholdAnalysis.bVisible ? FString::Printf(TEXT("%s  %d/%d"), State.ThresholdAnalysis.bPass ? (State.ThresholdAnalysis.bNearThreshold ? TEXT("TIGHT") : TEXT("PASS")) : TEXT("FAIL"), State.ThresholdAnalysis.TotalSamples - State.ThresholdAnalysis.FailedSamples, State.ThresholdAnalysis.TotalSamples) : FString(TEXT("N/A"));
         case ELayer::Turn:
-            if (!V.bTurnResults || !State.TurnClearance.bVisible) return FString();
+            if (!State.TurnClearance.bVisible) return TEXT("N/A");
             {
                 auto T=[](const FMetricTurnPathResult& P){ if(!P.bTested) return FString(TEXT("OFF")); return P.bBlocked ? FString::Printf(TEXT("BLOCKED %.0f deg"),P.ClearAngle) : FString::Printf(TEXT("PASS %.0f deg"),P.ClearAngle); };
                 return FString::Printf(TEXT("L %s | R %s"), *T(State.TurnClearance.Left), *T(State.TurnClearance.Right));
             }
         case ELayer::Ledge:
-            if (!V.bLedgeResults || !State.LedgeAnalysis.bVisible) return FString();
+            if (!State.LedgeAnalysis.bVisible) return TEXT("N/A");
             if (!State.LedgeAnalysis.bHasEdge) return FString::Printf(TEXT("NONE  %.0fu"), State.LedgeAnalysis.EdgeDistance);
             if (!State.LedgeAnalysis.bHasLanding) return FString::Printf(TEXT("FAIL  edge %.0fu | drop >%.0fu"), State.LedgeAnalysis.EdgeDistance, State.LedgeAnalysis.DropDepth);
             return FString::Printf(TEXT("%s  edge %.0fu | drop %.0fu"), State.LedgeAnalysis.bSafeDrop ? (State.LedgeAnalysis.bWarning ? TEXT("WARN") : TEXT("SAFE")) : TEXT("FAIL"), State.LedgeAnalysis.EdgeDistance, State.LedgeAnalysis.DropDepth);
         case ELayer::Stopping:
-            if (!V.bStoppingResults || !State.StoppingDistance.bVisible) return FString();
+            if (!State.StoppingDistance.bVisible) return TEXT("N/A");
             if (State.StoppingDistance.bBlocked) return FString::Printf(TEXT("FAIL  need %.0fu | avail %.0fu"), State.StoppingDistance.RequiredDistance, State.StoppingDistance.AvailableDistance);
             if (State.StoppingDistance.bNearThreshold) return FString::Printf(TEXT("TIGHT  need %.0fu | avail %.0fu"), State.StoppingDistance.RequiredDistance, State.StoppingDistance.AvailableDistance);
             return FString::Printf(TEXT("PASS  need %.0fu | avail %.0fu+"), State.StoppingDistance.RequiredDistance, State.StoppingDistance.AvailableDistance);
         case ELayer::Sensors:
-            return (V.bSensorsResults && State.Sensors.bShowSensorHeights) ? FString::Printf(TEXT("primary %.0fu  low %.0fu"), State.Sensors.PrimarySensorZOffset, State.Sensors.LowProfileSensorZOffset) : FString();
+            return State.Sensors.bShowSensorHeights ? FString::Printf(TEXT("primary %.0fu  low %.0fu"), State.Sensors.PrimarySensorZOffset, State.Sensors.LowProfileSensorZOffset) : FString(TEXT("N/A"));
         case ELayer::SensorField:
-            return (V.bSensorFieldResults && State.SensorField.bVisible) ? FString::Printf(TEXT("%.0f%% CLEAR"), State.SensorField.ClearPercent) : FString();
+            return State.SensorField.bVisible ? FString::Printf(TEXT("%.0f%% CLEAR"), State.SensorField.ClearPercent) : FString(TEXT("N/A"));
         case ELayer::Ranges:
-            return (V.bRangesResults && State.Ranges.bShowEngagementRanges) ? FString::Printf(TEXT("%.0f / %.0f / %.0fu"), State.Ranges.ShortRange, State.Ranges.MediumRange, State.Ranges.LongRange) : FString();
+            return State.Ranges.bShowEngagementRanges ? FString::Printf(TEXT("%.0f / %.0f / %.0fu"), State.Ranges.ShortRange, State.Ranges.MediumRange, State.Ranges.LongRange) : FString(TEXT("N/A"));
         case ELayer::Locomotion:
-            return (V.bLocomotionResults && State.Locomotion.bShowLocomotionBands) ? FString::Printf(TEXT("%.0fu/s  %.1f / %.1f / %.1fs"), State.Locomotion.Speed, State.Locomotion.NearTime, State.Locomotion.MidTime, State.Locomotion.FarTime) : FString();
+            return State.Locomotion.bShowLocomotionBands ? FString::Printf(TEXT("%.0fu/s  %.1f / %.1f / %.1fs"), State.Locomotion.Speed, State.Locomotion.NearTime, State.Locomotion.MidTime, State.Locomotion.FarTime) : FString(TEXT("N/A"));
         case ELayer::Trajectory:
-            if (!V.bTrajectoryResults || !State.Trajectory.bVisible) return FString();
+            if (!State.Trajectory.bVisible) return TEXT("N/A");
             {
                 const TCHAR* Status = State.Trajectory.bBlocked ? TEXT("BLOCKED") : (State.Trajectory.bLandingValid ? TEXT("LANDING OK") : TEXT("NO LANDING"));
+                const FString Envelope = State.Trajectory.TestedEnvelopeArcs > 1
+                    ? FString::Printf(TEXT(" | land %d/%d"), State.Trajectory.ValidEnvelopeLandings, State.Trajectory.TestedEnvelopeArcs)
+                    : FString();
                 if (State.Trajectory.ApexSampleIndex != INDEX_NONE)
                 {
                     if (State.Trajectory.bApexHasObstacle)
                     {
-                        return FString::Printf(TEXT("%s  %.0fu | apex %.0fu | headroom %.0fu%s"), Status, State.Trajectory.HorizontalDistance, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom, State.Trajectory.bApexTight ? TEXT(" TIGHT") : TEXT(""));
+                        return FString::Printf(TEXT("%s  %.0fu%s | apex %.0fu | headroom %.0fu%s"), Status, State.Trajectory.HorizontalDistance, *Envelope, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom, State.Trajectory.bApexTight ? TEXT(" TIGHT") : TEXT(""));
                     }
-                    return FString::Printf(TEXT("%s  %.0fu | apex %.0fu | headroom %.0fu+"), Status, State.Trajectory.HorizontalDistance, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom);
+                    return FString::Printf(TEXT("%s  %.0fu%s | apex %.0fu | headroom %.0fu+"), Status, State.Trajectory.HorizontalDistance, *Envelope, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom);
                 }
-                return FString::Printf(TEXT("%s  %.0fu"), Status, State.Trajectory.HorizontalDistance);
+                return FString::Printf(TEXT("%s  %.0fu%s"), Status, State.Trajectory.HorizontalDistance, *Envelope);
             }
         case ELayer::Camera:
-            if (!V.bCameraResults || !State.CameraProbe.bVisible) return FString();
+            if (!State.CameraProbe.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("%s  %.0fu / %.0fu"), State.CameraProbe.bBelowMinimum ? TEXT("TOO CLOSE") : (State.CameraProbe.bCompressed ? TEXT("COMPRESSED") : TEXT("CLEAR")), State.CameraProbe.ResolvedDistance, State.CameraProbe.TargetDistance);
         case ELayer::Cover:
-            if (!V.bCoverResults || !State.CoverExposure.bVisible) return FString();
+            if (!State.CoverExposure.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("%.0f%% exposed | low %s torso %s head %s"), State.CoverExposure.ExposurePercent, State.CoverExposure.bLowCovered?TEXT("covered"):TEXT("open"), State.CoverExposure.bTorsoCovered?TEXT("covered"):TEXT("open"), State.CoverExposure.bHeadCovered?TEXT("covered"):TEXT("open"));
         case ELayer::JumpRunway:
-            if (!V.bJumpRunwayResults || !State.JumpRunway.bVisible) return FString();
+            if (!State.JumpRunway.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("%s | takeoff %.0fu landing %.0fu"), (State.JumpRunway.bTakeoffPass&&State.JumpRunway.bLandingPass)?TEXT("PASS"):TEXT("FAIL"), State.JumpRunway.TakeoffAvailable, State.JumpRunway.LandingAvailable);
         case ELayer::Interaction:
-            if (!V.bInteractionResults || !State.InteractionReach.bVisible) return FString();
+            if (!State.InteractionReach.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("%s | %.0fu"), State.InteractionReach.bHasTarget?TEXT("TARGET"):TEXT("OPEN"), State.InteractionReach.TargetDistance);
         case ELayer::Shoulder:
-            if (!V.bShoulderResults || !State.ShoulderClearance.bVisible) return FString();
+            if (!State.ShoulderClearance.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("L %s %.0fu | R %s %.0fu"), State.ShoulderClearance.bLeftBlocked?TEXT("BLOCKED"):TEXT("CLEAR"), State.ShoulderClearance.LeftDistance, State.ShoulderClearance.bRightBlocked?TEXT("BLOCKED"):TEXT("CLEAR"), State.ShoulderClearance.RightDistance);
         case ELayer::CombatDensity:
-            if (!V.bCombatDensityResults || !State.CombatDensity.bVisible) return FString();
+            if (!State.CombatDensity.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("~%d units | %.0fu personal"), State.CombatDensity.ApproxCapacity, State.CombatDensity.PersonalDiameter);
         case ELayer::AlternateStance:
-            if (!V.bAlternateStanceResults || !State.AlternateStance.bVisible) return FString();
+            if (!State.AlternateStance.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("stand %s | alt %s | %.0fu"), State.AlternateStance.bStandingFits?TEXT("PASS"):TEXT("FAIL"), State.AlternateStance.bAlternateFits?TEXT("PASS"):TEXT("FAIL"), State.AlternateStance.AvailableHeight);
         case ELayer::Mantle:
-            if (!V.bMantleResults || !State.MantleVault.bVisible) return FString();
+            if (!State.MantleVault.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("%s | H %.0fu D %.0fu"), (State.MantleVault.bHasObstacle&&State.MantleVault.bHeightValid&&State.MantleVault.bDepthValid)?TEXT("PASS"):(State.MantleVault.bHasObstacle?TEXT("FAIL"):TEXT("NONE")), State.MantleVault.ObstacleHeight, State.MantleVault.ObstacleDepth);
         case ELayer::Recovery:
-            if (!V.bRecoveryResults || !State.RecoverySpace.bVisible) return FString();
+            if (!State.RecoverySpace.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("F %.0f B %.0f L %.0f R %.0fu"), State.RecoverySpace.ForwardClear, State.RecoverySpace.BackwardClear, State.RecoverySpace.LeftClear, State.RecoverySpace.RightClear);
         case ELayer::Crossfire:
-            if (!V.bCrossfireResults || !State.Crossfire.bVisible) return FString();
+            if (!State.Crossfire.bVisible) return TEXT("N/A");
             return FString::Printf(TEXT("%.0f%% exposed | %d/%d dirs"), State.Crossfire.ExposurePercent, State.Crossfire.ExposedDirections, State.Crossfire.TotalDirections);
         case ELayer::Sightline:
-            if (!V.bSightlineResults || !State.CameraSightline.bVisible) return FString();
+            if (!State.CameraSightline.bVisible) return TEXT("N/A");
             return State.CameraSightline.bOccluded ? TEXT("OCCLUDED") : (!State.CameraSightline.bFramingFail ? TEXT("PASS") : TEXT("FRAMING FAIL"));
         default: return FString();
         }
@@ -822,15 +946,18 @@ namespace MetricOverlay
             if (!V.bTrajectoryResults || !State.Trajectory.bVisible) return FString();
             {
                 const TCHAR* Status = State.Trajectory.bBlocked ? TEXT("BLOCKED") : (State.Trajectory.bLandingValid ? TEXT("LANDING OK") : TEXT("NO LANDING"));
+                const FString Envelope = State.Trajectory.TestedEnvelopeArcs > 1
+                    ? FString::Printf(TEXT(" | land %d/%d"), State.Trajectory.ValidEnvelopeLandings, State.Trajectory.TestedEnvelopeArcs)
+                    : FString();
                 if (State.Trajectory.ApexSampleIndex != INDEX_NONE)
                 {
                     if (State.Trajectory.bApexHasObstacle)
                     {
-                        return FString::Printf(TEXT("%s  %.0fu | apex %.0fu | headroom %.0fu%s"), Status, State.Trajectory.HorizontalDistance, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom, State.Trajectory.bApexTight ? TEXT(" TIGHT") : TEXT(""));
+                        return FString::Printf(TEXT("%s  %.0fu%s | apex %.0fu | headroom %.0fu%s"), Status, State.Trajectory.HorizontalDistance, *Envelope, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom, State.Trajectory.bApexTight ? TEXT(" TIGHT") : TEXT(""));
                     }
-                    return FString::Printf(TEXT("%s  %.0fu | apex %.0fu | headroom %.0fu+"), Status, State.Trajectory.HorizontalDistance, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom);
+                    return FString::Printf(TEXT("%s  %.0fu%s | apex %.0fu | headroom %.0fu+"), Status, State.Trajectory.HorizontalDistance, *Envelope, State.Trajectory.ApexHeight, State.Trajectory.ApexHeadroom);
                 }
-                return FString::Printf(TEXT("%s  %.0fu"), Status, State.Trajectory.HorizontalDistance);
+                return FString::Printf(TEXT("%s  %.0fu%s"), Status, State.Trajectory.HorizontalDistance, *Envelope);
             }
         case ELayer::Camera: if (!V.bCameraResults || !State.CameraProbe.bVisible) return FString(); return FString::Printf(TEXT("%s  %.0fu / %.0fu"), State.CameraProbe.bBelowMinimum ? TEXT("TOO CLOSE") : (State.CameraProbe.bCompressed ? TEXT("COMPRESSED") : TEXT("CLEAR")), State.CameraProbe.ResolvedDistance, State.CameraProbe.TargetDistance);
         case ELayer::Cover:
@@ -860,7 +987,7 @@ namespace MetricOverlay
         case ELayer::Crossfire:
             if (!V.bCrossfireResults || !State.Crossfire.bVisible) return FString();
             return FString::Printf(TEXT("%.0f%% exposed | %d/%d dirs"), State.Crossfire.ExposurePercent, State.Crossfire.ExposedDirections, State.Crossfire.TotalDirections);
-        case ELayer::Sightline: if (!V.bSightlineResults || !State.CameraSightline.bVisible) return FString(); return State.CameraSightline.bOccluded ? TEXT("OCCLUDED") : (!State.CameraSightline.bFramingFail ? TEXT("PASS") : TEXT("FRAMING FAIL"));
+        case ELayer::Sightline: if (!State.CameraSightline.bVisible) return TEXT("N/A"); return State.CameraSightline.bOccluded ? TEXT("OCCLUDED") : (!State.CameraSightline.bFramingFail ? TEXT("PASS") : TEXT("FRAMING FAIL"));
         default: return FString();
         }
     }
@@ -924,6 +1051,10 @@ namespace MetricOverlay
                     .Text_Lambda([LayerIndex]() { return FText::FromString(LiveLayerValue(LayerIndex)); })
                     .ColorAndOpacity_Lambda([LayerIndex]()
                     {
+                        if (LiveLayerValue(LayerIndex) == TEXT("N/A"))
+                        {
+                            return FSlateColor::UseSubduedForeground();
+                        }
                         if (UMetricSubsystem* Subsystem = GetSubsystem())
                         {
                             return FSlateColor(GetLayerResultColor(Subsystem->GetLiveState(), LayerIndex));
@@ -952,29 +1083,64 @@ void SMetricViewportOverlay::Construct(const FArguments& InArgs)
     MetricOverlay::ResolveAnchor(HUDAnchor, HudH, HudV, HudPadding, true);
     MetricOverlay::ResolveAnchor(LegendAnchor, LegendH, LegendV, LegendPadding, true);
 
-    ChildSlot
-    [
-        SNew(SOverlay)
-        + SOverlay::Slot().HAlign(HudH).VAlign(HudV).Padding(HudPadding)
-        [
-            SAssignNew(HUDSizeBox, SBox).WidthOverride(390.0f)
+    auto MakeHUD = [this]() -> TSharedRef<SWidget>
+    {
+        return SAssignNew(HUDSizeBox, SBox).WidthOverride(390.0f)
             .Visibility(this, &SMetricViewportOverlay::GetHUDVisibility)
             [
                 SNew(SBorder)
                 .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
                 .Padding(FMargin(8.0f, 6.0f))
                 [ SAssignNew(RootBox, SVerticalBox) ]
-            ]
-        ]
-        + SOverlay::Slot().HAlign(LegendH).VAlign(LegendV).Padding(LegendPadding)
-        [
-            SAssignNew(LegendBorder, SBorder)
-            .Visibility(this, &SMetricViewportOverlay::GetLegendVisibility)
-            .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-            .Padding(FMargin(8.0f, 6.0f))
-            [ BuildLegendContent() ]
-        ]
-    ];
+            ];
+    };
+
+    auto MakeLegend = [this]() -> TSharedRef<SWidget>
+    {
+        return SNew(SBox)
+            .MaxDesiredWidth(250.0f)
+            [
+                SAssignNew(LegendBorder, SBorder)
+                .Visibility(this, &SMetricViewportOverlay::GetLegendVisibility)
+                .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+                .Padding(FMargin(8.0f, 6.0f))
+                [ BuildLegendContent() ]
+            ];
+    };
+
+    TSharedRef<SOverlay> Overlay = SNew(SOverlay);
+    const bool bShareCorner = HUDAnchor == LegendAnchor && MetricOverlay::IsCornerAnchor(HUDAnchor);
+
+    if (bShareCorner)
+    {
+        TSharedRef<SHorizontalBox> CornerRow = SNew(SHorizontalBox);
+        const EVerticalAlignment CornerVAlign = (HudV == VAlign_Bottom) ? VAlign_Bottom : VAlign_Top;
+        if (MetricOverlay::IsRightCornerAnchor(HUDAnchor))
+        {
+            // At right-side corners the Legend sits toward screen center.
+            CornerRow->AddSlot().AutoWidth().VAlign(CornerVAlign).Padding(0.0f, 0.0f, 8.0f, 0.0f)[MakeLegend()];
+            CornerRow->AddSlot().AutoWidth().VAlign(CornerVAlign)[MakeHUD()];
+        }
+        else
+        {
+            // At left-side corners the Legend sits toward screen center.
+            CornerRow->AddSlot().AutoWidth().VAlign(CornerVAlign)[MakeHUD()];
+            CornerRow->AddSlot().AutoWidth().VAlign(CornerVAlign).Padding(8.0f, 0.0f, 0.0f, 0.0f)[MakeLegend()];
+        }
+
+        Overlay->AddSlot()
+            .HAlign(HudH)
+            .VAlign(HudV)
+            .Padding(HudPadding)
+            [ CornerRow ];
+    }
+    else
+    {
+        Overlay->AddSlot().HAlign(HudH).VAlign(HudV).Padding(HudPadding)[MakeHUD()];
+        Overlay->AddSlot().HAlign(LegendH).VAlign(LegendV).Padding(LegendPadding)[MakeLegend()];
+    }
+
+    ChildSlot[Overlay];
     Rebuild();
 }
 
@@ -1167,7 +1333,7 @@ void SMetricViewportOverlay::Rebuild()
         .ToolTipText(FText::FromString(ProfileName))
     ];
 
-    auto AddSectionHeader = [this](const FText& Title, bool bExpanded, FReply (SMetricViewportOverlay::*Handler)(), bool bShowDisplayOptions = false, bool bForBenchmark = false)
+    auto AddSectionHeader = [this](const FText& Title, bool bExpanded, FReply (SMetricViewportOverlay::*Handler)(), bool bShowDisplayOptions = false, bool bForBenchmark = false, bool bShowSetupOptions = false)
     {
         RootBox->AddSlot().AutoHeight().Padding(0,2,0,1)
         [
@@ -1190,6 +1356,18 @@ void SMetricViewportOverlay::Rebuild()
                         [ SNew(STextBlock).Text(Title).Font(FAppStyle::GetFontStyle("SmallFont")) ]
                     ]
                 ]
+                + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(2,0,0,0)
+                [
+                    SNew(SComboButton)
+                    .Visibility(bShowSetupOptions ? EVisibility::Visible : EVisibility::Collapsed)
+                    .ToolTipText(LOCTEXT("LiveSectionSetupTip", "Live Metric Setup: environment source, analysis frame, query inspection, exclusions and profile access."))
+                    .ContentPadding(FMargin(3.0f, 1.0f))
+                    .ButtonContent()
+                    [
+                        SNew(SImage).Image(FAppStyle::GetBrush("Icons.Settings"))
+                    ]
+                    .OnGetMenuContent(this, &SMetricViewportOverlay::BuildLiveSetupMenu)
+                ]
                 + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(2,0,2,0)
                 [
                     SNew(SComboButton)
@@ -1200,7 +1378,7 @@ void SMetricViewportOverlay::Rebuild()
                     })
                     .ToolTipText(bForBenchmark
                         ? LOCTEXT("BenchmarkSectionDisplayTip", "Benchmark Display Options: choose which layers the active benchmark draws and reports.")
-                        : LOCTEXT("LiveSectionDisplayTip", "Live Metric Display Options: choose which profile-enabled layers draw in the viewport and appear in results."))
+                        : LOCTEXT("LiveSectionDisplayTip", "Live Metric Display Options: choose which profile-enabled layers draw in the viewport and appear in results.") )
                     .ContentPadding(FMargin(3.0f, 1.0f))
                     .ButtonContent()
                     [
@@ -1212,7 +1390,7 @@ void SMetricViewportOverlay::Rebuild()
         ];
     };
 
-    AddSectionHeader(LOCTEXT("LiveSection", "LIVE METRIC"), bLiveSectionExpanded, &SMetricViewportOverlay::ToggleLiveSection, true, false);
+    AddSectionHeader(LOCTEXT("LiveSection", "LIVE METRIC"), bLiveSectionExpanded, &SMetricViewportOverlay::ToggleLiveSection, true, false, true);
     if (bLiveSectionExpanded)
     {
         RootBox->AddSlot().AutoHeight().Padding(4,1,2,2)
@@ -1365,6 +1543,323 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildBenchmarkMenu()
     return SNew(SBox).WidthOverride(350.0f).MaxDesiredHeight(280.0f)[SNew(SScrollBox) + SScrollBox::Slot()[List]];
 }
 
+TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
+{
+    TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
+
+    Box->AddSlot().AutoHeight().Padding(8,6,8,4)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("LiveSetupHeader", "LIVE METRIC SETUP"))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,5)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("LiveSetupExplanation", "Placement, query inspection, exclusions and profile access for the Live Metric."))
+        .AutoWrapText(true)
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,6)
+    [
+        SNew(SButton)
+        .HAlign(HAlign_Center)
+        .Text(LOCTEXT("EditActiveProfile", "Edit Active Profile"))
+        .ToolTipText_Lambda([]()
+        {
+            if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+            {
+                if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
+                {
+                    if (Entry->Type == EMetricCycleEntryType::MetricPreset && !Entry->Preset.IsNull())
+                    {
+                        return LOCTEXT("EditActiveProfileTip", "Open the active Metric Profile in the Metric Profile Editor.");
+                    }
+                }
+            }
+            return LOCTEXT("EditBuiltInProfileTip", "The current entry is not a project Metric Profile asset. Select a Metric Profile to edit it.");
+        })
+        .IsEnabled_Lambda([]()
+        {
+            if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+            {
+                if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
+                {
+                    return Entry->Type == EMetricCycleEntryType::MetricPreset && !Entry->Preset.IsNull();
+                }
+            }
+            return false;
+        })
+        .OnClicked(this, &SMetricViewportOverlay::OpenActiveMetricProfile)
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,2,8,2)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("EnvironmentSourceHeader", "ENVIRONMENT SOURCE"))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SComboButton)
+        .ContentPadding(FMargin(8,2))
+        .ButtonContent()
+        [
+            SNew(STextBlock)
+            .Text_Lambda([]()
+            {
+                const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                switch (Settings ? Settings->EnvironmentSource : EMetricEnvironmentSource::Collision)
+                {
+                case EMetricEnvironmentSource::Hybrid: return LOCTEXT("EnvironmentHybrid", "Hybrid");
+                case EMetricEnvironmentSource::VisualGeometry: return LOCTEXT("EnvironmentVisual", "Visual Geometry (Approx.)");
+                default: return LOCTEXT("EnvironmentCollision", "Collision");
+                }
+            })
+        ]
+        .OnGetMenuContent_Lambda([](){ return MetricOverlay::BuildEnvironmentSourceMenu(); })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,6)
+    [
+        SNew(STextBlock)
+        .Text_Lambda([]()
+        {
+            const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+            switch (Settings ? Settings->EnvironmentSource : EMetricEnvironmentSource::Collision)
+            {
+            case EMetricEnvironmentSource::Hybrid: return LOCTEXT("EnvironmentHybridDesc", "Collision is authoritative; collision-disabled visible geometry is included through approximate bounds.");
+            case EMetricEnvironmentSource::VisualGeometry: return LOCTEXT("EnvironmentVisualDesc", "Approximate blockout mode. Uses visible primitive bounds and does not require collision setup.");
+            default: return LOCTEXT("EnvironmentCollisionDesc", "Uses authored collision and configured trace channels.");
+            }
+        })
+        .AutoWrapText(true)
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,3,8,2)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("AnalysisFrameHeader", "ANALYSIS FRAME"))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SComboButton)
+        .ContentPadding(FMargin(8,2))
+        .ButtonContent()
+        [
+            SNew(STextBlock)
+            .Text_Lambda([]()
+            {
+                const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                switch (Settings ? Settings->AnalysisFrame : EMetricAnalysisFrameMode::World)
+                {
+                case EMetricAnalysisFrameMode::SurfaceNormal: return LOCTEXT("FrameSurface", "Surface Normal");
+                case EMetricAnalysisFrameMode::CustomUp: return LOCTEXT("FrameCustom", "Custom Up");
+                default: return LOCTEXT("FrameWorld", "World Up");
+                }
+            })
+        ]
+        .OnGetMenuContent_Lambda([](){ return MetricOverlay::BuildAnalysisFrameMenu(); })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,6)
+    [
+        SNew(STextBlock)
+        .Text_Lambda([]()
+        {
+            const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+            if (!Settings || Settings->AnalysisFrame == EMetricAnalysisFrameMode::World) return LOCTEXT("FrameWorldDesc", "Horizon-locked analysis using world +Z.");
+            if (Settings->AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal) return LOCTEXT("FrameSurfaceDesc", "Metric Up follows the current placement surface normal.");
+            return FText::Format(LOCTEXT("FrameCustomDesc", "Custom Up: {0}"), FText::FromString(Settings->CustomAnalysisUp.ToCompactString()));
+        })
+        .AutoWrapText(true)
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,3,8,2)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("QueryInspectionHeader", "QUERY INSPECTION"))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SCheckBox)
+        .IsChecked_Lambda([]()
+        {
+            const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+            return Settings && Settings->bQueryInspectionEnabled ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+        })
+        .OnCheckStateChanged_Lambda([](ECheckBoxState State)
+        {
+            if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+            {
+                Settings->bQueryInspectionEnabled = State == ECheckBoxState::Checked;
+                Settings->SaveConfig();
+            }
+        })
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("QueryInspectionToggle", "Inspect Analysis Queries"))
+        ]
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SComboButton)
+        .IsEnabled_Lambda([](){ const UMetricEditorSettings* S=GetDefault<UMetricEditorSettings>(); return S && S->bQueryInspectionEnabled; })
+        .ContentPadding(FMargin(8,2))
+        .ButtonContent()
+        [
+            SNew(STextBlock)
+            .Text_Lambda([]()
+            {
+                const UMetricEditorSettings* S = GetDefault<UMetricEditorSettings>();
+                switch (S ? S->QueryInspectionTarget : EMetricInspectionTarget::Auto)
+                {
+                case EMetricInspectionTarget::Clearance: return LOCTEXT("InspectClearance", "Clearance");
+                case EMetricInspectionTarget::GroundValidation: return LOCTEXT("InspectGround", "Ground Validation");
+                case EMetricInspectionTarget::FitAnalysis: return LOCTEXT("InspectFit", "Fit Analysis");
+                case EMetricInspectionTarget::ThresholdAnalysis: return LOCTEXT("InspectThreshold", "Threshold Analysis");
+                case EMetricInspectionTarget::LedgeAnalysis: return LOCTEXT("InspectLedge", "Ledge Analysis");
+                case EMetricInspectionTarget::StoppingDistance: return LOCTEXT("InspectStopping", "Stopping Distance");
+                case EMetricInspectionTarget::MantleVault: return LOCTEXT("InspectMantle", "Mantle / Vault");
+                case EMetricInspectionTarget::RecoverySpace: return LOCTEXT("InspectRecovery", "Recovery Space");
+                case EMetricInspectionTarget::CameraProbe: return LOCTEXT("InspectCamera", "Camera Probe");
+                case EMetricInspectionTarget::CameraSightline: return LOCTEXT("InspectSightline", "Camera Sightline");
+                case EMetricInspectionTarget::Trajectory: return LOCTEXT("InspectTrajectory", "Trajectory");
+                default: return LOCTEXT("InspectAuto", "Auto (Most Relevant)");
+                }
+            })
+        ]
+        .OnGetMenuContent_Lambda([](){ return MetricOverlay::BuildInspectionTargetMenu(); })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,6)
+    [
+        SNew(STextBlock)
+        .Text_Lambda([]()
+        {
+            const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+            if (!Settings || !Settings->bQueryInspectionEnabled)
+            {
+                return LOCTEXT("InspectionOffDesc", "Off. Normal Metric presentation remains unchanged.");
+            }
+            if (const UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+            {
+                const FMetricLiveState& State = Subsystem->GetLiveState();
+                int32 EvidenceCount = 0;
+                int32 FailCount = 0;
+                for (const FMetricQueryEvidence& E : State.QueryEvidence)
+                {
+                    if (Settings->QueryInspectionTarget == EMetricInspectionTarget::Auto || E.Target == Settings->QueryInspectionTarget)
+                    {
+                        ++EvidenceCount;
+                        if (E.Status == EMetricQueryEvidenceStatus::Fail) ++FailCount;
+                    }
+                }
+                return FText::Format(LOCTEXT("InspectionActiveDesc", "Focused query view. {0} evidence records, {1} failures. Contacts and normals are drawn at the actual measured locations."), FText::AsNumber(EvidenceCount), FText::AsNumber(FailCount));
+            }
+            return LOCTEXT("InspectionActiveNoState", "Focused query view. Move the Live Metric cursor to generate query evidence.");
+        })
+        .AutoWrapText(true)
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,2,8,2)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("ExclusionsHeader", "GEOMETRY EXCLUSIONS · CURRENT LEVEL"))
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SButton)
+        .HAlign(HAlign_Left)
+        .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetSelectedActorCount() > 0; })
+        .Text_Lambda([]()
+        {
+            const int32 Count = MetricEnvironmentQuery::GetSelectedActorCount();
+            return Count == 1
+                ? LOCTEXT("IgnoreSelectedActor", "Ignore Selected Actor")
+                : FText::Format(LOCTEXT("IgnoreSelectedActors", "Ignore Selected Actors ({0})"), FText::AsNumber(Count));
+        })
+        .ToolTipText(LOCTEXT("IgnoreSelectedActorsTip", "Temporarily exclude the selected Actor or Actors from Metric queries in their current level. These exclusions are not saved to Editor Settings and are cleared with the editor session."))
+        .OnClicked_Lambda([]()
+        {
+            MetricEnvironmentQuery::ExcludeSelectedActors();
+            return FReply::Handled();
+        })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SButton)
+        .HAlign(HAlign_Left)
+        .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetSelectedComponentCount() > 0; })
+        .Text_Lambda([]()
+        {
+            const int32 Count = MetricEnvironmentQuery::GetSelectedComponentCount();
+            return Count == 1
+                ? LOCTEXT("IgnoreSelectedComponent", "Ignore Selected Component")
+                : FText::Format(LOCTEXT("IgnoreSelectedComponents", "Ignore Selected Components ({0})"), FText::AsNumber(Count));
+        })
+        .ToolTipText(LOCTEXT("IgnoreSelectedComponentsTip", "Temporarily exclude the selected Primitive Component or Components from Metric queries in their current level. These exclusions are not saved to Editor Settings and are cleared with the editor session."))
+        .OnClicked_Lambda([]()
+        {
+            MetricEnvironmentQuery::ExcludeSelectedComponents();
+            return FReply::Handled();
+        })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,4)
+    [
+        SNew(SButton)
+        .HAlign(HAlign_Left)
+        .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetInstanceExclusionCount() > 0; })
+        .Text_Lambda([]()
+        {
+            const int32 Count = MetricEnvironmentQuery::GetInstanceExclusionCount();
+            return Count == 0
+                ? LOCTEXT("ClearCurrentLevelExclusions", "Clear Current-Level Exclusions")
+                : FText::Format(LOCTEXT("ClearCurrentLevelExclusionsCount", "Clear Current-Level Exclusions ({0})"), FText::AsNumber(Count));
+        })
+        .ToolTipText(LOCTEXT("ClearCurrentLevelExclusionsTip", "Clear temporary Actor and Component exclusions for the current level."))
+        .OnClicked_Lambda([]()
+        {
+            MetricEnvironmentQuery::ClearInstanceExclusions();
+            return FReply::Handled();
+        })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,6)
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("ExclusionsFooter", "Temporary Actor/Component exclusions are current-level session state. Persistent Actor Class, Actor Tag, Component Class and Component Tag rules live in Project Settings > Plugins > Metric."))
+        .AutoWrapText(true)
+        .Font(FAppStyle::GetFontStyle("SmallFont"))
+        .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
+
+    return SNew(SBox).WidthOverride(380.0f).MaxDesiredHeight(540.0f)[SNew(SScrollBox) + SScrollBox::Slot()[Box]];
+}
+
 TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchmark)
 {
     TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
@@ -1380,115 +1875,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
         Box->AddSlot().AutoHeight().Padding(8,0,8,5)
         [
             SNew(STextBlock)
-            .Text(LOCTEXT("LiveVisibilityExplanation", "Profile controls analysis. This panel controls what the Live Metric draws and reports."))
-            .AutoWrapText(true)
-            .Font(FAppStyle::GetFontStyle("SmallFont"))
-            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
-        ];
-
-        Box->AddSlot().AutoHeight().Padding(8,0,8,6)
-        [
-            SNew(SButton)
-            .HAlign(HAlign_Center)
-            .Text(LOCTEXT("EditActiveProfile", "Edit Active Profile"))
-            .ToolTipText_Lambda([]()
-            {
-                if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
-                {
-                    if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
-                    {
-                        if (Entry->Type == EMetricCycleEntryType::MetricPreset && !Entry->Preset.IsNull())
-                        {
-                            return LOCTEXT("EditActiveProfileTip", "Open the active Metric Profile in the Metric Profile Editor.");
-                        }
-                    }
-                }
-                return LOCTEXT("EditBuiltInProfileTip", "The current entry is not a project Metric Profile asset. Select a Metric Profile to edit it.");
-            })
-            .IsEnabled_Lambda([]()
-            {
-                if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
-                {
-                    if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
-                    {
-                        return Entry->Type == EMetricCycleEntryType::MetricPreset && !Entry->Preset.IsNull();
-                    }
-                }
-                return false;
-            })
-            .OnClicked(this, &SMetricViewportOverlay::OpenActiveMetricProfile)
-        ];
-
-        Box->AddSlot().AutoHeight().Padding(8,2,8,2)
-        [
-            SNew(STextBlock)
-            .Text(LOCTEXT("ExclusionsHeader", "GEOMETRY EXCLUSIONS · CURRENT LEVEL"))
-            .Font(FAppStyle::GetFontStyle("SmallFont"))
-            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
-        ];
-
-        Box->AddSlot().AutoHeight().Padding(8,0,8,2)
-        [
-            SNew(SButton)
-            .HAlign(HAlign_Left)
-            .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetSelectedActorCount() > 0; })
-            .Text_Lambda([]()
-            {
-                const int32 Count = MetricEnvironmentQuery::GetSelectedActorCount();
-                return Count == 1
-                    ? LOCTEXT("IgnoreSelectedActor", "Ignore Selected Actor")
-                    : FText::Format(LOCTEXT("IgnoreSelectedActors", "Ignore Selected Actors ({0})"), FText::AsNumber(Count));
-            })
-            .ToolTipText(LOCTEXT("IgnoreSelectedActorsTip", "Temporarily exclude the selected Actor or Actors from Metric queries in their current level. These exclusions are not saved to Editor Settings and are cleared with the editor session."))
-            .OnClicked_Lambda([]()
-            {
-                MetricEnvironmentQuery::ExcludeSelectedActors();
-                return FReply::Handled();
-            })
-        ];
-
-        Box->AddSlot().AutoHeight().Padding(8,0,8,2)
-        [
-            SNew(SButton)
-            .HAlign(HAlign_Left)
-            .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetSelectedComponentCount() > 0; })
-            .Text_Lambda([]()
-            {
-                const int32 Count = MetricEnvironmentQuery::GetSelectedComponentCount();
-                return Count == 1
-                    ? LOCTEXT("IgnoreSelectedComponent", "Ignore Selected Component")
-                    : FText::Format(LOCTEXT("IgnoreSelectedComponents", "Ignore Selected Components ({0})"), FText::AsNumber(Count));
-            })
-            .ToolTipText(LOCTEXT("IgnoreSelectedComponentsTip", "Temporarily exclude the selected Primitive Component or Components from Metric queries in their current level. These exclusions are not saved to Editor Settings and are cleared with the editor session."))
-            .OnClicked_Lambda([]()
-            {
-                MetricEnvironmentQuery::ExcludeSelectedComponents();
-                return FReply::Handled();
-            })
-        ];
-
-        Box->AddSlot().AutoHeight().Padding(8,0,8,5)
-        [
-            SNew(SButton)
-            .HAlign(HAlign_Left)
-            .IsEnabled_Lambda([](){ return MetricEnvironmentQuery::GetInstanceExclusionCount() > 0; })
-            .Text_Lambda([]()
-            {
-                return FText::Format(LOCTEXT("ClearInstanceExclusions", "Clear Current-Level Exclusions ({0})"),
-                    FText::AsNumber(MetricEnvironmentQuery::GetInstanceExclusionCount()));
-            })
-            .ToolTipText(LOCTEXT("ClearInstanceExclusionsTip", "Clear temporary Actor and Component exclusions for the current editor world. Project-wide class/tag rules are unchanged."))
-            .OnClicked_Lambda([]()
-            {
-                MetricEnvironmentQuery::ClearInstanceExclusions();
-                return FReply::Handled();
-            })
-        ];
-
-        Box->AddSlot().AutoHeight().Padding(8,0,8,6)
-        [
-            SNew(STextBlock)
-            .Text(LOCTEXT("ProjectExclusionsTip", "Temporary Actor/Component exclusions are current-level session state. Persistent Actor Class, Actor Tag, Component Class and Component Tag rules live in Project Settings > Plugins > Metric."))
+            .Text(LOCTEXT("LiveVisibilityExplanation", "Profile controls analysis. This panel controls what the Live Metric draws and reports. Environment, frame and inspection options live under the Setup menu."))
             .AutoWrapText(true)
             .Font(FAppStyle::GetFontStyle("SmallFont"))
             .ColorAndOpacity(FSlateColor::UseSubduedForeground())
@@ -1791,7 +2178,10 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLegendContent()
         Box->AddSlot().AutoHeight().Padding(0,4,0,0)
         [
             SNew(STextBlock)
-            .Text(LOCTEXT("LegendContextTip", "Swatches reflect Live Metric + active benchmark visibility."))
+            .Text(LOCTEXT("LegendContextTip", "Swatches: Live first  |  Benchmark second"))
+            .ToolTipText(LOCTEXT("LegendContextTooltip", "The first swatch represents Live Metric. The second represents the active benchmark. If both swatches match, both contexts are visible and currently use the same result color."))
+            .AutoWrapText(true)
+            .WrapTextAt(220.0f)
             .Font(FAppStyle::GetFontStyle("SmallFont"))
             .ColorAndOpacity(FSlateColor::UseSubduedForeground())
         ];

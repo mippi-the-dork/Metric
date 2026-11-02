@@ -80,6 +80,7 @@ namespace MetricDraw
         FPrimitiveDrawInterface* PDI,
         const FVector& Base,
         const FVector& Forward,
+        const FVector& UpAxis,
         float Height,
         float Width,
         const FLinearColor& Color,
@@ -94,8 +95,9 @@ namespace MetricDraw
         {
             Fwd = FVector::ForwardVector;
         }
-        const FVector Right = FVector::CrossProduct(FVector::UpVector, Fwd).GetSafeNormal();
-        const FVector Up = FVector::UpVector;
+        FVector Up = UpAxis.GetSafeNormal();
+        if (Up.IsNearlyZero()) Up = FVector::UpVector;
+        const FVector Right = FVector::CrossProduct(Up, Fwd).GetSafeNormal();
         const FVector Center = Base + Up * HalfHeight;
         const FVector TopRing = Center + Up * CylinderHalf;
         const FVector BottomRing = Center - Up * CylinderHalf;
@@ -123,6 +125,7 @@ namespace MetricDraw
         FPrimitiveDrawInterface* PDI,
         const FVector& Base,
         const FVector& Forward,
+        const FVector& UpAxis,
         const FVector& Extents,
         const FLinearColor& Color,
         float Thickness)
@@ -132,8 +135,9 @@ namespace MetricDraw
         {
             Fwd = FVector::ForwardVector;
         }
-        const FVector Right = FVector::CrossProduct(FVector::UpVector, Fwd).GetSafeNormal();
-        const FVector Up = FVector::UpVector;
+        FVector Up = UpAxis.GetSafeNormal();
+        if (Up.IsNearlyZero()) Up = FVector::UpVector;
+        const FVector Right = FVector::CrossProduct(Up, Fwd).GetSafeNormal();
         const FVector Center = Base + Up * Extents.Z;
 
         FVector P[8];
@@ -174,7 +178,7 @@ namespace MetricDraw
 class FMetricViewportSceneProxy final : public FPrimitiveSceneProxy
 {
 public:
-    FMetricViewportSceneProxy(const UMetricViewportComponent* Component, const FMetricLiveState& InState)
+    FMetricViewportSceneProxy(const UMetricViewportComponent* Component, const FMetricLiveState& InState, bool bInAllowQueryInspection)
         : FPrimitiveSceneProxy(Component)
         , State(InState)
     {
@@ -209,6 +213,88 @@ public:
         AnchorLift = Settings ? Settings->AnchorLift : 10.0f;
         AnchorRadius = Settings ? Settings->AnchorRadius : 16.0f;
         AnchorLineThickness = Settings ? Settings->AnchorLineThickness : 2.0f;
+        bShowAnalysisFrame = Settings ? Settings->bShowAnalysisFrame : true;
+        bQueryInspectionEnabled = bInAllowQueryInspection && Settings ? Settings->bQueryInspectionEnabled : false;
+        InspectionTarget = Settings ? Settings->QueryInspectionTarget : EMetricInspectionTarget::Auto;
+
+        if (bQueryInspectionEnabled)
+        {
+            auto IsTargetVisible = [&](EMetricInspectionTarget Target)
+            {
+                switch (Target)
+                {
+                case EMetricInspectionTarget::Clearance: return State.Clearance.bVisible;
+                case EMetricInspectionTarget::GroundValidation: return State.GroundValidation.bVisible;
+                case EMetricInspectionTarget::FitAnalysis: return State.FitAnalysis.bVisible;
+                case EMetricInspectionTarget::ThresholdAnalysis: return State.ThresholdAnalysis.bVisible;
+                case EMetricInspectionTarget::LedgeAnalysis: return State.LedgeAnalysis.bVisible;
+                case EMetricInspectionTarget::StoppingDistance: return State.StoppingDistance.bVisible;
+                case EMetricInspectionTarget::MantleVault: return State.MantleVault.bVisible;
+                case EMetricInspectionTarget::RecoverySpace: return State.RecoverySpace.bVisible;
+                case EMetricInspectionTarget::CameraProbe: return State.CameraProbe.bVisible;
+                case EMetricInspectionTarget::CameraSightline: return State.CameraSightline.bVisible;
+                case EMetricInspectionTarget::Trajectory: return State.Trajectory.bVisible;
+                default: return false;
+                }
+            };
+
+            if (InspectionTarget == EMetricInspectionTarget::Auto)
+            {
+                auto PickByStatus = [&](EMetricQueryEvidenceStatus Wanted)
+                {
+                    for (const FMetricQueryEvidence& Evidence : State.QueryEvidence)
+                    {
+                        if (Evidence.Status == Wanted && IsTargetVisible(Evidence.Target))
+                        {
+                            InspectionTarget = Evidence.Target;
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                if (!PickByStatus(EMetricQueryEvidenceStatus::Fail)
+                    && !PickByStatus(EMetricQueryEvidenceStatus::Warning))
+                {
+                    for (const FMetricQueryEvidence& Evidence : State.QueryEvidence)
+                    {
+                        if (IsTargetVisible(Evidence.Target))
+                        {
+                            InspectionTarget = Evidence.Target;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            auto Keep = [&](EMetricInspectionTarget Target) { return InspectionTarget == Target; };
+            if (!Keep(EMetricInspectionTarget::Clearance)) State.Clearance.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::GroundValidation)) State.GroundValidation.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::FitAnalysis)) State.FitAnalysis.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::ThresholdAnalysis)) State.ThresholdAnalysis.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::LedgeAnalysis)) State.LedgeAnalysis.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::StoppingDistance)) State.StoppingDistance.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::MantleVault)) State.MantleVault.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::RecoverySpace)) State.RecoverySpace.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::CameraProbe)) State.CameraProbe.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::CameraSightline)) State.CameraSightline.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::Trajectory)) State.Trajectory.bVisible = false;
+
+            // Query Inspection is deliberately focused. Suppress unrelated reference
+            // layers while preserving the hull, forward marker and analysis frame.
+            State.OverheadClearance.bVisible = false;
+            State.SensorField.bVisible = false;
+            State.TurnClearance.bVisible = false;
+            State.CoverExposure.bVisible = false;
+            State.JumpRunway.bVisible = false;
+            State.InteractionReach.bVisible = false;
+            State.ShoulderClearance.bVisible = false;
+            State.CombatDensity.bVisible = false;
+            State.AlternateStance.bVisible = false;
+            State.Crossfire.bVisible = false;
+            State.Sensors.bShowSensorHeights = false;
+            State.Ranges.bShowEngagementRanges = false;
+            State.Locomotion.bShowLocomotionBands = false;
+        }
     }
 
     float StatusThickness(float BaseThickness, bool bFail, bool bWarning = false) const
@@ -269,12 +355,17 @@ public:
             // Metric state is stored in render-host local space. Convert the
             // anchor and orientation to world space before submitting PDI lines.
             const FMatrix& ProxyLocalToWorld = GetLocalToWorld();
-            const FVector Base = ProxyLocalToWorld.TransformPosition(State.Location + State.Hull.LocalOffset);
-            FVector WorldForward = ProxyLocalToWorld.TransformVector(State.Forward).GetSafeNormal();
-            if (WorldForward.IsNearlyZero())
-            {
-                WorldForward = FVector::ForwardVector;
-            }
+            FVector WorldUp = ProxyLocalToWorld.TransformVector(State.AnalysisUp).GetSafeNormal();
+            if (WorldUp.IsNearlyZero()) WorldUp = FVector::UpVector;
+            FVector WorldForward = ProxyLocalToWorld.TransformVector(State.AnalysisForward).GetSafeNormal();
+            WorldForward = FVector::VectorPlaneProject(WorldForward, WorldUp).GetSafeNormal();
+            if (WorldForward.IsNearlyZero()) WorldForward = FVector::VectorPlaneProject(FVector::ForwardVector, WorldUp).GetSafeNormal();
+            FVector WorldRight = FVector::CrossProduct(WorldUp, WorldForward).GetSafeNormal();
+            WorldForward = FVector::CrossProduct(WorldRight, WorldUp).GetSafeNormal();
+            const FVector HullFrameOffset = State.AnalysisForward * State.Hull.LocalOffset.X
+                + State.AnalysisRight * State.Hull.LocalOffset.Y
+                + State.AnalysisUp * State.Hull.LocalOffset.Z;
+            const FVector Base = ProxyLocalToWorld.TransformPosition(State.Location + HullFrameOffset);
 
             const float Height = FMath::Max(1.0f, State.Hull.Height);
             const float Width = FMath::Max(1.0f, State.Hull.Width);
@@ -287,23 +378,35 @@ public:
                 switch (State.Hull.HullType)
                 {
                 case EMetricHullType::Capsule:
-                    MetricDraw::DrawCapsule(PDI, Base, WorldForward, Height, Width, HullColor, Thickness);
+                    MetricDraw::DrawCapsule(PDI, Base, WorldForward, WorldUp, Height, Width, HullColor, Thickness);
                     break;
                 case EMetricHullType::OrientedBox:
-                    MetricDraw::DrawBox(PDI, Base, WorldForward, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), HullColor, Thickness);
+                    MetricDraw::DrawBox(PDI, Base, WorldForward, WorldUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), HullColor, Thickness);
                     break;
                 case EMetricHullType::Sphere:
-                    MetricDraw::DrawSphere(PDI, Base + FVector::UpVector * (Height * 0.5f), FMath::Max(Width, Height) * 0.5f, HullColor, Thickness);
+                    MetricDraw::DrawSphere(PDI, Base + WorldUp * (Height * 0.5f), FMath::Max(Width, Height) * 0.5f, HullColor, Thickness);
                     break;
                 case EMetricHullType::Cylinder:
                 default:
                 {
-                    const FVector CylinderRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const FVector CylinderRight = WorldRight;
                     MetricDraw::DrawCircle3D(PDI, Base, WorldForward, CylinderRight, Width * 0.5f, HullColor, Thickness);
-                    MetricDraw::DrawCircle3D(PDI, Base + FVector::UpVector * Height, WorldForward, CylinderRight, Width * 0.5f, HullColor, Thickness);
+                    MetricDraw::DrawCircle3D(PDI, Base + WorldUp * Height, WorldForward, CylinderRight, Width * 0.5f, HullColor, Thickness);
                     break;
                 }
                 }
+            }
+
+            if (bShowAnalysisFrame)
+            {
+                const float AxisLength = FMath::Clamp(State.Hull.Height * 0.28f, 35.0f, 90.0f);
+                const FVector FrameOrigin = ProxyLocalToWorld.TransformPosition(State.Location) + WorldUp * 4.0f;
+                FLinearColor UpColor = Theme.Anchor; UpColor.A = 0.9f;
+                FLinearColor ForwardAxisColor = Theme.Forward; ForwardAxisColor.A = 0.9f;
+                FLinearColor RightColor = Theme.Neutral; RightColor.A = 0.75f;
+                PDI->DrawLine(FrameOrigin, FrameOrigin + WorldUp * AxisLength, UpColor, SDPG_World, 2.0f, 0.0f, true);
+                PDI->DrawLine(FrameOrigin, FrameOrigin + WorldForward * AxisLength, ForwardAxisColor, SDPG_World, 2.0f, 0.0f, true);
+                PDI->DrawLine(FrameOrigin, FrameOrigin + WorldRight * AxisLength, RightColor, SDPG_World, 1.5f, 0.0f, true);
             }
 
             if (State.Clearance.bVisible)
@@ -329,7 +432,7 @@ public:
                 // Quiet side rails make the requested passage width readable without
                 // turning the probe into a solid debug tunnel. They deliberately sit
                 // below the primary center line in the visual hierarchy.
-                const FVector SweepRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector SweepRight = WorldRight;
                 const float HalfVisualWidth = FMath::Max(4.0f, Width * 0.5f);
                 FLinearColor RailColor = ClearanceColor;
                 RailColor.A = 0.35f;
@@ -347,9 +450,9 @@ public:
                 const float VisualDistance = State.Clearance.bBlocked
                     ? State.Clearance.ClearDistance
                     : State.Clearance.ProbeDistance;
-                const FVector GhostBaseOffset = State.Hull.LocalOffset
-                    + State.Forward.GetSafeNormal() * VisualDistance
-                    + FVector::UpVector * 1.0f;
+                const FVector GhostBaseOffset = HullFrameOffset
+                    + State.AnalysisForward.GetSafeNormal() * VisualDistance
+                    + State.AnalysisUp * 1.0f;
                 const FVector GhostBase = ProxyLocalToWorld.TransformPosition(GhostBaseOffset);
                 FLinearColor GhostColor = ClearanceColor;
                 GhostColor.A = 0.45f;
@@ -357,20 +460,20 @@ public:
                 switch (State.Hull.HullType)
                 {
                 case EMetricHullType::Capsule:
-                    MetricDraw::DrawCapsule(PDI, GhostBase, WorldForward, Height, Width, GhostColor, 1.0f);
+                    MetricDraw::DrawCapsule(PDI, GhostBase, WorldForward, WorldUp, Height, Width, GhostColor, 1.0f);
                     break;
                 case EMetricHullType::OrientedBox:
-                    MetricDraw::DrawBox(PDI, GhostBase, WorldForward, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
+                    MetricDraw::DrawBox(PDI, GhostBase, WorldForward, WorldUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
                     break;
                 case EMetricHullType::Sphere:
-                    MetricDraw::DrawSphere(PDI, GhostBase + FVector::UpVector * (Height * 0.5f), FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
+                    MetricDraw::DrawSphere(PDI, GhostBase + WorldUp * (Height * 0.5f), FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
                     break;
                 case EMetricHullType::Cylinder:
                 default:
                 {
-                    const FVector CylinderRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const FVector CylinderRight = WorldRight;
                     MetricDraw::DrawCircle3D(PDI, GhostBase, WorldForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
-                    MetricDraw::DrawCircle3D(PDI, GhostBase + FVector::UpVector * Height, WorldForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
+                    MetricDraw::DrawCircle3D(PDI, GhostBase + WorldUp * Height, WorldForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
                     break;
                 }
                 }
@@ -379,10 +482,10 @@ public:
                 {
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.Clearance.ImpactPointOffset);
                     const float MarkerSize = 14.0f;
-                    const FVector Right = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const FVector Right = WorldRight;
                     const float ImpactThickness = StatusThickness(2.0f, true);
-                    PDI->DrawLine(Impact - Right * MarkerSize - FVector::UpVector * MarkerSize, Impact + Right * MarkerSize + FVector::UpVector * MarkerSize, ClearanceColor, SDPG_Foreground, ImpactThickness, 0.0f, true);
-                    PDI->DrawLine(Impact + Right * MarkerSize - FVector::UpVector * MarkerSize, Impact - Right * MarkerSize + FVector::UpVector * MarkerSize, ClearanceColor, SDPG_Foreground, ImpactThickness, 0.0f, true);
+                    PDI->DrawLine(Impact - Right * MarkerSize - WorldUp * MarkerSize, Impact + Right * MarkerSize + WorldUp * MarkerSize, ClearanceColor, SDPG_Foreground, ImpactThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + Right * MarkerSize - WorldUp * MarkerSize, Impact - Right * MarkerSize + WorldUp * MarkerSize, ClearanceColor, SDPG_Foreground, ImpactThickness, 0.0f, true);
                 }
             }
 
@@ -392,17 +495,17 @@ public:
                 const bool bWarn = State.OverheadClearance.bNearThreshold;
                 const FLinearColor Color = bFail ? Theme.Overhead.Fail : (bWarn ? Theme.Overhead.Tight : Theme.Overhead.Pass);
                 const float LineThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
-                const FVector Side = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector Side = WorldRight;
                 const float SideOffset = FMath::Max(12.0f, Width * 0.5f + 18.0f);
                 const FVector OverheadBase = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset) + Side * SideOffset;
                 const float VisualHeight = State.OverheadClearance.bBlocked || State.OverheadClearance.bNearThreshold
                     ? State.OverheadClearance.AvailableHeight
                     : FMath::Max(State.OverheadClearance.RequiredHeight, State.OverheadClearance.AvailableHeight);
-                const FVector Top = OverheadBase + FVector::UpVector * VisualHeight;
+                const FVector Top = OverheadBase + WorldUp * VisualHeight;
                 PDI->DrawLine(OverheadBase, Top, Color, SDPG_World, LineThickness, 0.0f, true);
 
                 const float Tick = 12.0f;
-                const FVector Required = OverheadBase + FVector::UpVector * State.OverheadClearance.RequiredHeight;
+                const FVector Required = OverheadBase + WorldUp * State.OverheadClearance.RequiredHeight;
                 PDI->DrawLine(Required - WorldForward * Tick, Required + WorldForward * Tick, Color, SDPG_World, LineThickness, 0.0f, true);
                 PDI->DrawLine(Required - Side * Tick, Required + Side * Tick, Color, SDPG_World, LineThickness, 0.0f, true);
 
@@ -423,21 +526,21 @@ public:
                 const bool bWarn = State.LedgeAnalysis.bHasEdge && State.LedgeAnalysis.bWarning && !bFail;
                 const FLinearColor LedgeColor = !State.LedgeAnalysis.bHasEdge ? Theme.LedgeNone : (bFail ? Theme.LedgeFail : (bWarn ? Theme.LedgeWarning : Theme.LedgeSafe));
                 const float LedgeThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
-                const FVector LedgeStart = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset + FVector::UpVector * 2.0f);
+                const FVector LedgeStart = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset + State.AnalysisUp * 2.0f);
                 const FVector Edge = State.LedgeAnalysis.bHasEdge
-                    ? FVector(ProxyLocalToWorld.TransformPosition(State.LedgeAnalysis.EdgeOffset + FVector::UpVector * 2.0f))
+                    ? FVector(ProxyLocalToWorld.TransformPosition(State.LedgeAnalysis.EdgeOffset + State.AnalysisUp * 2.0f))
                     : LedgeStart + WorldForward * State.LedgeAnalysis.EdgeDistance;
                 PDI->DrawLine(LedgeStart, Edge, LedgeColor, SDPG_World, LedgeThickness, 0.0f, true);
 
                 if (State.LedgeAnalysis.bHasEdge)
                 {
-                    const FVector LedgeRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const FVector LedgeRight = WorldRight;
                     const float EdgeMarker = FMath::Max(18.0f, State.Hull.Width * 0.35f);
                     PDI->DrawLine(Edge - LedgeRight * EdgeMarker, Edge + LedgeRight * EdgeMarker, LedgeColor, SDPG_World, LedgeThickness, 0.0f, true);
 
                     const FVector Landing = FVector(ProxyLocalToWorld.TransformPosition(State.LedgeAnalysis.LandingOffset));
                     PDI->DrawLine(Edge, Landing, LedgeColor, SDPG_World, LedgeThickness, 0.0f, true);
-                    MetricDraw::DrawCircle3D(PDI, Landing + FVector::UpVector * 2.0f, WorldForward, LedgeRight, 14.0f, LedgeColor, LedgeThickness, 20);
+                    MetricDraw::DrawCircle3D(PDI, Landing + WorldUp * 2.0f, WorldForward, LedgeRight, 14.0f, LedgeColor, LedgeThickness, 20);
                 }
             }
 
@@ -449,7 +552,7 @@ public:
                 const float StopThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
                 const FVector StopStart = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.StartOffset);
                 const FVector StopEnd = StopStart + WorldForward * State.StoppingDistance.RequiredDistance;
-                const FVector StopRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector StopRight = WorldRight;
                 const FVector ReactionPoint = StopStart + WorldForward * State.StoppingDistance.ReactionDistance;
                 const float Tick = FMath::Max(14.0f, State.Hull.Width * 0.22f);
 
@@ -461,8 +564,8 @@ public:
                 {
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.ImpactPointOffset);
                     const float Cross = 11.0f;
-                    PDI->DrawLine(Impact - StopRight * Cross - FVector::UpVector * Cross, Impact + StopRight * Cross + FVector::UpVector * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
-                    PDI->DrawLine(Impact + StopRight * Cross - FVector::UpVector * Cross, Impact - StopRight * Cross + FVector::UpVector * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
+                    PDI->DrawLine(Impact - StopRight * Cross - WorldUp * Cross, Impact + StopRight * Cross + WorldUp * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + StopRight * Cross - WorldUp * Cross, Impact - StopRight * Cross + WorldUp * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
                 }
             }
 
@@ -508,11 +611,11 @@ public:
 
             if (State.CombatDensity.bVisible)
             {
-                const FVector DensityRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector DensityRight = WorldRight;
                 FLinearColor AreaColor = Theme.CombatDensityArea; AreaColor.A = 0.65f;
                 FLinearColor PersonalColor = Theme.CombatDensityPersonal; PersonalColor.A = 0.85f;
-                MetricDraw::DrawCircle3D(PDI, Base + FVector::UpVector * 2.0f, WorldForward, DensityRight, State.CombatDensity.AreaRadius, AreaColor, 1.0f, 48);
-                MetricDraw::DrawCircle3D(PDI, Base + FVector::UpVector * 3.0f, WorldForward, DensityRight, State.CombatDensity.PersonalDiameter * 0.5f, PersonalColor, 1.5f, 24);
+                MetricDraw::DrawCircle3D(PDI, Base + WorldUp * 2.0f, WorldForward, DensityRight, State.CombatDensity.AreaRadius, AreaColor, 1.0f, 48);
+                MetricDraw::DrawCircle3D(PDI, Base + WorldUp * 3.0f, WorldForward, DensityRight, State.CombatDensity.PersonalDiameter * 0.5f, PersonalColor, 1.5f, 24);
             }
 
             if (State.AlternateStance.bVisible)
@@ -520,15 +623,15 @@ public:
                 const bool bFail = !State.AlternateStance.bAlternateFits;
                 const bool bWarn = !State.AlternateStance.bStandingFits && State.AlternateStance.bAlternateFits;
                 const FLinearColor C = bFail ? Theme.AlternateStance.Fail : (bWarn ? Theme.AlternateStance.Tight : Theme.AlternateStance.Pass);
-                const FVector AltBase = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset + FVector::UpVector * 1.0f);
-                MetricDraw::DrawCapsule(PDI, AltBase, WorldForward, State.AlternateStanceSettings.AlternateHeight, State.Hull.Width, C, StatusThickness(1.0f, bFail, bWarn));
+                const FVector AltBase = ProxyLocalToWorld.TransformPosition(State.Hull.LocalOffset + State.AnalysisUp * 1.0f);
+                MetricDraw::DrawCapsule(PDI, AltBase, WorldForward, WorldUp, State.AlternateStanceSettings.AlternateHeight, State.Hull.Width, C, StatusThickness(1.0f, bFail, bWarn));
             }
 
             if (State.MantleVault.bVisible)
             {
                 const bool bFail = State.MantleVault.bHasObstacle && (!State.MantleVault.bHeightValid || !State.MantleVault.bDepthValid);
                 const FLinearColor C = !State.MantleVault.bHasObstacle ? Theme.MantleNone : (bFail ? Theme.MantleFail : Theme.MantlePass);
-                const FVector A = Base + FVector::UpVector * State.MantleVaultSettings.MinObstacleHeight;
+                const FVector A = Base + WorldUp * State.MantleVaultSettings.MinObstacleHeight;
                 const FVector Front = ProxyLocalToWorld.TransformPosition(State.MantleVault.FrontOffset);
                 PDI->DrawLine(A, Front, C, SDPG_World, StatusThickness(1.25f, bFail), 0.0f, true);
                 if (State.MantleVault.bHasObstacle)
@@ -540,8 +643,8 @@ public:
 
             if (State.RecoverySpace.bVisible)
             {
-                const FVector RecoveryRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
-                const FVector Center = Base + FVector::UpVector * 4.0f;
+                const FVector RecoveryRight = WorldRight;
+                const FVector Center = Base + WorldUp * 4.0f;
                 struct FDir { FVector D; float Dist; bool Clear; } Dirs[4] = {
                     {WorldForward, State.RecoverySpace.ForwardClear, State.RecoverySpace.bForwardClear},
                     {-WorldForward, State.RecoverySpace.BackwardClear, State.RecoverySpace.bBackwardClear},
@@ -553,11 +656,50 @@ public:
 
             if (State.Crossfire.bVisible)
             {
-                const FVector Target = Base + FVector::UpVector * State.CrossfireSettings.SampleHeight;
+                const FVector Target = Base + WorldUp * State.CrossfireSettings.SampleHeight;
                 for (const FMetricCrossfireRay& Ray : State.Crossfire.Rays)
                 {
                     const FVector Threat = ProxyLocalToWorld.TransformPosition(Ray.EndOffset);
                     PDI->DrawLine(Target, Threat, Ray.bExposed ? Theme.CrossfireExposed : Theme.CrossfireCovered, SDPG_World, StatusThickness(1.0f, Ray.bExposed), 0.0f, true);
+                }
+            }
+
+            if (State.Trajectory.bVisible
+                && State.TrajectorySettings.DisplayMode == EMetricTrajectoryDisplayMode::JumpEnvelope
+                && State.Trajectory.EnvelopeArcs.Num() > 1)
+            {
+                for (int32 ArcIndex = 0; ArcIndex < State.Trajectory.EnvelopeArcs.Num(); ++ArcIndex)
+                {
+                    if (ArcIndex == State.Trajectory.ActiveEnvelopeArcIndex) continue;
+                    const FMetricTrajectoryArcResult& Arc = State.Trajectory.EnvelopeArcs[ArcIndex];
+                    if (Arc.SampleOffsets.Num() < 2) continue;
+                    FLinearColor ArcColor = Arc.bBlocked || Arc.bExceededMaxDrop
+                        ? TrajectoryBlockedColor
+                        : (Arc.bLandingValid ? TrajectoryLandingColor : TrajectoryColor);
+                    ArcColor.A = Arc.bLandingValid ? 0.45f : 0.3f;
+                    FVector Prev = ProxyLocalToWorld.TransformPosition(Arc.SampleOffsets[0]);
+                    for (int32 SampleIndex = 1; SampleIndex < Arc.SampleOffsets.Num(); ++SampleIndex)
+                    {
+                        const FVector Next = ProxyLocalToWorld.TransformPosition(Arc.SampleOffsets[SampleIndex]);
+                        PDI->DrawLine(Prev, Next, ArcColor, SDPG_World, 1.0f, 0.0f, true);
+                        Prev = Next;
+                    }
+                    if (Arc.bHasLanding || Arc.bBlocked)
+                    {
+                        const FVector Impact = ProxyLocalToWorld.TransformPosition(Arc.ImpactPointOffset);
+                        const FVector ImpactNormal = ProxyLocalToWorld.TransformVector(Arc.ImpactNormal).GetSafeNormal();
+                        const FVector ImpactRight = FVector::CrossProduct(ImpactNormal.IsNearlyZero() ? WorldUp : ImpactNormal, WorldForward).GetSafeNormal();
+                        if (Arc.bLandingValid)
+                        {
+                            MetricDraw::DrawCircle3D(PDI, Impact + (ImpactNormal.IsNearlyZero() ? WorldUp : ImpactNormal) * 2.0f, WorldForward, ImpactRight.IsNearlyZero() ? WorldRight : ImpactRight, 12.0f, ArcColor, 1.25f, 18);
+                        }
+                        else
+                        {
+                            const FVector R = ImpactRight.IsNearlyZero() ? WorldRight : ImpactRight;
+                            PDI->DrawLine(Impact - R * 8.0f - WorldUp * 8.0f, Impact + R * 8.0f + WorldUp * 8.0f, ArcColor, SDPG_Foreground, 1.5f, 0.0f, true);
+                            PDI->DrawLine(Impact + R * 8.0f - WorldUp * 8.0f, Impact - R * 8.0f + WorldUp * 8.0f, ArcColor, SDPG_Foreground, 1.5f, 0.0f, true);
+                        }
+                    }
                 }
             }
 
@@ -581,7 +723,7 @@ public:
                 {
                     FLinearColor EnvelopeColor = ArcColor;
                     EnvelopeColor.A = 0.45f;
-                    const FVector EnvelopeRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const FVector EnvelopeRight = WorldRight;
                     const float HalfWidth = FMath::Max(1.0f, State.Hull.Width * 0.5f);
                     const float HalfHeight = FMath::Max(1.0f, State.Hull.Height * 0.5f);
                     const int32 Stride = FMath::Clamp(State.TrajectorySettings.EnvelopeSampleStride, 1, 12);
@@ -592,13 +734,13 @@ public:
                         const FVector B = ProxyLocalToWorld.TransformPosition(State.Trajectory.SampleOffsets[Index]);
                         PDI->DrawLine(A - EnvelopeRight * HalfWidth, B - EnvelopeRight * HalfWidth, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
                         PDI->DrawLine(A + EnvelopeRight * HalfWidth, B + EnvelopeRight * HalfWidth, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
-                        PDI->DrawLine(A - FVector::UpVector * HalfHeight, B - FVector::UpVector * HalfHeight, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
-                        PDI->DrawLine(A + FVector::UpVector * HalfHeight, B + FVector::UpVector * HalfHeight, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
+                        PDI->DrawLine(A - WorldUp * HalfHeight, B - WorldUp * HalfHeight, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
+                        PDI->DrawLine(A + WorldUp * HalfHeight, B + WorldUp * HalfHeight, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
 
                         if ((Index % Stride) == 0 || Index == State.Trajectory.SampleOffsets.Num() - 1)
                         {
                             PDI->DrawLine(B - EnvelopeRight * HalfWidth, B + EnvelopeRight * HalfWidth, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
-                            PDI->DrawLine(B - FVector::UpVector * HalfHeight, B + FVector::UpVector * HalfHeight, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
+                            PDI->DrawLine(B - WorldUp * HalfHeight, B + WorldUp * HalfHeight, EnvelopeColor, SDPG_World, 1.0f, 0.0f, true);
                         }
                     }
                 }
@@ -607,9 +749,9 @@ public:
                 {
                     const FVector ApexCenter = ProxyLocalToWorld.TransformPosition(State.Trajectory.ApexOffset);
                     const float HalfHeight = FMath::Max(1.0f, State.Hull.Height * 0.5f);
-                    const FVector ApexTop = ApexCenter + FVector::UpVector * HalfHeight;
+                    const FVector ApexTop = ApexCenter + WorldUp * HalfHeight;
                     const float ProbeDistance = FMath::Max(0.0f, State.TrajectorySettings.ApexProbeDistance);
-                    FVector ProbeEnd = ApexTop + FVector::UpVector * ProbeDistance;
+                    FVector ProbeEnd = ApexTop + WorldUp * ProbeDistance;
                     if (State.Trajectory.bApexHasObstacle)
                     {
                         ProbeEnd = FVector(ProxyLocalToWorld.TransformPosition(State.Trajectory.ApexClearanceImpactOffset));
@@ -619,7 +761,7 @@ public:
                         : (State.Trajectory.bApexHasObstacle ? TrajectoryColor : TrajectoryLandingColor);
 
                     PDI->DrawLine(ApexTop, ProbeEnd, ApexColor, SDPG_World, 2.0f, 0.0f, true);
-                    const FVector ApexRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                    const FVector ApexRight = WorldRight;
                     MetricDraw::DrawCircle3D(PDI, ApexCenter, WorldForward, ApexRight, 16.0f, ApexColor, 2.0f, 20);
                     PDI->DrawLine(ApexCenter - ApexRight * 22.0f, ApexCenter + ApexRight * 22.0f, ApexColor, SDPG_World, 2.0f, 0.0f, true);
                 }
@@ -628,7 +770,7 @@ public:
                 {
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.Trajectory.ImpactPointOffset);
                     const FVector ImpactNormal = State.Trajectory.ImpactNormal.IsNearlyZero()
-                        ? FVector::UpVector
+                        ? WorldUp
                         : State.Trajectory.ImpactNormal.GetSafeNormal();
                     FVector ImpactRight = FVector::CrossProduct(ImpactNormal, WorldForward).GetSafeNormal();
                     if (ImpactRight.IsNearlyZero())
@@ -672,11 +814,11 @@ public:
                 // compare intended camera position against the compressed position.
                 const float EndMarker = FMath::Max(10.0f, ProbeRadius * 0.8f);
                 PDI->DrawLine(DesiredCamera - FVector::RightVector * EndMarker, DesiredCamera + FVector::RightVector * EndMarker, CameraProbeColor, SDPG_World, 1.0f, 0.0f, true);
-                PDI->DrawLine(DesiredCamera - FVector::UpVector * EndMarker, DesiredCamera + FVector::UpVector * EndMarker, CameraProbeColor, SDPG_World, 1.0f, 0.0f, true);
+                PDI->DrawLine(DesiredCamera - WorldUp * EndMarker, DesiredCamera + WorldUp * EndMarker, CameraProbeColor, SDPG_World, 1.0f, 0.0f, true);
 
                 const float PivotMarker = 12.0f;
                 PDI->DrawLine(Pivot - FVector::RightVector * PivotMarker, Pivot + FVector::RightVector * PivotMarker, CameraProbeColor, SDPG_World, 2.0f, 0.0f, true);
-                PDI->DrawLine(Pivot - FVector::UpVector * PivotMarker, Pivot + FVector::UpVector * PivotMarker, CameraProbeColor, SDPG_World, 2.0f, 0.0f, true);
+                PDI->DrawLine(Pivot - WorldUp * PivotMarker, Pivot + WorldUp * PivotMarker, CameraProbeColor, SDPG_World, 2.0f, 0.0f, true);
 
                 if (State.CameraProbe.bCompressed)
                 {
@@ -684,7 +826,7 @@ public:
                     FVector ImpactNormal = ProxyLocalToWorld.TransformVector(State.CameraProbe.ImpactNormal).GetSafeNormal();
                     if (ImpactNormal.IsNearlyZero())
                     {
-                        ImpactNormal = FVector::UpVector;
+                        ImpactNormal = WorldUp;
                     }
                     PDI->DrawLine(Impact, Impact + ImpactNormal * 35.0f, ResolvedColor, SDPG_World, 2.0f, 0.0f, true);
                 }
@@ -703,7 +845,7 @@ public:
                 PDI->DrawLine(Camera, Aim, CameraSightlineColor, SDPG_World, 1.0f, 0.0f, true);
 
                 const FVector AimDir = (Aim - Camera).GetSafeNormal();
-                FVector ConeRight = FVector::CrossProduct(FVector::UpVector, AimDir).GetSafeNormal();
+                FVector ConeRight = FVector::CrossProduct(WorldUp, AimDir).GetSafeNormal();
                 if (ConeRight.IsNearlyZero()) ConeRight = FVector::RightVector;
                 const float ConeLength = FMath::Min(300.0f, FMath::Max(80.0f, (Subject - Camera).Size()));
                 const float HalfAngleRad = FMath::DegreesToRadians(FMath::Clamp(State.CameraSightlineSettings.FramingHalfAngle, 1.0f, 80.0f));
@@ -718,8 +860,8 @@ public:
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.CameraSightline.ImpactPointOffset);
                     const float Cross = 12.0f;
                     const float BlockedThickness = StatusThickness(1.5f, true);
-                    PDI->DrawLine(Impact - FVector::RightVector * Cross - FVector::UpVector * Cross, Impact + FVector::RightVector * Cross + FVector::UpVector * Cross, Theme.SightlineOccluded, SDPG_Foreground, BlockedThickness, 0.0f, true);
-                    PDI->DrawLine(Impact + FVector::RightVector * Cross - FVector::UpVector * Cross, Impact - FVector::RightVector * Cross + FVector::UpVector * Cross, Theme.SightlineOccluded, SDPG_Foreground, BlockedThickness, 0.0f, true);
+                    PDI->DrawLine(Impact - FVector::RightVector * Cross - WorldUp * Cross, Impact + FVector::RightVector * Cross + WorldUp * Cross, Theme.SightlineOccluded, SDPG_Foreground, BlockedThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + FVector::RightVector * Cross - WorldUp * Cross, Impact - FVector::RightVector * Cross + WorldUp * Cross, Theme.SightlineOccluded, SDPG_Foreground, BlockedThickness, 0.0f, true);
                 }
             }
 
@@ -733,11 +875,11 @@ public:
                 for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
                 {
                     const FMetricGroundSample& Sample = State.GroundValidation.Samples[SampleIndex];
-                    const FVector Point = ProxyLocalToWorld.TransformPosition(Sample.Offset + FVector::UpVector * 3.0f);
+                    const FVector Point = ProxyLocalToWorld.TransformPosition(Sample.Offset + State.AnalysisUp * 3.0f);
                     FVector Normal = ProxyLocalToWorld.TransformVector(Sample.Normal).GetSafeNormal();
                     if (Normal.IsNearlyZero())
                     {
-                        Normal = FVector::UpVector;
+                        Normal = WorldUp;
                     }
 
                     const bool bGroundFail = !Sample.bHit || Sample.bSlopeFail;
@@ -772,7 +914,7 @@ public:
                     if (LaneCount > 1 && (SampleIndex % LaneCount) != 0)
                     {
                         const FMetricGroundSample& PrevSample = State.GroundValidation.Samples[SampleIndex - 1];
-                        const FVector PrevPoint = ProxyLocalToWorld.TransformPosition(PrevSample.Offset + FVector::UpVector * 3.0f);
+                        const FVector PrevPoint = ProxyLocalToWorld.TransformPosition(PrevSample.Offset + State.AnalysisUp * 3.0f);
                         PDI->DrawLine(PrevPoint, Point, GroundGridColor, SDPG_World, 0.75f, 0.0f, true);
                     }
 
@@ -820,8 +962,8 @@ public:
                     PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, FitThickness, 0.0f, true);
 
                     const float Tick = 10.0f;
-                    PDI->DrawLine(LeftPoint - FVector::UpVector * Tick, LeftPoint + FVector::UpVector * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
-                    PDI->DrawLine(RightPoint - FVector::UpVector * Tick, RightPoint + FVector::UpVector * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(LeftPoint - WorldUp * Tick, LeftPoint + WorldUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(RightPoint - WorldUp * Tick, RightPoint + WorldUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
                     PDI->DrawLine(CeilingPoint - FVector::RightVector * Tick, CeilingPoint + FVector::RightVector * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
                 }
             }
@@ -855,13 +997,13 @@ public:
                     PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, ThresholdThickness, 0.0f, true);
 
                     const float Tick = 12.0f;
-                    PDI->DrawLine(LeftPoint - FVector::UpVector * Tick, LeftPoint + FVector::UpVector * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
-                    PDI->DrawLine(RightPoint - FVector::UpVector * Tick, RightPoint + FVector::UpVector * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    PDI->DrawLine(LeftPoint - WorldUp * Tick, LeftPoint + WorldUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    PDI->DrawLine(RightPoint - WorldUp * Tick, RightPoint + WorldUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
                     PDI->DrawLine(CeilingPoint - FVector::RightVector * Tick, CeilingPoint + FVector::RightVector * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
 
                     if (Sample.bStepUpFail || Sample.bStepDownFail)
                     {
-                        const FVector StepTop = BasePoint + FVector::UpVector * FMath::Clamp(FMath::Abs(Sample.StepDelta), 12.0f, 80.0f);
+                        const FVector StepTop = BasePoint + WorldUp * FMath::Clamp(FMath::Abs(Sample.StepDelta), 12.0f, 80.0f);
                         PDI->DrawLine(BasePoint, StepTop, Theme.Threshold.Tight, SDPG_World, 2.5f, 0.0f, true);
                     }
                 }
@@ -888,14 +1030,14 @@ public:
                         : State.Forward.GetSafeNormal();
                     FLinearColor GhostColor = PathColor;
                     GhostColor.A = 0.45f;
-                    const FVector GhostBase = EndCenter - FVector::UpVector * (Height * 0.5f);
+                    const FVector GhostBase = EndCenter - WorldUp * (Height * 0.5f);
                     switch (State.Hull.HullType)
                     {
                     case EMetricHullType::Capsule:
-                        MetricDraw::DrawCapsule(PDI, GhostBase, PathForward, Height, Width, GhostColor, 1.0f);
+                        MetricDraw::DrawCapsule(PDI, GhostBase, PathForward, WorldUp, Height, Width, GhostColor, 1.0f);
                         break;
                     case EMetricHullType::OrientedBox:
-                        MetricDraw::DrawBox(PDI, GhostBase, PathForward, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
+                        MetricDraw::DrawBox(PDI, GhostBase, PathForward, WorldUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
                         break;
                     case EMetricHullType::Sphere:
                         MetricDraw::DrawSphere(PDI, EndCenter, FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
@@ -903,9 +1045,9 @@ public:
                     case EMetricHullType::Cylinder:
                     default:
                     {
-                        const FVector TurnRight = FVector::CrossProduct(FVector::UpVector, PathForward).GetSafeNormal();
+                        const FVector TurnRight = FVector::CrossProduct(WorldUp, PathForward).GetSafeNormal();
                         MetricDraw::DrawCircle3D(PDI, GhostBase, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
-                        MetricDraw::DrawCircle3D(PDI, GhostBase + FVector::UpVector * Height, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
+                        MetricDraw::DrawCircle3D(PDI, GhostBase + WorldUp * Height, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
                         break;
                     }
                     }
@@ -914,9 +1056,9 @@ public:
                     {
                         const FVector Impact = ProxyLocalToWorld.TransformPosition(Path.ImpactPointOffset);
                         FVector ImpactNormal = ProxyLocalToWorld.TransformVector(Path.ImpactNormal).GetSafeNormal();
-                        if (ImpactNormal.IsNearlyZero()) ImpactNormal = FVector::UpVector;
+                        if (ImpactNormal.IsNearlyZero()) ImpactNormal = WorldUp;
                         PDI->DrawLine(Impact, Impact + ImpactNormal * 32.0f, Theme.TurnBlocked, SDPG_World, PathThickness, 0.0f, true);
-                        const FVector CrossRight = FVector::CrossProduct(ImpactNormal, FVector::UpVector).GetSafeNormal();
+                        const FVector CrossRight = FVector::CrossProduct(ImpactNormal, WorldUp).GetSafeNormal();
                         const FVector CrossAxis = CrossRight.IsNearlyZero() ? FVector::RightVector : CrossRight;
                         PDI->DrawLine(Impact - CrossAxis * 10.0f, Impact + CrossAxis * 10.0f, Theme.TurnBlocked, SDPG_World, PathThickness, 0.0f, true);
                     }
@@ -929,7 +1071,7 @@ public:
             if (State.SensorField.bVisible && !State.SensorField.Rays.IsEmpty())
             {
                 const FVector SensorOrigin = ProxyLocalToWorld.TransformPosition(State.SensorField.OriginOffset);
-                const FVector SensorRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector SensorRight = WorldRight;
                 const float Range = FMath::Max(10.0f, State.SensorFieldSettings.Range);
                 const float HalfAngleRad = FMath::DegreesToRadians(FMath::Clamp(State.SensorFieldSettings.HorizontalHalfAngle, 1.0f, 89.0f));
 
@@ -972,15 +1114,15 @@ public:
                 }
 
                 const float VerticalHalfAngleRad = FMath::DegreesToRadians(FMath::Clamp(State.SensorFieldSettings.VerticalHalfAngle, 1.0f, 89.0f));
-                const FVector TopDir = (WorldForward * FMath::Cos(VerticalHalfAngleRad) + FVector::UpVector * FMath::Sin(VerticalHalfAngleRad)).GetSafeNormal();
-                const FVector BottomDir = (WorldForward * FMath::Cos(VerticalHalfAngleRad) - FVector::UpVector * FMath::Sin(VerticalHalfAngleRad)).GetSafeNormal();
+                const FVector TopDir = (WorldForward * FMath::Cos(VerticalHalfAngleRad) + WorldUp * FMath::Sin(VerticalHalfAngleRad)).GetSafeNormal();
+                const FVector BottomDir = (WorldForward * FMath::Cos(VerticalHalfAngleRad) - WorldUp * FMath::Sin(VerticalHalfAngleRad)).GetSafeNormal();
                 PDI->DrawLine(SensorOrigin, SensorOrigin + TopDir * Range, QuietFieldColor, SDPG_World, SecondaryLineThickness, 0.0f, true);
                 PDI->DrawLine(SensorOrigin, SensorOrigin + BottomDir * Range, QuietFieldColor, SDPG_World, SecondaryLineThickness, 0.0f, true);
             }
 
             if (State.Ranges.bShowEngagementRanges)
             {
-                const FVector RangeCenter = Base + FVector::UpVector * 2.0f;
+                const FVector RangeCenter = Base + WorldUp * 2.0f;
                 const FVector RangeAxisA = FVector::ForwardVector;
                 const FVector RangeAxisB = FVector::RightVector;
 
@@ -1004,7 +1146,7 @@ public:
                 const float NearRadius = Speed * FMath::Max(0.1f, State.Locomotion.NearTime);
                 const float MidRadius = Speed * FMath::Max(0.1f, State.Locomotion.MidTime);
                 const float FarRadius = Speed * FMath::Max(0.1f, State.Locomotion.FarTime);
-                const FVector BandCenter = Base + FVector::UpVector * 4.0f;
+                const FVector BandCenter = Base + WorldUp * 4.0f;
                 const FVector BandAxisA = FVector::ForwardVector;
                 const FVector BandAxisB = FVector::RightVector;
 
@@ -1027,7 +1169,7 @@ public:
 
             if (State.Sensors.bShowSensorHeights)
             {
-                const FVector SensorRight = FVector::CrossProduct(FVector::UpVector, WorldForward).GetSafeNormal();
+                const FVector SensorRight = WorldRight;
                 const float MarkerRadius = FMath::Max(5.0f, State.Sensors.MarkerRadius);
 
                 auto DrawSensorMarker = [&](float ZOffset, bool bLowProfile)
@@ -1037,7 +1179,7 @@ public:
                         return;
                     }
 
-                    const FVector Center = Base + FVector::UpVector * ZOffset;
+                    const FVector Center = Base + WorldUp * ZOffset;
                     const FLinearColor MarkerColor = bLowProfile ? Theme.SensorLow : Theme.SensorPrimary;
                     if (bLowProfile)
                     {
@@ -1062,7 +1204,7 @@ public:
             FVector SurfaceNormal = ProxyLocalToWorld.TransformVector(State.SurfaceNormal).GetSafeNormal();
             if (SurfaceNormal.IsNearlyZero())
             {
-                SurfaceNormal = FVector::UpVector;
+                SurfaceNormal = WorldUp;
             }
 
             FVector MarkerForward = WorldForward - SurfaceNormal * FVector::DotProduct(WorldForward, SurfaceNormal);
@@ -1099,6 +1241,50 @@ public:
                 PDI->DrawLine(ArrowEnd, ArrowEnd + Back - MarkerRight * 10.0f, ForwardColor, SDPG_World, AnchorLineThickness, 0.0f, true);
             }
 
+            if (bQueryInspectionEnabled && InspectionTarget != EMetricInspectionTarget::Auto)
+            {
+                for (const FMetricQueryEvidence& Evidence : State.QueryEvidence)
+                {
+                    if (Evidence.Target != InspectionTarget)
+                    {
+                        continue;
+                    }
+
+                    FLinearColor EvidenceColor = ClearancePassColor;
+                    switch (Evidence.Status)
+                    {
+                    case EMetricQueryEvidenceStatus::Fail: EvidenceColor = ClearanceFailColor; break;
+                    case EMetricQueryEvidenceStatus::Warning: EvidenceColor = ClearanceWarningColor; break;
+                    case EMetricQueryEvidenceStatus::Info: EvidenceColor = FLinearColor(0.55f, 0.70f, 1.00f, 1.0f); break;
+                    default: break;
+                    }
+
+                    const bool bFail = Evidence.Status == EMetricQueryEvidenceStatus::Fail;
+                    const bool bWarn = Evidence.Status == EMetricQueryEvidenceStatus::Warning;
+                    const float EvidenceThickness = StatusThickness(FMath::Max(1.5f, SecondaryLineThickness + 0.75f), bFail, bWarn);
+                    const FVector EvidenceStart = ProxyLocalToWorld.TransformPosition(Evidence.StartOffset);
+                    const FVector EvidenceEnd = ProxyLocalToWorld.TransformPosition(Evidence.EndOffset);
+                    PDI->DrawLine(EvidenceStart, EvidenceEnd, EvidenceColor, SDPG_Foreground, EvidenceThickness, 0.0f, true);
+
+                    const float StartTick = 5.0f;
+                    PDI->DrawLine(EvidenceStart - WorldRight * StartTick, EvidenceStart + WorldRight * StartTick, EvidenceColor, SDPG_Foreground, 1.0f, 0.0f, true);
+
+                    if (Evidence.bHasImpact)
+                    {
+                        const FVector Impact = ProxyLocalToWorld.TransformPosition(Evidence.ImpactOffset);
+                        FVector Normal = ProxyLocalToWorld.TransformVector(Evidence.ImpactNormal).GetSafeNormal();
+                        if (Normal.IsNearlyZero()) Normal = WorldUp;
+                        FVector CrossAxis = FVector::CrossProduct(Normal, WorldUp).GetSafeNormal();
+                        if (CrossAxis.IsNearlyZero()) CrossAxis = WorldRight;
+                        const FVector CrossAxisB = FVector::CrossProduct(Normal, CrossAxis).GetSafeNormal();
+                        const float Marker = bFail ? 11.0f : 8.0f;
+                        PDI->DrawLine(Impact - CrossAxis * Marker, Impact + CrossAxis * Marker, EvidenceColor, SDPG_Foreground, EvidenceThickness, 0.0f, true);
+                        PDI->DrawLine(Impact - CrossAxisB * Marker, Impact + CrossAxisB * Marker, EvidenceColor, SDPG_Foreground, EvidenceThickness, 0.0f, true);
+                        PDI->DrawLine(Impact, Impact + Normal * (bFail ? 45.0f : 30.0f), EvidenceColor, SDPG_Foreground, EvidenceThickness, 0.0f, true);
+                    }
+                }
+            }
+
             }
 
             // Pinned benchmarks are stored as world-space snapshots but rendered by
@@ -1107,13 +1293,14 @@ public:
             for (int32 PinIndex = 0; PinIndex < State.PinnedBenchmarks.Num(); ++PinIndex)
             {
                 const FMetricPinnedBenchmark& Pin = State.PinnedBenchmarks[PinIndex];
-                const FVector PinBase = ProxyLocalToWorld.TransformPosition(Pin.WorldLocation + Pin.Hull.LocalOffset + FVector::UpVector * 1.0f);
-                FVector PinForward = ProxyLocalToWorld.TransformVector(Pin.Forward);
-                PinForward.Z = 0.0f;
-                if (PinForward.Normalize() == false)
-                {
-                    PinForward = FVector::ForwardVector;
-                }
+                const FVector PinUpLocal = Pin.AnalysisUp.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+                FVector PinForwardLocal = FVector::VectorPlaneProject(Pin.Forward, PinUpLocal).GetSafeNormal();
+                if (PinForwardLocal.IsNearlyZero()) PinForwardLocal = FVector::ForwardVector;
+                const FVector PinRightLocal = FVector::CrossProduct(PinUpLocal, PinForwardLocal).GetSafeNormal();
+                const FVector PinHullOffset = PinForwardLocal * Pin.Hull.LocalOffset.X + PinRightLocal * Pin.Hull.LocalOffset.Y + PinUpLocal * Pin.Hull.LocalOffset.Z;
+                const FVector PinBase = ProxyLocalToWorld.TransformPosition(Pin.WorldLocation + PinHullOffset + PinUpLocal * 1.0f);
+                const FVector PinUp = ProxyLocalToWorld.TransformVector(PinUpLocal).GetSafeNormal();
+                FVector PinForward = ProxyLocalToWorld.TransformVector(PinForwardLocal).GetSafeNormal();
 
                 const bool bSelectedPin = PinIndex == State.SelectedPinnedBenchmarkIndex;
                 FLinearColor PinColor = Pin.VisualTheme.PinnedBenchmark;
@@ -1126,26 +1313,26 @@ public:
                 switch (Pin.Hull.HullType)
                 {
                 case EMetricHullType::Capsule:
-                    MetricDraw::DrawCapsule(PDI, PinBase, PinForward, PinHeight, PinWidth, PinColor, PinThickness);
+                    MetricDraw::DrawCapsule(PDI, PinBase, PinForward, PinUp, PinHeight, PinWidth, PinColor, PinThickness);
                     break;
                 case EMetricHullType::OrientedBox:
-                    MetricDraw::DrawBox(PDI, PinBase, PinForward, FVector(PinLength * 0.5f, PinWidth * 0.5f, PinHeight * 0.5f), PinColor, PinThickness);
+                    MetricDraw::DrawBox(PDI, PinBase, PinForward, PinUp, FVector(PinLength * 0.5f, PinWidth * 0.5f, PinHeight * 0.5f), PinColor, PinThickness);
                     break;
                 case EMetricHullType::Sphere:
-                    MetricDraw::DrawSphere(PDI, PinBase + FVector::UpVector * (PinHeight * 0.5f), FMath::Max3(PinWidth, PinLength, PinHeight) * 0.5f, PinColor, PinThickness);
+                    MetricDraw::DrawSphere(PDI, PinBase + PinUp * (PinHeight * 0.5f), FMath::Max3(PinWidth, PinLength, PinHeight) * 0.5f, PinColor, PinThickness);
                     break;
                 case EMetricHullType::Cylinder:
                 default:
                 {
-                    const FVector PinRight = FVector::CrossProduct(FVector::UpVector, PinForward).GetSafeNormal();
+                    const FVector PinRight = FVector::CrossProduct(PinUp, PinForward).GetSafeNormal();
                     MetricDraw::DrawCircle3D(PDI, PinBase, PinForward, PinRight, PinWidth * 0.5f, PinColor, PinThickness);
-                    MetricDraw::DrawCircle3D(PDI, PinBase + FVector::UpVector * PinHeight, PinForward, PinRight, PinWidth * 0.5f, PinColor, PinThickness);
+                    MetricDraw::DrawCircle3D(PDI, PinBase + PinUp * PinHeight, PinForward, PinRight, PinWidth * 0.5f, PinColor, PinThickness);
                     break;
                 }
                 }
 
-                const FVector PinRight = FVector::CrossProduct(FVector::UpVector, PinForward).GetSafeNormal();
-                const FVector PinAnchor = ProxyLocalToWorld.TransformPosition(Pin.WorldLocation + FVector::UpVector * 4.0f);
+                const FVector PinRight = FVector::CrossProduct(PinUp, PinForward).GetSafeNormal();
+                const FVector PinAnchor = ProxyLocalToWorld.TransformPosition(Pin.WorldLocation + PinUpLocal * 4.0f);
                 MetricDraw::DrawCircle3D(PDI, PinAnchor, PinForward, PinRight, 18.0f, PinColor, bSelectedPin ? 3.5f : 2.0f, 24);
                 PDI->DrawLine(PinAnchor, PinAnchor + PinForward * 45.0f, PinColor, SDPG_World, bSelectedPin ? 3.5f : 2.0f, 0.0f, true);
             }
@@ -1179,6 +1366,9 @@ private:
     float SecondaryLineThickness = 1.0f;
     float Thickness = 1.5f;
     bool bEmphasizeProblemLines = true;
+    bool bShowAnalysisFrame = true;
+    bool bQueryInspectionEnabled = false;
+    EMetricInspectionTarget InspectionTarget = EMetricInspectionTarget::Auto;
     float WarningLineThicknessMultiplier = 1.75f;
     float FailureLineThicknessMultiplier = 2.5f;
     float AnchorLift = 10.0f;
@@ -1196,6 +1386,15 @@ UMetricViewportComponent::UMetricViewportComponent()
     Mobility = EComponentMobility::Movable;
 }
 
+void UMetricViewportComponent::SetAllowQueryInspection(bool bAllow)
+{
+    if (bAllowQueryInspection != bAllow)
+    {
+        bAllowQueryInspection = bAllow;
+        MarkRenderStateDirty();
+    }
+}
+
 void UMetricViewportComponent::SetMetricState(const FMetricLiveState& NewState)
 {
     State = NewState;
@@ -1204,7 +1403,7 @@ void UMetricViewportComponent::SetMetricState(const FMetricLiveState& NewState)
 
 FPrimitiveSceneProxy* UMetricViewportComponent::CreateSceneProxy()
 {
-    return (State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) ? new FMetricViewportSceneProxy(this, State) : nullptr;
+    return (State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) ? new FMetricViewportSceneProxy(this, State, bAllowQueryInspection) : nullptr;
 }
 
 FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToWorld) const

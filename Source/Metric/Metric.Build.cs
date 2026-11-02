@@ -30,7 +30,8 @@ public class Metric : ModuleRules
                 "PhysicsCore",
                 "AssetDefinition",
                 "EngineAssetDefinitions",
-                "PropertyEditor"
+                "PropertyEditor",
+                "ToolMenus"
             });
     }
 }

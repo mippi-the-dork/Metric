@@ -42,8 +42,39 @@ public:
     int32 GetEntryCount() const { return CycleEntries.Num(); }
 
     void UpdateLiveState(UWorld* World, const FMetricLiveState& NewState);
+    void BeginLiveAnalysis(UWorld* World, const FMetricLiveState& NewState);
+    bool ProcessLiveAnalysisBudget(UWorld* World, double TimeBudgetMs);
+    bool HasPendingLiveAnalysis() const { return bLiveAnalysisPending; }
+    void CancelPendingLiveAnalysis();
     void UpdateWithLiveAnalysisDisabled(UWorld* World, const FVector& ViewerLocation);
     const FMetricLiveState& GetLiveState() const { return LiveState; }
+    FString RunPerformanceProfileCurrentLevel(int32 Iterations = 120);
+
+    // Shared authored-validation entry point used by Metric Actor. It evaluates
+    // the same analysis backend as Live Metric without requiring Metric to be active.
+    void EvaluatePresetAtLocation(
+        UWorld* World,
+        const class UMetricPreset* Preset,
+        const FVector& Location,
+        const FVector& Forward,
+        const FVector& SurfaceNormal,
+        const FVector& AnalysisUp,
+        FMetricLiveState& OutState) const;
+
+#if WITH_DEV_AUTOMATION_TESTS
+    void EvaluateTrajectoryForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateTrajectory(World, InOutState); }
+    void EvaluateClearanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateClearance(World, InOutState); }
+    void EvaluateCameraProbeForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateCameraProbe(World, InOutState); }
+    void EvaluateCameraSightlineForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateCameraSightline(World, InOutState); }
+    void EvaluateGroundValidationForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateGroundValidation(World, InOutState); }
+    void EvaluateFitAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateFitAnalysis(World, InOutState); }
+    void EvaluateThresholdAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateThresholdAnalysis(World, InOutState); }
+    void EvaluateLedgeAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateLedgeAnalysis(World, InOutState); }
+    void EvaluateStoppingDistanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateStoppingDistance(World, InOutState); }
+    void EvaluateMantleVaultForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateMantleVault(World, InOutState); }
+    void EvaluateRecoverySpaceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateRecoverySpace(World, InOutState); }
+    void BuildQueryEvidenceForAutomation(FMetricLiveState& InOutState) const { BuildQueryEvidence(InOutState); }
+#endif
 
     void ClearRenderHost();
 
@@ -79,6 +110,8 @@ private:
     void EvaluateMantleVault(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateRecoverySpace(UWorld* World, FMetricLiveState& InOutState) const;
     void EvaluateCrossfire(UWorld* World, FMetricLiveState& InOutState) const;
+    void BuildQueryEvidence(FMetricLiveState& InOutState) const;
+    void PublishLiveState(UWorld* World);
     bool BuildSelectedPinnedVisualState(UWorld* World, FMetricLiveState& OutState) const;
     void RefreshSelectedPinnedVisualization(UWorld* World);
     void NotifyStateChanged();
@@ -92,6 +125,11 @@ private:
     int32 SelectedPinnedBenchmarkIndex = INDEX_NONE;
     FMetricLiveState SelectedPinnedEvaluatedState;
     bool bHasSelectedPinnedEvaluatedState = false;
+
+    FMetricLiveState PendingLiveState;
+    TWeakObjectPtr<UWorld> PendingLiveWorld;
+    int32 PendingLiveJobIndex = 0;
+    bool bLiveAnalysisPending = false;
 
     // The render host is owned by its UWorld/ULevel. Metric must not strongly
     // reference a world-owned Actor from this long-lived editor subsystem,

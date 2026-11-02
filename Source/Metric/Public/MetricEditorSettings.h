@@ -11,11 +11,27 @@ enum class EMetricHUDAnchor : uint8
     TopLeft UMETA(DisplayName = "Top Left"),
     MiddleLeft UMETA(DisplayName = "Middle Left"),
     BottomLeft UMETA(DisplayName = "Bottom Left"),
-    TopMiddle UMETA(DisplayName = "Top Middle"),
-    BottomMiddle UMETA(DisplayName = "Bottom Middle"),
+    TopMiddle UMETA(Hidden),
+    BottomMiddle UMETA(Hidden),
     TopRight UMETA(DisplayName = "Top Right"),
     MiddleRight UMETA(DisplayName = "Middle Right"),
     BottomRight UMETA(DisplayName = "Bottom Right")
+};
+
+UENUM()
+enum class EMetricEnvironmentSource : uint8
+{
+    Collision UMETA(DisplayName = "Collision"),
+    Hybrid UMETA(DisplayName = "Hybrid"),
+    VisualGeometry UMETA(DisplayName = "Visual Geometry (Approximate)")
+};
+
+UENUM()
+enum class EMetricAnalysisFrameMode : uint8
+{
+    World UMETA(DisplayName = "World Up"),
+    SurfaceNormal UMETA(DisplayName = "Surface Normal"),
+    CustomUp UMETA(DisplayName = "Custom Up")
 };
 
 UENUM()
@@ -60,6 +76,9 @@ struct FMetricPersistentBenchmark
 
     UPROPERTY()
     FVector SurfaceNormal = FVector::UpVector;
+
+    UPROPERTY()
+    FVector AnalysisUp = FVector::UpVector;
 
     UPROPERTY()
     FMetricClearanceSettings ClearanceSettings;
@@ -146,6 +165,31 @@ public:
 
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Enable Live Analysis"))
     bool bShowLiveVisualizer = true;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Live Analysis Update Rate", ToolTip = "Maximum rate for expensive cursor-driven Metric analysis while the cursor or camera is moving. The viewport may render faster than this. Set to 0 for uncapped analysis.", ClampMin = "0.0", ClampMax = "120.0", Units = "Hz"))
+    float LiveAnalysisUpdateRateHz = 30.0f;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Live Analysis Time Budget", ToolTip = "Approximate CPU time Metric may spend advancing live analysis during one editor frame. Metric yields between whole analysis jobs, so a single expensive job may exceed this value. Set to 0 for unlimited work per frame.", ClampMin = "0.0", ClampMax = "16.0", Units = "ms"))
+    float LiveAnalysisTimeBudgetMs = 2.0f;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Environment Source", ToolTip = "Collision uses authored collision only. Hybrid supplements collision-disabled visible primitives with approximate editor bounds. Visual Geometry uses approximate editor-visible primitive bounds and does not require authored collision."))
+    EMetricEnvironmentSource EnvironmentSource = EMetricEnvironmentSource::Collision;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Analysis Frame", ToolTip = "Controls the Up direction used by spatial analyses. World Up preserves conventional horizon-locked behavior. Surface Normal aligns Metric to the placement surface. Custom Up uses the configured direction."))
+    EMetricAnalysisFrameMode AnalysisFrame = EMetricAnalysisFrameMode::World;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Custom Up Direction", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::CustomUp"))
+    FVector CustomAnalysisUp = FVector::UpVector;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Show Analysis Frame"))
+    bool bShowAnalysisFrame = true;
+
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Query Inspection", ToolTip = "Focus the viewport on one analysis and draw its actual query spans, contacts, normals and failure evidence."))
+    bool bQueryInspectionEnabled = false;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Inspection Target", EditCondition = "bQueryInspectionEnabled"))
+    EMetricInspectionTarget QueryInspectionTarget = EMetricInspectionTarget::Auto;
 
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
     EMetricHUDViewportTargeting HUDViewportTargeting = EMetricHUDViewportTargeting::FollowLastInteracted;

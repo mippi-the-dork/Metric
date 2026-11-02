@@ -10,6 +10,7 @@
 #include "MetricProjectSettings.h"
 #include "MetricEditorSettings.h"
 #include "MetricEnvironmentQuery.h"
+#include "MetricFrameUtils.h"
 #include "MetricSubsystem.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
@@ -322,8 +323,15 @@ void FMetricViewportController::Tick(float DeltaTime)
     }
 
     UMetricSubsystem* MetricSubsystem = GEditor->GetEditorSubsystem<UMetricSubsystem>();
-    if (!MetricSubsystem || !MetricSubsystem->IsMetricActive())
+    if (!MetricSubsystem)
     {
+        return;
+    }
+    if (!MetricSubsystem->IsMetricActive())
+    {
+        MetricSubsystem->CancelPendingLiveAnalysis();
+        bHasLiveAnalysisSample = false;
+        LastAnalysisWorld.Reset();
         return;
     }
 
@@ -340,12 +348,79 @@ void FMetricViewportController::Tick(float DeltaTime)
     }
 
     const UMetricEditorSettings* EditorSettings = GetDefault<UMetricEditorSettings>();
+
+    // Advance an already-started generation every editor frame using the CPU
+    // budget, regardless of whether the cursor changed again. Finish the current
+    // generation before sampling a newer cursor target so low-priority analyses
+    // cannot starve during continuous mouse movement.
+    if (MetricSubsystem->HasPendingLiveAnalysis())
+    {
+        const double TimeBudgetMs = EditorSettings ? static_cast<double>(EditorSettings->LiveAnalysisTimeBudgetMs) : 2.0;
+        MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
+        ViewportClient->Invalidate();
+        if (MetricSubsystem->HasPendingLiveAnalysis())
+        {
+            return;
+        }
+    }
+
+    // The viewport can render substantially faster than Metric needs to run its
+    // complete spatial analysis stack. Only evaluate when the cursor/camera or
+    // active analysis context changed, and cap those expensive updates to the
+    // configured rate. This prevents Live Metric from turning every editor frame
+    // into a full battery of traces and sweeps.
+    const FIntPoint CurrentMouse(ViewportClient->Viewport->GetMouseX(), ViewportClient->Viewport->GetMouseY());
+    const FVector CurrentViewLocation = ViewportClient->GetViewLocation();
+    const FRotator CurrentViewRotation = ViewportClient->GetViewRotation();
+    const int32 CurrentEntryIndex = MetricSubsystem->GetActiveIndex();
+    const uint8 CurrentEnvironmentSource = static_cast<uint8>(EditorSettings ? EditorSettings->EnvironmentSource : EMetricEnvironmentSource::Collision);
+    const uint8 CurrentFrameMode = static_cast<uint8>(EditorSettings ? EditorSettings->AnalysisFrame : EMetricAnalysisFrameMode::World);
+    const bool bCurrentLiveAnalysisEnabled = !EditorSettings || EditorSettings->bShowLiveVisualizer;
+
+    const bool bAnalysisInputChanged = !bHasLiveAnalysisSample
+        || LastAnalysisWorld.Get() != World
+        || CurrentMouse != LastAnalysisMouse
+        || !CurrentViewLocation.Equals(LastAnalysisViewLocation, 0.01f)
+        || !CurrentViewRotation.Equals(LastAnalysisViewRotation, 0.01f)
+        || CurrentEntryIndex != LastAnalysisEntryIndex
+        || CurrentEnvironmentSource != LastAnalysisEnvironmentSource
+        || CurrentFrameMode != LastAnalysisFrameMode
+        || bCurrentLiveAnalysisEnabled != bLastLiveAnalysisEnabled;
+
+    if (!bAnalysisInputChanged)
+    {
+        return;
+    }
+
+    const double Now = FPlatformTime::Seconds();
+    const float MaxUpdateRateHz = EditorSettings ? EditorSettings->LiveAnalysisUpdateRateHz : 30.0f;
+    if (bHasLiveAnalysisSample && MaxUpdateRateHz > KINDA_SMALL_NUMBER)
+    {
+        const double MinInterval = 1.0 / static_cast<double>(MaxUpdateRateHz);
+        if ((Now - LastLiveAnalysisTime) < MinInterval)
+        {
+            return;
+        }
+    }
+
+    LastLiveAnalysisTime = Now;
+    LastAnalysisMouse = CurrentMouse;
+    LastAnalysisViewLocation = CurrentViewLocation;
+    LastAnalysisViewRotation = CurrentViewRotation;
+    LastAnalysisEntryIndex = CurrentEntryIndex;
+    LastAnalysisEnvironmentSource = CurrentEnvironmentSource;
+    LastAnalysisFrameMode = CurrentFrameMode;
+    bLastLiveAnalysisEnabled = bCurrentLiveAnalysisEnabled;
+    LastAnalysisWorld = World;
+    bHasLiveAnalysisSample = true;
+
     if (EditorSettings && !EditorSettings->bShowLiveVisualizer)
     {
         // Truly pause the cursor-driven analyzer. No cursor ray, placement trace,
         // or live Metric sweeps/sampling are performed while Live Metric is Off.
-        // The selected benchmark, if any, is still re-evaluated live.
-        MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, ViewportClient->GetViewLocation());
+        // The selected benchmark, if any, is still re-evaluated at the same
+        // bounded update rate as Live Metric.
+        MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, CurrentViewLocation);
         ViewportClient->Invalidate();
         return;
     }
@@ -364,7 +439,7 @@ void FMetricViewportController::Tick(float DeltaTime)
     FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricPlacementTrace), true);
 
     FHitResult Hit;
-    const bool bHit = World->LineTraceSingleByChannel(
+    const bool bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
         Hit,
         RayOrigin,
         RayOrigin + RayDirection * TraceDistance,
@@ -378,18 +453,21 @@ void FMetricViewportController::Tick(float DeltaTime)
     if (bHit)
     {
         State.Location = Hit.ImpactPoint;
-        State.SurfaceNormal = Hit.ImpactNormal.GetSafeNormal();
+        State.SurfaceNormal = Hit.ImpactNormal.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
 
-        FVector GroundForward = ViewportClient->GetViewRotation().Vector();
-        GroundForward.Z = 0.0f;
-        GroundForward.Normalize();
-        if (GroundForward.IsNearlyZero())
-        {
-            GroundForward = FVector::ForwardVector;
-        }
-        State.Forward = GroundForward;
+        const EMetricAnalysisFrameMode FrameMode = EditorSettings ? EditorSettings->AnalysisFrame : EMetricAnalysisFrameMode::World;
+        const FVector CustomUp = EditorSettings ? EditorSettings->CustomAnalysisUp : FVector::UpVector;
+        const FMetricAnalysisBasis Basis = MetricFrameUtils::BuildAnalysisBasis(
+            FrameMode, State.SurfaceNormal, CustomUp, ViewportClient->GetViewRotation().Vector());
+
+        State.AnalysisUp = Basis.Up;
+        State.AnalysisForward = Basis.Forward;
+        State.AnalysisRight = Basis.Right;
+        State.Forward = Basis.Forward;
     }
 
-    MetricSubsystem->UpdateLiveState(World, State);
+    MetricSubsystem->BeginLiveAnalysis(World, State);
+    const double TimeBudgetMs = EditorSettings ? static_cast<double>(EditorSettings->LiveAnalysisTimeBudgetMs) : 2.0;
+    MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
     ViewportClient->Invalidate();
 }

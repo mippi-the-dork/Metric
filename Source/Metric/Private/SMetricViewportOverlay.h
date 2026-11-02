@@ -34,6 +34,7 @@ private:
     EVisibility GetLegendVisibility() const;
     TSharedRef<SWidget> BuildBenchmarkMenu();
     TSharedRef<SWidget> BuildVisibilityMenu(bool bForBenchmark);
+    TSharedRef<SWidget> BuildLiveSetupMenu();
     TSharedRef<SWidget> BuildLegendContent();
     FReply SelectPin(int32 Index);
     FReply FocusSelectedPin();
