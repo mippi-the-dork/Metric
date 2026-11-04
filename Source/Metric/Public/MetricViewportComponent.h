@@ -17,6 +17,7 @@ public:
     void SetAllowQueryInspection(bool bAllow);
 
     virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
+    virtual void SendRenderDynamicData_Concurrent() override;
     virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 
 private:

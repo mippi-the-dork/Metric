@@ -4,6 +4,7 @@
 #include "MetricEditorSettings.h"
 #include "PrimitiveSceneProxy.h"
 #include "SceneManagement.h"
+#include "RenderingThread.h"
 
 namespace MetricDraw
 {
@@ -1342,6 +1343,13 @@ public:
     }
 
 
+public:
+    void SetMetricState_RenderThread(const FMetricLiveState& NewState)
+    {
+        check(IsInRenderingThread());
+        State = NewState;
+    }
+
 private:
     FMetricLiveState State;
     FLinearColor HullColor;
@@ -1399,13 +1407,42 @@ void UMetricViewportComponent::SetAllowQueryInspection(bool bAllow)
 
 void UMetricViewportComponent::SetMetricState(const FMetricLiveState& NewState)
 {
+    const bool bHadRenderableState = State.bHasHit || !State.PinnedBenchmarks.IsEmpty();
+    const bool bHasRenderableState = NewState.bHasHit || !NewState.PinnedBenchmarks.IsEmpty();
+
     {
         MetricPerformance::FScopedPipelineStage Scope(TEXT("Component.StateCopy"));
         State = NewState;
     }
+
+    // Most live Metric updates only change the data consumed by the existing
+    // scene proxy. Recreating the proxy every publish causes substantial editor
+    // and render-thread churn while the cursor moves. Only rebuild the proxy
+    // when its existence must change; otherwise use Unreal's dynamic-data path.
+    if (bHadRenderableState != bHasRenderableState)
     {
         MetricPerformance::FScopedPipelineStage Scope(TEXT("Component.MarkRenderStateDirty"));
         MarkRenderStateDirty();
+    }
+    else if (bHasRenderableState)
+    {
+        MetricPerformance::FScopedPipelineStage Scope(TEXT("Component.MarkRenderDynamicDataDirty"));
+        MarkRenderDynamicDataDirty();
+    }
+}
+
+void UMetricViewportComponent::SendRenderDynamicData_Concurrent()
+{
+    Super::SendRenderDynamicData_Concurrent();
+
+    if (FMetricViewportSceneProxy* MetricProxy = static_cast<FMetricViewportSceneProxy*>(SceneProxy))
+    {
+        const FMetricLiveState StateCopy = State;
+        ENQUEUE_RENDER_COMMAND(MetricUpdateDynamicState)(
+            [MetricProxy, StateCopy](FRHICommandListImmediate&)
+            {
+                MetricProxy->SetMetricState_RenderThread(StateCopy);
+            });
     }
 }
 
