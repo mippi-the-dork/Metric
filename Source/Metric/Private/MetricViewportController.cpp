@@ -23,6 +23,79 @@
 namespace
 {
     FMetricViewportController* GMetricViewportControllerInstance = nullptr;
+
+    bool HasAnyMetricVisual(const FMetricLayerVisibility& V)
+    {
+        return V.bHullVisual
+            || V.bClearanceVisual
+            || V.bOverheadVisual
+            || V.bGroundVisual
+            || V.bFitVisual
+            || V.bThresholdVisual
+            || V.bSensorsVisual
+            || V.bSensorFieldVisual
+            || V.bRangesVisual
+            || V.bLocomotionVisual
+            || V.bTrajectoryVisual
+            || V.bCameraVisual
+            || V.bTurnVisual
+            || V.bLedgeVisual
+            || V.bStoppingVisual
+            || V.bCoverVisual
+            || V.bJumpRunwayVisual
+            || V.bInteractionVisual
+            || V.bShoulderVisual
+            || V.bCombatDensityVisual
+            || V.bAlternateStanceVisual
+            || V.bMantleVisual
+            || V.bRecoveryVisual
+            || V.bCrossfireVisual
+            || V.bSightlineVisual;
+    }
+
+    bool ShouldRedrawMetricViewport(const UMetricEditorSettings* Settings, const UMetricSubsystem* Subsystem)
+    {
+        if (!Settings || !Subsystem)
+        {
+            return true;
+        }
+
+        if (Settings->bShowViewportHUD)
+        {
+            return true;
+        }
+
+        if (Settings->bShowLiveVisualizer && HasAnyMetricVisual(Settings->LiveVisibility))
+        {
+            return true;
+        }
+
+        for (int32 Index = 0; Index < Subsystem->GetPinnedBenchmarkCount(); ++Index)
+        {
+            if (const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Index))
+            {
+                if (HasAnyMetricVisual(Pin->Visibility))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    void RequestMetricViewportRedraw(FLevelEditorViewportClient* ViewportClient, const UMetricEditorSettings* Settings, const UMetricSubsystem* Subsystem)
+    {
+        if (!ViewportClient || !ShouldRedrawMetricViewport(Settings, Subsystem))
+        {
+            return;
+        }
+
+        // Metric never changes editor selection or hit-test geometry. Rebuilding
+        // hit proxies here is unnecessary and is particularly expensive while
+        // the mouse is moving. Invalidate display only.
+        ViewportClient->Invalidate(true, false);
+    }
 }
 
 FMetricViewportController::FMetricViewportController()
@@ -362,7 +435,10 @@ void FMetricViewportController::Tick(float DeltaTime)
     {
         const double TimeBudgetMs = EditorSettings ? static_cast<double>(EditorSettings->LiveAnalysisTimeBudgetMs) : 2.0;
         MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
-        { MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate")); ViewportClient->Invalidate(); }
+        {
+            MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
+            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+        }
         if (MetricSubsystem->HasPendingLiveAnalysis())
         {
             return;
@@ -381,6 +457,38 @@ void FMetricViewportController::Tick(float DeltaTime)
     const uint8 CurrentEnvironmentSource = static_cast<uint8>(EditorSettings ? EditorSettings->EnvironmentSource : EMetricEnvironmentSource::Collision);
     const uint8 CurrentFrameMode = static_cast<uint8>(EditorSettings ? EditorSettings->AnalysisFrame : EMetricAnalysisFrameMode::World);
     const bool bCurrentLiveAnalysisEnabled = !EditorSettings || EditorSettings->bShowLiveVisualizer;
+
+    // With Live Analysis paused and no selected benchmark, mouse/camera movement
+    // has no Metric work to drive. Refresh the disabled state once when its
+    // context changes, then stay completely dormant until something relevant
+    // changes again. This prevents a paused Metric tool from waking the viewport
+    // at the configured live-analysis rate merely because the mouse moved.
+    if (!bCurrentLiveAnalysisEnabled && MetricSubsystem->GetSelectedPinnedBenchmarkIndex() == INDEX_NONE)
+    {
+        const bool bDisabledContextChanged = !bHasLiveAnalysisSample
+            || LastAnalysisWorld.Get() != World
+            || CurrentEntryIndex != LastAnalysisEntryIndex
+            || CurrentEnvironmentSource != LastAnalysisEnvironmentSource
+            || CurrentFrameMode != LastAnalysisFrameMode
+            || bLastLiveAnalysisEnabled;
+
+        if (bDisabledContextChanged)
+        {
+            MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, CurrentViewLocation);
+            LastAnalysisViewLocation = CurrentViewLocation;
+            LastAnalysisViewRotation = CurrentViewRotation;
+            LastAnalysisEntryIndex = CurrentEntryIndex;
+            LastAnalysisEnvironmentSource = CurrentEnvironmentSource;
+            LastAnalysisFrameMode = CurrentFrameMode;
+            bLastLiveAnalysisEnabled = false;
+            LastAnalysisWorld = World;
+            bHasLiveAnalysisSample = true;
+
+            MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
+            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+        }
+        return;
+    }
 
     const bool bAnalysisInputChanged = !bHasLiveAnalysisSample
         || LastAnalysisWorld.Get() != World
@@ -426,7 +534,10 @@ void FMetricViewportController::Tick(float DeltaTime)
         // The selected benchmark, if any, is still re-evaluated at the same
         // bounded update rate as Live Metric.
         MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, CurrentViewLocation);
-        { MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate")); ViewportClient->Invalidate(); }
+        {
+            MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
+            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+        }
         return;
     }
 
@@ -478,5 +589,8 @@ void FMetricViewportController::Tick(float DeltaTime)
     MetricSubsystem->BeginLiveAnalysis(World, State);
     const double TimeBudgetMs = EditorSettings ? static_cast<double>(EditorSettings->LiveAnalysisTimeBudgetMs) : 2.0;
     MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
-    { MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate")); ViewportClient->Invalidate(); }
+    {
+            MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
+            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+        }
 }

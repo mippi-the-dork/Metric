@@ -4,7 +4,9 @@
 #include "MetricEditorSettings.h"
 #include "MetricSubsystem.h"
 #include "MetricViewportComponent.h"
+#include "MetricActorOverview.h"
 #include "Components/BillboardComponent.h"
+#include "Components/SceneComponent.h"
 #include "Engine/Texture2D.h"
 #include "ImageUtils.h"
 #include "Interfaces/IPluginManager.h"
@@ -43,12 +45,21 @@ AMetricActor::AMetricActor()
     PrimaryActorTick.bStartWithTickEnabled = true;
     SetActorEnableCollision(false);
 
+    // Keep a neutral root so editor-only placement affordances do not inherit the
+    // analysis visualization's visibility state.
+    USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+    RootComponent = SceneRoot;
+
     VisualizationComponent = CreateDefaultSubobject<UMetricViewportComponent>(TEXT("MetricVisualization"));
-    RootComponent = VisualizationComponent;
+    VisualizationComponent->SetupAttachment(RootComponent);
     VisualizationComponent->SetIsVisualizationComponent(true);
     VisualizationComponent->SetAllowQueryInspection(false);
 
 #if WITH_EDITOR
+    // Keep Unreal's user-facing per-Actor Editor Billboard Scale at its native default.
+    // Metric's authored icon size is controlled by the billboard component itself.
+    SpriteScale = 1.0f;
+
     BillboardComponent = CreateEditorOnlyDefaultSubobject<UBillboardComponent>(TEXT("MetricBillboard"));
     if (BillboardComponent)
     {
@@ -59,8 +70,9 @@ AMetricActor::AMetricActor()
         BillboardComponent->SetHiddenInGame(true);
         BillboardComponent->bIsScreenSizeScaled = true;
         BillboardComponent->bUseInEditorScaling = true;
+        BillboardComponent->ScreenSize = GetDefault<UBillboardComponent>()->ScreenSize * 4.0f;
         BillboardComponent->OpacityMaskRefVal = 0.3f;
-        BillboardComponent->SetRelativeScale3D(FVector(0.5f));
+        BillboardComponent->SetRelativeScale3D(FVector::OneVector);
     }
 #endif
 }
@@ -91,9 +103,9 @@ void AMetricActor::RefreshBillboardSprite()
 
     BillboardComponent->bIsScreenSizeScaled = true;
     BillboardComponent->bUseInEditorScaling = true;
-    BillboardComponent->ScreenSize = GetDefault<UBillboardComponent>()->ScreenSize;
+    BillboardComponent->ScreenSize = GetDefault<UBillboardComponent>()->ScreenSize * 4.0f;
     BillboardComponent->OpacityMaskRefVal = 0.3f;
-    BillboardComponent->SetRelativeScale3D(FVector(0.5f));
+    BillboardComponent->SetRelativeScale3D(FVector::OneVector);
 
     if (UTexture2D* Texture = LoadMetricActorBillboardTexture())
     {
@@ -293,7 +305,9 @@ void AMetricActor::UpdateVisualization()
         LocalState.SelectedPinnedBenchmarkIndex = INDEX_NONE;
         VisualizationComponent->SetMetricState(LocalState);
     }
-    VisualizationComponent->SetVisibility(bVisible, true);
+    // The Metric billboard is a sibling of the analysis visualization and must remain independently visible.
+    // Do not propagate analysis-visualization visibility to unrelated editor components.
+    VisualizationComponent->SetVisibility(bVisible, false);
 }
 
 FString AMetricActor::GetOverallResultText() const
@@ -319,6 +333,13 @@ void AMetricActor::OpenMetricProfile()
             AssetEditorSubsystem->OpenEditorForAsset(Profile);
         }
     }
+#endif
+}
+
+void AMetricActor::OpenMetricDashboard()
+{
+#if WITH_EDITOR
+    MetricActorOverview::OpenAndFocusActor(this);
 #endif
 }
 

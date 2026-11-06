@@ -21,6 +21,9 @@
 
 namespace
 {
+    class SMetricActorOverview;
+    TWeakObjectPtr<AMetricActor> RequestedActor;
+    TWeakPtr<SMetricActorOverview> ActiveOverview;
     enum class EMetricOverviewFilter : uint8
     {
         All,
@@ -114,7 +117,7 @@ namespace
                     ]
                     + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
                     [
-                        SNew(SButton).Text(LOCTEXT("Refresh", "Refresh")).OnClicked(this, &SMetricActorOverview::OnRefresh)
+                        SNew(SButton).Text(LOCTEXT("Refresh", "Refresh")).ToolTipText(LOCTEXT("RefreshTip", "Rescan the current editor world and refresh Metric Actor results shown in the Dashboard.")).OnClicked(this, &SMetricActorOverview::OnRefresh)
                     ]
                 ]
                 + SVerticalBox::Slot().AutoHeight().Padding(8, 2, 8, 6)
@@ -159,6 +162,41 @@ namespace
                     ]
                 ]
             ];
+
+            if (RequestedActor.IsValid() && ListView.IsValid())
+            {
+                for (const TSharedPtr<FMetricActorRowData>& Row : FilteredRows)
+                {
+                    if (Row.IsValid() && Row->Actor.Get() == RequestedActor.Get())
+                    {
+                        SelectedActor = RequestedActor;
+                        ListView->SetSelection(Row, ESelectInfo::Direct);
+                        ListView->RequestScrollIntoView(Row);
+                        break;
+                    }
+                }
+                RequestedActor.Reset();
+            }
+        }
+
+        void FocusActor(AMetricActor* Actor)
+        {
+            if (!Actor || !ListView.IsValid())
+            {
+                return;
+            }
+
+            Refresh();
+            for (const TSharedPtr<FMetricActorRowData>& Row : FilteredRows)
+            {
+                if (Row.IsValid() && Row->Actor.Get() == Actor)
+                {
+                    SelectedActor = Actor;
+                    ListView->SetSelection(Row, ESelectInfo::Direct);
+                    ListView->RequestScrollIntoView(Row);
+                    return;
+                }
+            }
         }
 
     private:
@@ -350,7 +388,9 @@ void MetricActorOverview::Register()
     FGlobalTabmanager::Get()->RegisterNomadTabSpawner(TabName,
         FOnSpawnTab::CreateLambda([](const FSpawnTabArgs&)
         {
-            return SNew(SDockTab).TabRole(ETabRole::NomadTab)[SNew(SMetricActorOverview)];
+            TSharedRef<SMetricActorOverview> Overview = SNew(SMetricActorOverview);
+            ActiveOverview = Overview;
+            return SNew(SDockTab).TabRole(ETabRole::NomadTab)[Overview];
         }))
         .SetDisplayName(LOCTEXT("TabTitle", "Metric Dashboard"))
         .SetTooltipText(LOCTEXT("TabTooltip", "Review persistent Metric Actors and their current validation results."));
@@ -364,6 +404,18 @@ void MetricActorOverview::Unregister()
 void MetricActorOverview::Open()
 {
     FGlobalTabmanager::Get()->TryInvokeTab(TabName);
+}
+
+void MetricActorOverview::OpenAndFocusActor(AMetricActor* Actor)
+{
+    RequestedActor = Actor;
+    FGlobalTabmanager::Get()->TryInvokeTab(TabName);
+
+    if (TSharedPtr<SMetricActorOverview> Overview = ActiveOverview.Pin())
+    {
+        Overview->FocusActor(Actor);
+        RequestedActor.Reset();
+    }
 }
 
 #undef LOCTEXT_NAMESPACE

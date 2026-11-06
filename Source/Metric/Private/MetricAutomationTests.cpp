@@ -10,7 +10,9 @@
 #include "MetricPreset.h"
 #include "MetricProjectSettings.h"
 #include "MetricSubsystem.h"
+#include "MetricViewportComponent.h"
 
+#include "Components/BillboardComponent.h"
 #include "Components/BoxComponent.h"
 #include "Editor.h"
 #include "Engine/World.h"
@@ -904,6 +906,42 @@ bool FMetricActorMissingProfile::RunTest(const FString& Parameters)
         Actor->RecalculateMetric();
         TestEqual(TEXT("Missing profile is reported"), Actor->OverallResult, EMetricActorOverallResult::MissingProfile);
         TestEqual(TEXT("Missing profile has no analysis issues"), Actor->IssueCount, 0);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorBillboardVisibility, "MetricPlugin.Actor.BillboardVisibilityIndependentFromVisualization", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorBillboardVisibility::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FTestWorld TestWorld;
+    AMetricActor* Actor = TestWorld.GetWorld()->SpawnActor<AMetricActor>();
+    TestNotNull(TEXT("Metric Actor spawned in isolated test world"), Actor);
+    if (Actor)
+    {
+        UBillboardComponent* Billboard = Actor->FindComponentByClass<UBillboardComponent>();
+        TestNotNull(TEXT("Metric Actor owns an editor billboard component"), Billboard);
+        TestEqual(TEXT("Metric Actor keeps Editor Billboard Scale at Unreal default"), Actor->SpriteScale, 1.0f);
+        if (Billboard)
+        {
+            TestTrue(TEXT("Metric billboard authors its size on the component rather than Actor SpriteScale"),
+                Billboard->ScreenSize > GetDefault<UBillboardComponent>()->ScreenSize);
+            UMetricViewportComponent* Visualization = Actor->FindComponentByClass<UMetricViewportComponent>();
+            TestNotNull(TEXT("Metric Actor owns an analysis visualization component"), Visualization);
+            if (Visualization)
+            {
+                TestTrue(TEXT("Billboard and analysis visualization are siblings, not parent/child"), Billboard->GetAttachParent() == Actor->GetRootComponent() && Visualization->GetAttachParent() == Actor->GetRootComponent());
+            }
+
+            Actor->Profile = nullptr;
+            Actor->bEnabled = true;
+            Actor->RecalculateMetric();
+            const bool bBillboardVisibleBefore = Billboard->GetVisibleFlag();
+            if (Visualization)
+            {
+                Visualization->SetVisibility(false, false);
+            }
+            TestEqual(TEXT("Hiding Metric analysis visualization preserves the billboard component visibility flag"), Billboard->GetVisibleFlag(), bBillboardVisibleBefore);
+        }
     }
     return true;
 }

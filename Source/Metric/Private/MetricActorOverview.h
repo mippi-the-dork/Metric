@@ -5,6 +5,7 @@
 class SDockTab;
 class SWidget;
 class FSpawnTabArgs;
+class AMetricActor;
 
 namespace MetricActorOverview
 {
@@ -12,4 +13,5 @@ namespace MetricActorOverview
     void Register();
     void Unregister();
     void Open();
+    void OpenAndFocusActor(AMetricActor* Actor);
 }

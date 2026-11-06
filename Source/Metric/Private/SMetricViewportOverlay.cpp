@@ -95,10 +95,10 @@ namespace MetricOverlay
     static TSharedRef<SWidget> BuildInspectionTargetMenu()
     {
         FMenuBuilder MenuBuilder(true, nullptr);
-        auto Add = [&MenuBuilder](const FText& Label, EMetricInspectionTarget Value)
+        auto Add = [&MenuBuilder](const FText& Label, const FText& Tip, EMetricInspectionTarget Value)
         {
             MenuBuilder.AddMenuEntry(
-                Label, FText::GetEmpty(), FSlateIcon(),
+                Label, Tip, FSlateIcon(),
                 FUIAction(
                     FExecuteAction::CreateLambda([Value]()
                     {
@@ -116,20 +116,20 @@ namespace MetricOverlay
                     })),
                 NAME_None, EUserInterfaceActionType::RadioButton);
         };
-        Add(LOCTEXT("InspectAutoMenu", "Auto (Most Relevant)"), EMetricInspectionTarget::Auto);
+        Add(LOCTEXT("InspectAutoMenu", "Auto (Most Relevant)"), LOCTEXT("InspectAutoTip", "Automatically isolate the most relevant failing or warning analysis, falling back to the first active inspectable analysis."), EMetricInspectionTarget::Auto);
         MenuBuilder.AddMenuSeparator();
-        Add(LOCTEXT("InspectClearanceMenu", "Clearance"), EMetricInspectionTarget::Clearance);
-        Add(LOCTEXT("InspectGroundMenu", "Ground Validation"), EMetricInspectionTarget::GroundValidation);
-        Add(LOCTEXT("InspectFitMenu", "Fit Analysis"), EMetricInspectionTarget::FitAnalysis);
-        Add(LOCTEXT("InspectThresholdMenu", "Threshold Analysis"), EMetricInspectionTarget::ThresholdAnalysis);
-        Add(LOCTEXT("InspectLedgeMenu", "Ledge Analysis"), EMetricInspectionTarget::LedgeAnalysis);
-        Add(LOCTEXT("InspectStoppingMenu", "Stopping Distance"), EMetricInspectionTarget::StoppingDistance);
-        Add(LOCTEXT("InspectMantleMenu", "Mantle / Vault"), EMetricInspectionTarget::MantleVault);
-        Add(LOCTEXT("InspectRecoveryMenu", "Recovery Space"), EMetricInspectionTarget::RecoverySpace);
+        Add(LOCTEXT("InspectClearanceMenu", "Clearance"), LOCTEXT("InspectClearanceTip", "Show the clearance query span, contacts, and blocking evidence used by the Clearance analysis."), EMetricInspectionTarget::Clearance);
+        Add(LOCTEXT("InspectGroundMenu", "Ground Validation"), LOCTEXT("InspectGroundTip", "Show the ground samples and evidence used to determine floor presence, step validity, and slope validity."), EMetricInspectionTarget::GroundValidation);
+        Add(LOCTEXT("InspectFitMenu", "Fit Analysis"), LOCTEXT("InspectFitTip", "Show the spatial checks used to determine whether the Metric hull fits at the sampled location."), EMetricInspectionTarget::FitAnalysis);
+        Add(LOCTEXT("InspectThresholdMenu", "Threshold Analysis"), LOCTEXT("InspectThresholdTip", "Show the query evidence used to evaluate nearby threshold or boundary conditions."), EMetricInspectionTarget::ThresholdAnalysis);
+        Add(LOCTEXT("InspectLedgeMenu", "Ledge Analysis"), LOCTEXT("InspectLedgeTip", "Show the samples used to detect nearby ledges and classify their safety state."), EMetricInspectionTarget::LedgeAnalysis);
+        Add(LOCTEXT("InspectStoppingMenu", "Stopping Distance"), LOCTEXT("InspectStoppingTip", "Show the forward stopping-distance query and any obstruction evidence."), EMetricInspectionTarget::StoppingDistance);
+        Add(LOCTEXT("InspectMantleMenu", "Mantle / Vault"), LOCTEXT("InspectMantleTip", "Show obstacle, top-surface, and clearance evidence used by Mantle / Vault analysis."), EMetricInspectionTarget::MantleVault);
+        Add(LOCTEXT("InspectRecoveryMenu", "Recovery Space"), LOCTEXT("InspectRecoveryTip", "Show directional recovery-space probes and the directions that are blocked or available."), EMetricInspectionTarget::RecoverySpace);
         MenuBuilder.AddMenuSeparator();
-        Add(LOCTEXT("InspectCameraMenu", "Camera Probe"), EMetricInspectionTarget::CameraProbe);
-        Add(LOCTEXT("InspectSightlineMenu", "Camera Sightline"), EMetricInspectionTarget::CameraSightline);
-        Add(LOCTEXT("InspectTrajectoryMenu", "Trajectory"), EMetricInspectionTarget::Trajectory);
+        Add(LOCTEXT("InspectCameraMenu", "Camera Probe"), LOCTEXT("InspectCameraTip", "Show the camera probe sweep and compression or obstruction evidence."), EMetricInspectionTarget::CameraProbe);
+        Add(LOCTEXT("InspectSightlineMenu", "Camera Sightline"), LOCTEXT("InspectSightlineTip", "Show the camera sightline trace and any occluding geometry."), EMetricInspectionTarget::CameraSightline);
+        Add(LOCTEXT("InspectTrajectoryMenu", "Trajectory"), LOCTEXT("InspectTrajectoryTip", "Show the sampled trajectory sweeps, impacts, and landing evidence."), EMetricInspectionTarget::Trajectory);
         return MenuBuilder.MakeWidget();
     }
     enum class ELayer : int32
@@ -1897,17 +1897,17 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
     Box->AddSlot().AutoHeight().Padding(6,0,6,2)
     [
         SNew(SHorizontalBox)
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewFullAudit", "Full Audit")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(0,bForBenchmark); })]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewTraversal", "Traversal")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(1,bForBenchmark); })]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCamera", "Camera")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(2,bForBenchmark); })]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCombat", "Combat")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(3,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewFullAudit", "Full Audit")).ToolTipText(LOCTEXT("ViewFullAuditTip", "Show the complete Metric analysis set for a broad spatial audit.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(0,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewTraversal", "Traversal")).ToolTipText(LOCTEXT("ViewTraversalTip", "Focus presentation on traversal, movement, ledges, jumps, mantle, and recovery space.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(1,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCamera", "Camera")).ToolTipText(LOCTEXT("ViewCameraTip", "Focus presentation on camera probe, sightline, shoulder clearance, and camera-relevant spatial checks.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(2,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCombat", "Combat")).ToolTipText(LOCTEXT("ViewCombatTip", "Focus presentation on combat-space analyses such as cover, exposure, crossfire, ranges, and density.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(3,bForBenchmark); })]
     ];
     Box->AddSlot().AutoHeight().Padding(6,0,6,4)
     [
         SNew(SHorizontalBox)
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewSpace", "Space & Nav")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(4,bForBenchmark); })]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewInteraction", "Interaction")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(5,bForBenchmark); })]
-        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCoreFit", "Core Fit")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(6,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewSpace", "Space & Nav")).ToolTipText(LOCTEXT("ViewSpaceTip", "Focus presentation on physical fit, clearance, ground, thresholds, and navigation-relevant space.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(4,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewInteraction", "Interaction")).ToolTipText(LOCTEXT("ViewInteractionTip", "Focus presentation on interaction reach and nearby spatial constraints.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(5,bForBenchmark); })]
+        + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCoreFit", "Core Fit")).ToolTipText(LOCTEXT("ViewCoreFitTip", "Show the smallest core set for quickly checking hull fit, clearance, and ground validity.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(6,bForBenchmark); })]
     ];
 
     {

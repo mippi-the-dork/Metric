@@ -21,17 +21,17 @@ enum class EMetricHUDAnchor : uint8
 UENUM()
 enum class EMetricEnvironmentSource : uint8
 {
-    Collision UMETA(DisplayName = "Collision"),
-    Hybrid UMETA(DisplayName = "Hybrid"),
-    VisualGeometry UMETA(DisplayName = "Visual Geometry (Approximate)")
+    Collision UMETA(DisplayName = "Collision", ToolTip = "Use authored Unreal collision only. Best for final gameplay validation when collision is production-ready."),
+    Hybrid UMETA(DisplayName = "Hybrid", ToolTip = "Use authored collision and supplement collision-disabled visible primitives with approximate editor bounds."),
+    VisualGeometry UMETA(DisplayName = "Visual Geometry (Approximate)", ToolTip = "Ignore authored collision and evaluate editor-visible primitive bounds. Useful for blockout and incomplete collision, but intentionally approximate.")
 };
 
 UENUM()
 enum class EMetricAnalysisFrameMode : uint8
 {
-    World UMETA(DisplayName = "World Up"),
-    SurfaceNormal UMETA(DisplayName = "Surface Normal"),
-    CustomUp UMETA(DisplayName = "Custom Up")
+    World UMETA(DisplayName = "World Up", ToolTip = "Use conventional world +Z as Metric Up."),
+    SurfaceNormal UMETA(DisplayName = "Surface Normal", ToolTip = "Use the placement surface normal as Metric Up for non-horizontal traversal and curved spaces."),
+    CustomUp UMETA(DisplayName = "Custom Up", ToolTip = "Use the configured custom world-space direction as Metric Up.")
 };
 
 UENUM()
@@ -154,16 +154,16 @@ class METRIC_API UMetricEditorSettings : public UDeveloperSettings
     GENERATED_BODY()
 
 public:
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (ToolTip = "Show Metric's viewport HUD. This controls presentation only and does not disable Metric analysis or world visualizations."))
     bool bShowViewportHUD = true;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (ToolTip = "Choose which viewport corner or side the Metric HUD is anchored to."))
     EMetricHUDAnchor HUDAnchor = EMetricHUDAnchor::TopLeft;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (ToolTip = "Start the Metric HUD in its compact minimized state."))
     bool bHUDMinimized = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Enable Live Analysis"))
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Enable Live Analysis", ToolTip = "Enable cursor-driven live Metric evaluation. Turning this off pauses new live analysis while preserving Metric, pins, and other editor workflow state."))
     bool bShowLiveVisualizer = true;
 
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Live Analysis Update Rate", ToolTip = "Maximum rate for expensive cursor-driven Metric analysis while the cursor or camera is moving. The viewport may render faster than this. Set to 0 for uncapped analysis.", ClampMin = "0.0", ClampMax = "120.0", Units = "Hz"))
@@ -178,23 +178,23 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Analysis Frame", ToolTip = "Controls the Up direction used by spatial analyses. World Up preserves conventional horizon-locked behavior. Surface Normal aligns Metric to the placement surface. Custom Up uses the configured direction."))
     EMetricAnalysisFrameMode AnalysisFrame = EMetricAnalysisFrameMode::World;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Custom Up Direction", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::CustomUp"))
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Custom Up Direction", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::CustomUp", ToolTip = "World-space Up direction used by Live Metric when Analysis Frame is Custom Up. Zero-length values fall back to World Up."))
     FVector CustomAnalysisUp = FVector::UpVector;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Show Analysis Frame"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Show Analysis Frame", ToolTip = "Draw the current analysis frame axes so the active Up and Forward directions are visible in the viewport."))
     bool bShowAnalysisFrame = true;
 
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Query Inspection", ToolTip = "Focus the viewport on one analysis and draw its actual query spans, contacts, normals and failure evidence."))
     bool bQueryInspectionEnabled = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Inspection Target", EditCondition = "bQueryInspectionEnabled"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Inspection Target", EditCondition = "bQueryInspectionEnabled", ToolTip = "Choose which analysis Query Inspection isolates. Auto selects the most relevant failing or warning analysis when possible."))
     EMetricInspectionTarget QueryInspectionTarget = EMetricInspectionTarget::Auto;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (ToolTip = "Choose whether the HUD follows the most recently interacted level viewport or appears only in explicitly selected viewports."))
     EMetricHUDViewportTargeting HUDViewportTargeting = EMetricHUDViewportTargeting::FollowLastInteracted;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD")
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (ToolTip = "Controls which Live Metric analysis layers are presented. These visibility options do not change profile thresholds or evaluation logic."))
     FMetricLayerVisibility LiveVisibility;
 
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports"))
@@ -209,28 +209,28 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports"))
     bool bShowHUDInViewport4 = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Preview Mesh Compatibility")
+    UPROPERTY(Config, EditAnywhere, Category = "Preview Mesh Compatibility", meta = (ToolTip = "Include Unreal Editor preview meshes in Metric's cycle list for compatibility with the native viewport preview workflow."))
     bool bIncludeUnrealPreviewMeshes = true;
 
     UPROPERTY(Config)
     FLinearColor HullColor = FLinearColor(0.0f, 0.75f, 1.0f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0", ToolTip = "Base line thickness used to draw the Metric hull in the editor viewport."))
     float HullLineThickness = 1.5f;
 
     UPROPERTY(Config)
     FLinearColor ForwardColor = FLinearColor::White;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.0", ClampMax = "100.0", Units = "cm"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.0", ClampMax = "100.0", Units = "cm", ToolTip = "Vertical offset used to lift the placement anchor above the sampled surface for readability."))
     float AnchorLift = 10.0f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "4.0", ClampMax = "100.0", Units = "cm"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "4.0", ClampMax = "100.0", Units = "cm", ToolTip = "World-space radius of the placement anchor marker."))
     float AnchorRadius = 16.0f;
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0"))
     float AnchorLineThickness = 2.0f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display")
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ToolTip = "Increase line thickness for warning and failure evidence so problem geometry reads more clearly in the viewport."))
     bool bEmphasizeProblemLines = true;
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "4.0"))
