@@ -6,7 +6,7 @@
 #include "UObject/GCObject.h"
 
 class IDetailsView;
-class UMetricPreset;
+class UMetricProfile;
 class SVerticalBox;
 class SSearchBox;
 
@@ -21,10 +21,10 @@ public:
     FMetricProfileEditorToolkit();
     virtual ~FMetricProfileEditorToolkit() override;
 
-    void Initialize(UMetricPreset* InPreset, EToolkitMode::Type InMode, const TSharedPtr<IToolkitHost>& InToolkitHost);
+    void Initialize(UMetricProfile* InPreset, EToolkitMode::Type InMode, const TSharedPtr<IToolkitHost>& InToolkitHost);
 
     /** Open/focus a Metric Profile editor and select the requested profile section. */
-    static void OpenAndFocusProfileSection(UMetricPreset* InPreset, FName PropertyName);
+    static void OpenAndFocusProfileSection(UMetricProfile* InPreset, FName PropertyName);
 
     virtual void RegisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
     virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
@@ -110,10 +110,10 @@ private:
     bool CanCopySelectedSectionFromComparison() const;
     FReply CopySelectedSectionFromComparison();
     FReply CopyComparisonPropertyValue(TArray<FName> PropertyPath);
-    void SetComparisonPreset(UMetricPreset* InPreset);
+    void SetComparisonPreset(UMetricProfile* InPreset);
 
-    TObjectPtr<UMetricPreset> Preset = nullptr;
-    TObjectPtr<UMetricPreset> ComparisonPreset = nullptr;
+    TObjectPtr<UMetricProfile> Preset = nullptr;
+    TObjectPtr<UMetricProfile> ComparisonPreset = nullptr;
     TSharedPtr<IDetailsView> DetailsView;
     TSharedPtr<FMetricProfileEditorState> EditorState;
     TSharedPtr<SVerticalBox> SectionHeaderBox;

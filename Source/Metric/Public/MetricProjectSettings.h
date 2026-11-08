@@ -5,7 +5,7 @@
 #include "Engine/EngineTypes.h"
 #include "MetricProjectSettings.generated.h"
 
-class UMetricPreset;
+class UMetricProfile;
 class AActor;
 class UActorComponent;
 
@@ -17,20 +17,20 @@ class METRIC_API UMetricProjectSettings : public UDeveloperSettings
 public:
     UMetricProjectSettings();
 
-    UPROPERTY(Config, EditAnywhere, Category = "Presets", meta = (ToolTip = "Create Metric's editable starter Data Assets in /Game/Metric/Presets when they are missing."))
-    bool bCreateStarterPresetAssetsIfMissing = true;
+    UPROPERTY(Config, EditAnywhere, Category = "Profiles", meta = (ToolTip = "Create Metric's editable starter Data Assets in /Game/Metric/Profiles when they are missing."))
+    bool bCreateStarterProfileAssetsIfMissing = true;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Presets", meta = (ToolTip = "Keep the code-only Human Reference available when no registered Metric presets exist."))
+    UPROPERTY(Config, EditAnywhere, Category = "Profiles", meta = (ToolTip = "Keep the code-only Human Reference available when no registered Metric Profiles exist."))
     bool bIncludeBuiltInHumanReference = true;
 
     // Internal one-time bootstrap marker. Once the starter assets have been
     // created and registered, Metric will not recreate or re-register them if
     // the user later removes them intentionally.
     UPROPERTY(Config)
-    bool bStarterPresetsInitialized = false;
+    bool bStarterProfilesInitialized = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Presets", meta = (ToolTip = "Metric Profiles available to the Live Metric profile cycle. Add project-authored profiles here to make them available from the viewport workflow."))
-    TArray<TSoftObjectPtr<UMetricPreset>> RegisteredPresets;
+    UPROPERTY(Config, EditAnywhere, Category = "Profiles", meta = (ToolTip = "Metric Profiles available to the Live Metric profile cycle. Add project-authored profiles here to make them available from the viewport workflow."))
+    TArray<TSoftObjectPtr<UMetricProfile>> RegisteredProfiles;
 
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (ToolTip = "Collision channel used by the cursor placement trace that finds the surface where Live Metric is evaluated."))
     TEnumAsByte<ECollisionChannel> PlacementTraceChannel = ECC_Visibility;

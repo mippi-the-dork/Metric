@@ -52,9 +52,9 @@ public:
 
     // Shared authored-validation entry point used by Metric Actor. It evaluates
     // the same analysis backend as Live Metric without requiring Metric to be active.
-    void EvaluatePresetAtLocation(
+    void EvaluateProfileAtLocation(
         UWorld* World,
-        const class UMetricPreset* Preset,
+        const class UMetricProfile* Preset,
         const FVector& Location,
         const FVector& Forward,
         const FVector& SurfaceNormal,
@@ -71,8 +71,15 @@ public:
     void EvaluateThresholdAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateThresholdAnalysis(World, InOutState); }
     void EvaluateLedgeAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateLedgeAnalysis(World, InOutState); }
     void EvaluateStoppingDistanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateStoppingDistance(World, InOutState); }
+    void EvaluateJumpRunwayForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateJumpRunway(World, InOutState); }
+    void EvaluateAlternateStanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateAlternateStance(World, InOutState); }
     void EvaluateMantleVaultForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateMantleVault(World, InOutState); }
     void EvaluateRecoverySpaceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateRecoverySpace(World, InOutState); }
+    void EvaluateInteractionReachForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateInteractionReach(World, InOutState); }
+    void EvaluateShoulderClearanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateShoulderClearance(World, InOutState); }
+    void EvaluateCoverExposureForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateCoverExposure(World, InOutState); }
+    void EvaluateCrossfireForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateCrossfire(World, InOutState); }
+    void EvaluateSensorFieldForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateSensorField(World, InOutState); }
     void BuildQueryEvidenceForAutomation(FMetricLiveState& InOutState) const { BuildQueryEvidence(InOutState); }
 #endif
 
@@ -85,8 +92,8 @@ private:
     void SavePinnedBenchmarksForWorld(UWorld* World);
     void LoadPinnedBenchmarksForWorld(UWorld* World);
     void EnsurePinnedBenchmarkMap(UWorld* World);
-    void EnsureStarterPresetAssets();
-    class UMetricPreset* CreateStarterPresetAsset(const FString& PackagePath, const FText& DisplayName, const FMetricHullSettings& HullSettings);
+    void EnsureStarterProfileAssets();
+    class UMetricProfile* CreateStarterProfileAsset(const FString& PackagePath, const FText& DisplayName, const FMetricHullSettings& HullSettings);
     void EnsureRenderHost(UWorld* World);
     void ApplyEntryToState(FMetricLiveState& InOutState) const;
     void EvaluateClearance(UWorld* World, FMetricLiveState& InOutState) const;

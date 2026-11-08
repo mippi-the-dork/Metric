@@ -49,7 +49,7 @@ Recovery / Dodge Space sweeps begin 1 cm above the placement surface to avoid di
 - Jump Runway validates support across the full requested takeoff and landing distances rather than checking endpoints only, preventing narrow gaps from producing false passes.
 - Mantle / Vault depth is sampled from the detected top surface with vertical probes, avoiding self-hit depth readings from a trace that begins on the obstacle.
 - Recovery / Dodge Space now sweeps the active Metric hull shape: capsule, oriented box, sphere, or a documented capsule approximation for cylinder profiles.
-- Adds a dedicated **Metric Profile Editor** for existing `UMetricPreset` assets. Opening a Metric Profile now presents task-grouped navigation, a focused settings panel, profile enable state, feature intent, and fidelity classification instead of one long generic Data Asset Details view.
+- Adds a dedicated **Metric Profile Editor** for existing `UMetricProfile` assets. Opening a Metric Profile now presents task-grouped navigation, a focused settings panel, profile enable state, feature intent, and fidelity classification instead of one long generic Data Asset Details view.
 - Live Display Visibility now separates **Profile** enablement from **Visual** and **Results** visibility. Profile-disabled rows are subdued and their display controls are disabled rather than appearing active.
 - Adds **Edit Active Profile** directly to Live Display Visibility so a designer can jump from the viewport HUD to the active project Metric Profile.
 - Renames the current live-analysis control in the HUD to **Live Analysis** and reports **Live Analysis Disabled** when cursor-driven analysis is paused. The serialized user-setting field remains compatible with previous 0.23 builds.
@@ -62,7 +62,7 @@ Live Metric HUD result labels and Live Display layer names are direct authoring 
 
 ## Metric Profile Editor
 
-Double-click a Metric Profile asset to open the dedicated Metric Profile Editor. Existing Human, Heavy, and custom `UMetricPreset` assets require no migration. Features are grouped by design task, and only the selected feature's settings are shown at once. See `Doc/Metric-Profile-Editor.md`.
+Double-click a Metric Profile asset to open the dedicated Metric Profile Editor. Metric is still pre-1.0 and currently has no external compatibility burden, so the 1.0 data model is being cleaned in place rather than carrying migration aliases for internal development assets. Features are grouped by design task, and only the selected feature's settings are shown at once. See `Doc/Metric-Profile-Editor.md`.
 
 The Profile Editor controls whether an analysis runs for that Metric Profile. Display Options and Metric View Presets remain presentation-only controls for enabled analyses.
 
@@ -155,7 +155,7 @@ To share a custom view with a team, create a Data Asset using the `MetricViewPre
 - Replaces benchmark Focus / Replace / Rename / Delete text actions with compact native-style icon buttons and tooltips.
 - Tightens the header into a Metric icon + METRIC + active profile treatment.
 - Adds Edit quick presets: **All**, **Visuals**, **Results**, **None**, and **Reset**, while preserving the per-layer Visual / Results matrix.
-- No `UMetricPreset` fields or Human / Heavy canonical values changed.
+- No `UMetricProfile` fields or Human / Heavy canonical values changed.
 
 ## 0.16.10 Deterministic HUD Targeting Hotfix
 
@@ -194,7 +194,7 @@ To share a custom view with a team, create a Data Asset using the `MetricViewPre
 
 ## 0.16.1 Content Browser Polish
 
-- `UMetricPreset` assets are presented as **Metric Profile** in the Content Browser instead of `Data Asset (Metric Preset)`.
+- `UMetricProfile` assets are presented as **Metric Profile** in the Content Browser instead of `Data Asset (Metric Preset)`.
 - Metric Profile assets use the type color `#FF940A`.
 - Metric registers `Resources/MetricProfile.svg` as the Metric Profile class icon and thumbnail when the SVG is present.
 - Restored the correct `MetricModule.cpp` source after the 0.16.0 package accidentally contained README text in that file.
@@ -212,7 +212,7 @@ To share a custom view with a team, create a Data Asset using the `MetricViewPre
 - **Backslash (`\\`)** toggles the Metric Lens while a perspective Level Editor viewport has keyboard focus.
 - **Shift + Backslash** cycles through one unified list:
   1. Metric's built-in Human Reference, when enabled.
-  2. Project-registered `UMetricPreset` assets.
+  2. Project-registered `UMetricProfile` assets.
   3. Unreal's existing `ULevelEditorViewportSettings::PreviewMeshes`, when enabled in Metric user settings.
 - The two Metric commands are registered with Unreal's command system and can be rebound in **Editor Preferences > Keyboard Shortcuts > Metric**.
 - Metric consumes the legacy Backslash chords in a focused Level Editor viewport so Unreal's native preview mesh does not render at the same time.
@@ -246,13 +246,13 @@ At each of the three stations Metric measures lateral room and floor-to-ceiling 
 
 This is intended for doors, hatches, tunnel mouths, curb transitions, small portals, and similar short spatial transitions. It is a geometric approximation and does not replace navigation, animation, mantle, or project-specific traversal logic.
 
-## Trajectory Envelope / Apex Clearance
+## Trajectory Guide Rails / Apex Clearance
 
 Metric's existing Trajectory layer can now visualize the approximate **occupied hull envelope** around the sampled ballistic path instead of showing only the center arc. The envelope uses the active preset hull width and height, drawing quiet side/top/bottom rails plus periodic cross-sections along the trajectory.
 
 Trajectory presets now expose:
 
-- **Show Trajectory Envelope**
+- **Show Trajectory Guide Rails**
 - **Envelope Sample Stride**
 - **Apex Probe Distance**
 - **Apex Warning Margin**
@@ -441,14 +441,14 @@ The fallback reference is intentionally simple so Metric works immediately in a 
 
 These are prototype values, not a claim about any project's player dimensions.
 
-## Creating a Metric Preset
+## Creating a Metric Profile
 
 1. In the Content Browser, create a **Data Asset**.
-2. Choose `MetricPreset` as the Data Asset class.
+2. Choose `MetricProfile` as the Data Asset class. It appears in the Content Browser as **Metric Profile**.
 3. Set its display name and hull dimensions.
 4. Optionally enable a Static Mesh representation and assign its relative transform.
 5. Open **Project Settings > Plugins > Metric**.
-6. Add the preset to **Registered Presets**.
+6. Add the profile to **Registered Profiles**.
 7. Toggle Metric off/on or use Shift + Backslash to refresh the runtime cycle list.
 
 ## Settings
@@ -456,7 +456,7 @@ These are prototype values, not a claim about any project's player dimensions.
 ### Project Settings > Plugins > Metric
 
 - Include Built-In Human Reference
-- Registered Presets
+- Registered Profiles
 - Placement Trace Channel
 - Placement Trace Distance
 
@@ -527,18 +527,18 @@ YourProject/
 
 The most important question for this build is not feature count. It is whether Metric feels invisible until summoned and immediately useful when visible.
 
-## Starter Preset Assets
+## Starter Profile Assets
 
-On the first editor launch after installing Metric, Metric creates two editable `UMetricPreset` Data Assets in the project when **Create Starter Preset Assets If Missing** is enabled:
+On the first editor launch after installing Metric, Metric creates two editable `UMetricProfile` Data Assets in `/Game/Metric/Profiles` when **Create Starter Profile Assets If Missing** is enabled:
 
-- `/Game/Metric/Presets/DA_Metric_Human` - Capsule, 180 cm high, 88 cm wide.
-- `/Game/Metric/Presets/DA_Metric_Heavy` - Oriented Box, 300 cm high, 180 cm wide, 140 cm long.
+- `/Game/Metric/Profiles/DA_Metric_Human` - Capsule, 180 cm high, 88 cm wide.
+- `/Game/Metric/Profiles/DA_Metric_Heavy` - Oriented Box, 300 cm high, 180 cm wide, 140 cm long.
 
-The assets are automatically added to **Project Settings > Plugins > Metric > Registered Presets** and immediately participate in `Shift + \` cycling. They are ordinary project Data Assets after creation, so you can open and edit them normally.
+The assets are automatically added to **Project Settings > Plugins > Metric > Registered Profiles** and immediately participate in `Shift + \` cycling. They are ordinary project Data Assets after creation, so you can open and edit them normally.
 
-Metric only performs this bootstrap once. If you later remove or delete either starter preset intentionally, Metric will not force it back into your project. The code-only Human Reference remains a fallback when no Metric presets are registered.
+Metric only performs this bootstrap once. If you later remove or delete either starter profile intentionally, Metric will not force it back into your project. The code-only Human Reference remains a fallback when no Metric presets are registered.
 
-The package also includes `Doc/Starter-Preset-Values.md`, which lists every current Human and Heavy Data Asset value. Existing starter assets are not silently overwritten when Metric adds new fields.
+The package also includes `Doc/Starter-Profile-Values.md`, which lists every current Human and Heavy Data Asset value. Existing starter assets are not silently overwritten when Metric adds new fields.
 
 
 ## 0.2.0 Startup Bootstrap Change
@@ -643,7 +643,7 @@ Locomotion uses a purple visual family and distinct segmented line patterns so i
 - Added magenta camera visualization and a separate compressed-state color in Metric user settings.
 - The contextual legend now includes **CAMERA** only while the Camera Probe is active.
 - Fresh Human and Heavy starter assets now receive explicit values for every current Metric group, including Camera Probe.
-- Added `Doc/Starter-Preset-Values.md` as the canonical manual update sheet for existing Human and Heavy starter Data Assets.
+- Added `Doc/Starter-Profile-Values.md` as the canonical manual update sheet for existing Human and Heavy starter Data Assets.
 - Existing Data Assets are never auto-overwritten by version updates.
 
 

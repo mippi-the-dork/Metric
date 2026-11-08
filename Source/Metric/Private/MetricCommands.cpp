@@ -21,7 +21,7 @@ void FMetricCommands::RegisterCommands()
     UI_COMMAND(
         CycleMetric,
         "Cycle Metric Entry",
-        "Cycle to the next Metric preset or included Unreal preview mesh.",
+        "Cycle to the next Metric Profile or included Unreal preview mesh.",
         EUserInterfaceActionType::Button,
         FInputChord(EKeys::Backslash, EModifierKey::Shift));
 

@@ -197,16 +197,16 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (ToolTip = "Controls which Live Metric analysis layers are presented. These visibility options do not change profile thresholds or evaluation logic."))
     FMetricLayerVisibility LiveVisibility;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports"))
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Viewport 1", EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports", ToolTip = "Show the Metric HUD in the first visible Level Editor viewport, ordered from top-left."))
     bool bShowHUDInViewport1 = true;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports"))
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Viewport 2", EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports", ToolTip = "Show the Metric HUD in the second visible Level Editor viewport, ordered from top-left."))
     bool bShowHUDInViewport2 = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports"))
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Viewport 3", EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports", ToolTip = "Show the Metric HUD in the third visible Level Editor viewport, ordered from top-left."))
     bool bShowHUDInViewport3 = false;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports"))
+    UPROPERTY(Config, EditAnywhere, Category = "Viewport HUD", meta = (DisplayName = "Viewport 4", EditCondition = "HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports", ToolTip = "Show the Metric HUD in the fourth visible Level Editor viewport, ordered from top-left."))
     bool bShowHUDInViewport4 = false;
 
     UPROPERTY(Config, EditAnywhere, Category = "Preview Mesh Compatibility", meta = (ToolTip = "Include Unreal Editor preview meshes in Metric's cycle list for compatibility with the native viewport preview workflow."))
@@ -227,22 +227,22 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "4.0", ClampMax = "100.0", Units = "cm", ToolTip = "World-space radius of the placement anchor marker."))
     float AnchorRadius = 16.0f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0", ToolTip = "Line thickness used to draw the Metric placement anchor."))
     float AnchorLineThickness = 2.0f;
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ToolTip = "Increase line thickness for warning and failure evidence so problem geometry reads more clearly in the viewport."))
     bool bEmphasizeProblemLines = true;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "4.0"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "4.0", ToolTip = "Multiplier applied to warning/tight evidence line thickness when problem-line emphasis is enabled."))
     float WarningLineThicknessMultiplier = 1.75f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "6.0"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (EditCondition = "bEmphasizeProblemLines", ClampMin = "1.0", ClampMax = "6.0", ToolTip = "Multiplier applied to failed evidence line thickness when problem-line emphasis is enabled."))
     float FailureLineThicknessMultiplier = 2.5f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "8.0", ClampMax = "100.0", Units = "cm"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "8.0", ClampMax = "100.0", Units = "cm", ToolTip = "World-space size used for Metric viewport labels."))
     float LabelWorldSize = 18.0f;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.0", ClampMax = "300.0", Units = "cm"))
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.0", ClampMax = "300.0", Units = "cm", ToolTip = "Additional height above the hull used when placing viewport labels."))
     float LabelHeightPadding = 35.0f;
 
     UPROPERTY(Config)
@@ -266,7 +266,7 @@ public:
     UPROPERTY(Config)
     FLinearColor SensorFieldBlockedColor = FLinearColor(1.0f, 0.18f, 0.08f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges", meta = (ClampMin = "0.5", ClampMax = "6.0"))
+    UPROPERTY(Config, EditAnywhere, Category = "Sensors and Ranges", meta = (ClampMin = "0.5", ClampMax = "6.0", ToolTip = "Base line thickness for secondary reference visuals such as sensor markers and authored range guides."))
     float SecondaryLineThickness = 1.0f;
 
     UPROPERTY(Config)
@@ -302,22 +302,22 @@ public:
     UPROPERTY(Config)
     FLinearColor GroundGridColor = FLinearColor(0.25f, 0.85f, 0.85f, 0.55f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Legend")
+    UPROPERTY(Config, EditAnywhere, Category = "Legend", meta = (ToolTip = "Show the contextual Metric legend for currently visible Live Metric and benchmark layers."))
     bool bShowLegend = true;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Legend")
+    UPROPERTY(Config, EditAnywhere, Category = "Legend", meta = (ToolTip = "Choose where the Metric legend is anchored in each viewport where it is visible."))
     EMetricHUDAnchor LegendAnchor = EMetricHUDAnchor::BottomLeft;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Legend", meta = (EditCondition = "bShowLegend"))
+    UPROPERTY(Config, EditAnywhere, Category = "Legend", meta = (EditCondition = "bShowLegend", ToolTip = "Text color used by the viewport Metric legend."))
     FLinearColor LegendTextColor = FLinearColor(0.82f, 0.86f, 0.92f, 1.0f);
 
     UPROPERTY(Config)
     FLinearColor PinnedBenchmarkColor = FLinearColor(0.95f, 0.95f, 0.35f, 1.0f);
 
-    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks", meta = (ClampMin = "1", ClampMax = "32"))
+    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks", meta = (ClampMin = "1", ClampMax = "32", ToolTip = "Maximum number of pinned benchmarks Metric keeps for the current editor world."))
     int32 MaxPinnedBenchmarks = 8;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks")
+    UPROPERTY(Config, EditAnywhere, Category = "Pinned Benchmarks", meta = (ToolTip = "Persist benchmark snapshots per saved map in editor-user settings. Disabling this keeps benchmarks session-only and does not modify the level."))
     bool bPersistPinnedBenchmarksPerMap = true;
 
     // Hidden editor-user data. Metric stores benchmark snapshots by saved map package.

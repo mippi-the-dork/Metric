@@ -24,11 +24,11 @@ void FMetricStyle::Initialize()
     StyleSet = MakeShared<FSlateStyleSet>(TEXT("MetricStyle"));
     StyleSet->SetContentRoot(FPaths::Combine(Plugin->GetBaseDir(), TEXT("Resources")));
 
-    const FString ProfileIconPath = StyleSet->RootToContentDir(TEXT("MetricPresetAsset_64"), TEXT(".svg"));
+    const FString ProfileIconPath = StyleSet->RootToContentDir(TEXT("MetricProfileAsset_64"), TEXT(".svg"));
     if (FPaths::FileExists(ProfileIconPath))
     {
-        StyleSet->Set(TEXT("ClassIcon.MetricPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
-        StyleSet->Set(TEXT("ClassThumbnail.MetricPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
+        StyleSet->Set(TEXT("ClassIcon.MetricProfile"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
+        StyleSet->Set(TEXT("ClassThumbnail.MetricProfile"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
         StyleSet->Set(TEXT("ClassIcon.MetricViewPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
         StyleSet->Set(TEXT("ClassThumbnail.MetricViewPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
     }

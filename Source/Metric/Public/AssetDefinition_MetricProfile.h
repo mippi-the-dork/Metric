@@ -1,10 +1,10 @@
 #pragma once
 
 #include "AssetDefinition_DataAsset.h"
-#include "AssetDefinition_MetricPreset.generated.h"
+#include "AssetDefinition_MetricProfile.generated.h"
 
 UCLASS()
-class METRIC_API UAssetDefinition_MetricPreset final : public UAssetDefinition_DataAsset
+class METRIC_API UAssetDefinition_MetricProfile final : public UAssetDefinition_DataAsset
 {
     GENERATED_BODY()
 

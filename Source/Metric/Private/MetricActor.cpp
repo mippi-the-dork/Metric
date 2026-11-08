@@ -1,6 +1,6 @@
 #include "MetricActor.h"
 
-#include "MetricPreset.h"
+#include "MetricProfile.h"
 #include "MetricEditorSettings.h"
 #include "MetricSubsystem.h"
 #include "MetricViewportComponent.h"
@@ -32,7 +32,7 @@ namespace
         }
 
         UTexture2D* Texture = FImageUtils::ImportFileAsTexture2D(FPaths::Combine(
-            Plugin->GetBaseDir(), TEXT("Resources"), TEXT("MetricPresetAsset_64.png")));
+            Plugin->GetBaseDir(), TEXT("Resources"), TEXT("MetricProfileAsset_64.png")));
         CachedTexture = Texture;
         return Texture;
     }
@@ -215,7 +215,7 @@ void AMetricActor::RecalculateMetric()
         UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>();
         const EMetricEnvironmentSource PreviousSource = Settings ? Settings->EnvironmentSource : EMetricEnvironmentSource::Collision;
         if (Settings) Settings->EnvironmentSource = EnvironmentSource;
-        MetricSubsystem->EvaluatePresetAtLocation(GetWorld(), Profile, Location, Forward, SurfaceNormal, Up, EvaluatedState);
+        MetricSubsystem->EvaluateProfileAtLocation(GetWorld(), Profile, Location, Forward, SurfaceNormal, Up, EvaluatedState);
         if (Settings) Settings->EnvironmentSource = PreviousSource;
         UpdateSummary();
         UpdateVisualization();

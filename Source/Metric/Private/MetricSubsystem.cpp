@@ -3,7 +3,8 @@
 #include "MetricEditorSettings.h"
 #include "MetricEnvironmentQuery.h"
 #include "MetricPerformance.h"
-#include "MetricPreset.h"
+#include "MetricProfile.h"
+#include "MetricProfileStyle.h"
 #include "MetricProjectSettings.h"
 #include "MetricRenderHostActor.h"
 #include "CollisionShape.h"
@@ -49,6 +50,157 @@ namespace MetricFrame
     static FVector LocalOffset(const FMetricLiveState& State, const FVector& Offset)
     {
         return Forward(State) * Offset.X + Right(State) * Offset.Y + Up(State) * Offset.Z;
+    }
+}
+
+
+namespace MetricQueryAudit
+{
+    static void BuildHullShape(
+        const FMetricLiveState& State,
+        FCollisionShape& OutShape,
+        FQuat& OutRotation,
+        float& OutCenterHeight,
+        bool& bOutApproximateShape)
+    {
+        const float Height = FMath::Max(1.0f, State.Hull.Height);
+        const float Width = FMath::Max(1.0f, State.Hull.Width);
+        const float Length = FMath::Max(1.0f, State.Hull.Length);
+        const FVector Forward = MetricFrame::Forward(State);
+        const FVector Up = MetricFrame::Up(State);
+
+        OutRotation = FQuat::Identity;
+        OutCenterHeight = Height * 0.5f;
+        bOutApproximateShape = false;
+
+        switch (State.Hull.HullType)
+        {
+        case EMetricHullType::Capsule:
+        {
+            const float Radius = FMath::Max(1.0f, Width * 0.5f);
+            const float HalfHeight = FMath::Max(Radius, Height * 0.5f);
+            OutShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+            OutRotation = FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat();
+            OutCenterHeight = HalfHeight;
+            break;
+        }
+        case EMetricHullType::OrientedBox:
+        {
+            const FVector HalfExtent(Length * 0.5f, Width * 0.5f, Height * 0.5f);
+            OutShape = FCollisionShape::MakeBox(HalfExtent);
+            OutRotation = FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat();
+            OutCenterHeight = HalfExtent.Z;
+            break;
+        }
+        case EMetricHullType::Sphere:
+        {
+            const float Radius = FMath::Max3(Width, Length, Height) * 0.5f;
+            OutShape = FCollisionShape::MakeSphere(FMath::Max(1.0f, Radius));
+            OutCenterHeight = Radius;
+            break;
+        }
+        case EMetricHullType::Cylinder:
+        default:
+        {
+            const float Radius = FMath::Max(1.0f, Width * 0.5f);
+            const float HalfHeight = FMath::Max(Radius, Height * 0.5f);
+            OutShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+            OutRotation = FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat();
+            OutCenterHeight = HalfHeight;
+            bOutApproximateShape = true;
+            break;
+        }
+        }
+    }
+
+    static float ComputeHullSupportHeightAlongUp(
+        const FMetricLiveState& State,
+        const FVector& SurfaceNormal,
+        const FVector& PlanarHullOffset)
+    {
+        const FVector Up = MetricFrame::Up(State);
+        const FVector Forward = MetricFrame::Forward(State);
+        const FVector Right = MetricFrame::Right(State);
+        const FVector N = SurfaceNormal.GetSafeNormal(SMALL_NUMBER, Up);
+        const float UpDot = FMath::Max(0.05f, FVector::DotProduct(N, Up));
+        const float Height = FMath::Max(1.0f, State.Hull.Height);
+        const float Width = FMath::Max(1.0f, State.Hull.Width);
+        const float Length = FMath::Max(1.0f, State.Hull.Length);
+
+        float SupportAlongNormal = Height * 0.5f;
+        switch (State.Hull.HullType)
+        {
+        case EMetricHullType::Capsule:
+        case EMetricHullType::Cylinder:
+        {
+            const float Radius = FMath::Max(1.0f, Width * 0.5f);
+            const float HalfHeight = FMath::Max(Radius, Height * 0.5f);
+            const float HalfSegment = FMath::Max(0.0f, HalfHeight - Radius);
+            SupportAlongNormal = HalfSegment * FMath::Abs(FVector::DotProduct(N, Up)) + Radius;
+            break;
+        }
+        case EMetricHullType::OrientedBox:
+            SupportAlongNormal =
+                FMath::Abs(FVector::DotProduct(N, Forward)) * (Length * 0.5f) +
+                FMath::Abs(FVector::DotProduct(N, Right)) * (Width * 0.5f) +
+                FMath::Abs(FVector::DotProduct(N, Up)) * (Height * 0.5f);
+            break;
+        case EMetricHullType::Sphere:
+        {
+            const float Radius = FMath::Max3(Width, Length, Height) * 0.5f;
+            SupportAlongNormal = Radius;
+            break;
+        }
+        default:
+            break;
+        }
+
+        // The planar local hull offset can move the hull uphill/downhill on the
+        // supporting plane. Compensate for that without consuming the authored
+        // vertical local offset.
+        return FMath::Max(0.0f, (SupportAlongNormal - FVector::DotProduct(N, PlanarHullOffset)) / UpDot);
+    }
+
+    static float ComputeSurfaceDiscontinuity(
+        const FVector& PreviousPoint,
+        const FVector& PreviousNormal,
+        const FVector& CurrentPoint,
+        const FVector& CurrentNormal,
+        const FVector& Up)
+    {
+        const FVector SafeUp = Up.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+        const FVector Delta = CurrentPoint - PreviousPoint;
+        const float ActualUpDelta = FVector::DotProduct(Delta, SafeUp);
+        const FVector PlanarDelta = Delta - SafeUp * ActualUpDelta;
+
+        auto ExpectedDeltaFromPlane = [&](const FVector& Normal, bool& bValid)
+        {
+            const FVector N = Normal.GetSafeNormal();
+            const float UpDot = FVector::DotProduct(N, SafeUp);
+            bValid = FMath::Abs(UpDot) > 0.05f;
+            return bValid ? -FVector::DotProduct(N, PlanarDelta) / UpDot : 0.0f;
+        };
+
+        bool bPreviousValid = false;
+        bool bCurrentValid = false;
+        const float PreviousExpected = ExpectedDeltaFromPlane(PreviousNormal, bPreviousValid);
+        const float CurrentExpected = ExpectedDeltaFromPlane(CurrentNormal, bCurrentValid);
+
+        float ExpectedUpDelta = 0.0f;
+        if (bPreviousValid && bCurrentValid)
+        {
+            ExpectedUpDelta = (PreviousExpected + CurrentExpected) * 0.5f;
+        }
+        else if (bPreviousValid)
+        {
+            ExpectedUpDelta = PreviousExpected;
+        }
+        else if (bCurrentValid)
+        {
+            ExpectedUpDelta = CurrentExpected;
+        }
+
+        return ActualUpDelta - ExpectedUpDelta;
     }
 }
 
@@ -348,20 +500,20 @@ void UMetricSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     // the one-time bootstrap until the editor has been alive for a moment.
     TWeakObjectPtr<UMetricSubsystem> WeakThis(this);
     FTSTicker::GetCoreTicker().AddTicker(
-        TEXT("MetricStarterPresetBootstrap"),
+        TEXT("MetricStarterProfileBootstrap"),
         1.0f,
         [WeakThis](float)
         {
             if (UMetricSubsystem* StrongThis = WeakThis.Get())
             {
-                StrongThis->EnsureStarterPresetAssets();
+                StrongThis->EnsureStarterProfileAssets();
                 StrongThis->RefreshCycleEntries();
             }
             return false;
         });
 }
 
-void UMetricSubsystem::EnsureStarterPresetAssets()
+void UMetricSubsystem::EnsureStarterProfileAssets()
 {
     if (IsRunningCommandlet())
     {
@@ -370,8 +522,8 @@ void UMetricSubsystem::EnsureStarterPresetAssets()
 
     UMetricProjectSettings* ProjectSettings = GetMutableDefault<UMetricProjectSettings>();
     if (!ProjectSettings
-        || !ProjectSettings->bCreateStarterPresetAssetsIfMissing
-        || ProjectSettings->bStarterPresetsInitialized)
+        || !ProjectSettings->bCreateStarterProfileAssetsIfMissing
+        || ProjectSettings->bStarterProfilesInitialized)
     {
         return;
     }
@@ -388,40 +540,40 @@ void UMetricSubsystem::EnsureStarterPresetAssets()
     HeavyHull.Width = 180.0f;
     HeavyHull.Length = 140.0f;
 
-    UMetricPreset* HumanPreset = CreateStarterPresetAsset(
-        TEXT("/Game/Metric/Presets/DA_Metric_Human"),
+    UMetricProfile* HumanProfile = CreateStarterProfileAsset(
+        TEXT("/Game/Metric/Profiles/DA_Metric_Human"),
         LOCTEXT("StarterHumanDisplayName", "Human Reference"),
         HumanHull);
 
-    UMetricPreset* HeavyPreset = CreateStarterPresetAsset(
-        TEXT("/Game/Metric/Presets/DA_Metric_Heavy"),
+    UMetricProfile* HeavyProfile = CreateStarterProfileAsset(
+        TEXT("/Game/Metric/Profiles/DA_Metric_Heavy"),
         LOCTEXT("StarterHeavyDisplayName", "Heavy Reference"),
         HeavyHull);
 
     bool bSettingsChanged = false;
-    if (HumanPreset)
+    if (HumanProfile)
     {
-        const TSoftObjectPtr<UMetricPreset> HumanSoft(HumanPreset);
-        if (!ProjectSettings->RegisteredPresets.Contains(HumanSoft))
+        const TSoftObjectPtr<UMetricProfile> HumanSoft(HumanProfile);
+        if (!ProjectSettings->RegisteredProfiles.Contains(HumanSoft))
         {
-            ProjectSettings->RegisteredPresets.Add(HumanSoft);
+            ProjectSettings->RegisteredProfiles.Add(HumanSoft);
             bSettingsChanged = true;
         }
     }
 
-    if (HeavyPreset)
+    if (HeavyProfile)
     {
-        const TSoftObjectPtr<UMetricPreset> HeavySoft(HeavyPreset);
-        if (!ProjectSettings->RegisteredPresets.Contains(HeavySoft))
+        const TSoftObjectPtr<UMetricProfile> HeavySoft(HeavyProfile);
+        if (!ProjectSettings->RegisteredProfiles.Contains(HeavySoft))
         {
-            ProjectSettings->RegisteredPresets.Add(HeavySoft);
+            ProjectSettings->RegisteredProfiles.Add(HeavySoft);
             bSettingsChanged = true;
         }
     }
 
-    if (HumanPreset && HeavyPreset)
+    if (HumanProfile && HeavyProfile)
     {
-        ProjectSettings->bStarterPresetsInitialized = true;
+        ProjectSettings->bStarterProfilesInitialized = true;
         bSettingsChanged = true;
     }
 
@@ -431,7 +583,7 @@ void UMetricSubsystem::EnsureStarterPresetAssets()
     }
 }
 
-UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
+UMetricProfile* UMetricSubsystem::CreateStarterProfileAsset(
     const FString& PackagePath,
     const FText& DisplayName,
     const FMetricHullSettings& HullSettings)
@@ -439,9 +591,9 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     const FString AssetName = FPackageName::GetLongPackageAssetName(PackagePath);
     const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *PackagePath, *AssetName);
 
-    if (UMetricPreset* ExistingPreset = LoadObject<UMetricPreset>(nullptr, *ObjectPath))
+    if (UMetricProfile* ExistingProfile = LoadObject<UMetricProfile>(nullptr, *ObjectPath))
     {
-        return ExistingPreset;
+        return ExistingProfile;
     }
 
     UPackage* Package = CreatePackage(*PackagePath);
@@ -450,205 +602,204 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
         return nullptr;
     }
 
-    UMetricPreset* NewPreset = NewObject<UMetricPreset>(
+    UMetricProfile* NewProfile = NewObject<UMetricProfile>(
         Package,
         *AssetName,
         RF_Public | RF_Standalone | RF_Transactional);
-    if (!NewPreset)
+    if (!NewProfile)
     {
         return nullptr;
     }
 
-    NewPreset->DisplayName = DisplayName;
-    NewPreset->Hull = HullSettings;
+    NewProfile->DisplayName = DisplayName;
+    NewProfile->Hull = HullSettings;
 
     // Starter assets are authored from explicit Metric defaults. Existing
     // project assets are never overwritten by this path.
     const bool bHeavyStarter = AssetName.Contains(TEXT("Heavy"));
-    NewPreset->Clearance.bShowClearanceProbe = true;
-    NewPreset->Clearance.ProbeDistance = bHeavyStarter ? 400.0f : 300.0f;
-    NewPreset->Clearance.WarningMargin = bHeavyStarter ? 50.0f : 25.0f;
-    NewPreset->Clearance.TraceChannel = ECC_Visibility;
+    NewProfile->Clearance.bShowClearanceProbe = true;
+    NewProfile->Clearance.ProbeDistance = bHeavyStarter ? 400.0f : 300.0f;
+    NewProfile->Clearance.WarningMargin = bHeavyStarter ? 50.0f : 25.0f;
+    NewProfile->Clearance.TraceChannel = ECC_Visibility;
 
-    NewPreset->OverheadClearance.bShowOverheadClearance = true;
-    NewPreset->OverheadClearance.MaxProbeHeight = bHeavyStarter ? 450.0f : 320.0f;
-    NewPreset->OverheadClearance.WarningMargin = bHeavyStarter ? 40.0f : 30.0f;
-    NewPreset->OverheadClearance.TraceChannel = ECC_Visibility;
+    NewProfile->OverheadClearance.bShowOverheadClearance = true;
+    NewProfile->OverheadClearance.MaxProbeHeight = bHeavyStarter ? 450.0f : 320.0f;
+    NewProfile->OverheadClearance.WarningMargin = bHeavyStarter ? 40.0f : 30.0f;
+    NewProfile->OverheadClearance.TraceChannel = ECC_Visibility;
 
-    NewPreset->Sensors.bShowSensorHeights = true;
-    NewPreset->Sensors.PrimarySensorZOffset = bHeavyStarter ? 260.0f : 160.0f;
-    NewPreset->Sensors.LowProfileSensorZOffset = bHeavyStarter ? 160.0f : 100.0f;
-    NewPreset->Sensors.MarkerRadius = bHeavyStarter ? 32.0f : 24.0f;
+    NewProfile->Sensors.bShowSensorHeights = true;
+    NewProfile->Sensors.PrimarySensorZOffset = bHeavyStarter ? 260.0f : 160.0f;
+    NewProfile->Sensors.LowProfileSensorZOffset = bHeavyStarter ? 160.0f : 100.0f;
+    NewProfile->Sensors.MarkerRadius = bHeavyStarter ? 32.0f : 24.0f;
 
-    NewPreset->SensorField.bShowSensorField = false;
-    NewPreset->SensorField.Range = bHeavyStarter ? 2200.0f : 1800.0f;
-    NewPreset->SensorField.HorizontalHalfAngle = bHeavyStarter ? 40.0f : 45.0f;
-    NewPreset->SensorField.VerticalHalfAngle = bHeavyStarter ? 25.0f : 30.0f;
-    NewPreset->SensorField.HorizontalRayCount = bHeavyStarter ? 11 : 9;
-    NewPreset->SensorField.TraceChannel = ECC_Visibility;
+    NewProfile->SensorField.bShowSensorField = false;
+    NewProfile->SensorField.Range = bHeavyStarter ? 2200.0f : 1800.0f;
+    NewProfile->SensorField.HorizontalHalfAngle = bHeavyStarter ? 40.0f : 45.0f;
+    NewProfile->SensorField.VerticalHalfAngle = bHeavyStarter ? 25.0f : 30.0f;
+    NewProfile->SensorField.HorizontalRayCount = bHeavyStarter ? 11 : 9;
+    NewProfile->SensorField.TraceChannel = ECC_Visibility;
 
-    NewPreset->EngagementRanges.bShowEngagementRanges = false;
-    NewPreset->EngagementRanges.ShortRange = bHeavyStarter ? 700.0f : 500.0f;
-    NewPreset->EngagementRanges.MediumRange = bHeavyStarter ? 2000.0f : 1500.0f;
-    NewPreset->EngagementRanges.LongRange = bHeavyStarter ? 4000.0f : 3000.0f;
+    NewProfile->EngagementRanges.bShowEngagementRanges = false;
+    NewProfile->EngagementRanges.ShortRange = bHeavyStarter ? 700.0f : 500.0f;
+    NewProfile->EngagementRanges.MediumRange = bHeavyStarter ? 2000.0f : 1500.0f;
+    NewProfile->EngagementRanges.LongRange = bHeavyStarter ? 4000.0f : 3000.0f;
 
-    NewPreset->LocomotionBands.bShowLocomotionBands = false;
-    NewPreset->LocomotionBands.Speed = bHeavyStarter ? 350.0f : 600.0f;
-    NewPreset->LocomotionBands.NearTime = 1.0f;
-    NewPreset->LocomotionBands.MidTime = 3.0f;
-    NewPreset->LocomotionBands.FarTime = 5.0f;
+    NewProfile->LocomotionBands.bShowLocomotionBands = false;
+    NewProfile->LocomotionBands.Speed = bHeavyStarter ? 350.0f : 600.0f;
+    NewProfile->LocomotionBands.NearTime = 1.0f;
+    NewProfile->LocomotionBands.MidTime = 3.0f;
+    NewProfile->LocomotionBands.FarTime = 5.0f;
 
-    NewPreset->Trajectory.bShowTrajectory = false;
-    NewPreset->Trajectory.HorizontalSpeed = bHeavyStarter ? 400.0f : 600.0f;
-    NewPreset->Trajectory.LaunchVerticalSpeed = bHeavyStarter ? 450.0f : 550.0f;
-    NewPreset->Trajectory.GravityScale = 1.0f;
-    NewPreset->Trajectory.MaxSimulationTime = bHeavyStarter ? 2.25f : 2.0f;
-    NewPreset->Trajectory.SampleInterval = 0.05f;
-    NewPreset->Trajectory.MaxLandingSlope = bHeavyStarter ? 40.0f : 45.0f;
-    NewPreset->Trajectory.bShowTrajectoryEnvelope = true;
-    NewPreset->Trajectory.EnvelopeSampleStride = bHeavyStarter ? 4 : 3;
-    NewPreset->Trajectory.ApexProbeDistance = bHeavyStarter ? 250.0f : 200.0f;
-    NewPreset->Trajectory.ApexWarningMargin = bHeavyStarter ? 75.0f : 50.0f;
-    NewPreset->Trajectory.TraceChannel = ECC_Visibility;
+    NewProfile->Trajectory.bShowTrajectory = false;
+    NewProfile->Trajectory.HorizontalSpeed = bHeavyStarter ? 400.0f : 600.0f;
+    NewProfile->Trajectory.LaunchVerticalSpeed = bHeavyStarter ? 450.0f : 550.0f;
+    NewProfile->Trajectory.GravityScale = 1.0f;
+    NewProfile->Trajectory.MaxSimulationTime = bHeavyStarter ? 2.25f : 2.0f;
+    NewProfile->Trajectory.SampleInterval = 0.05f;
+    NewProfile->Trajectory.MaxLandingSlope = bHeavyStarter ? 40.0f : 45.0f;
+    NewProfile->Trajectory.bShowTrajectoryGuideRails = true;
+    NewProfile->Trajectory.GuideRailSampleStride = bHeavyStarter ? 4 : 3;
+    NewProfile->Trajectory.ApexProbeDistance = bHeavyStarter ? 250.0f : 200.0f;
+    NewProfile->Trajectory.ApexWarningMargin = bHeavyStarter ? 75.0f : 50.0f;
+    NewProfile->Trajectory.TraceChannel = ECC_Visibility;
 
-    NewPreset->CameraProbe.bShowCameraProbe = true;
-    NewPreset->CameraProbe.PivotZOffset = bHeavyStarter ? 260.0f : 160.0f;
-    NewPreset->CameraProbe.TargetDistance = bHeavyStarter ? 500.0f : 350.0f;
-    NewPreset->CameraProbe.VerticalOffset = bHeavyStarter ? 100.0f : 60.0f;
-    NewPreset->CameraProbe.ShoulderOffset = 0.0f;
-    NewPreset->CameraProbe.ProbeRadius = bHeavyStarter ? 20.0f : 12.0f;
-    NewPreset->CameraProbe.MinDistance = bHeavyStarter ? 100.0f : 60.0f;
-    NewPreset->CameraProbe.TraceChannel = ECC_Visibility;
+    NewProfile->CameraProbe.bShowCameraProbe = true;
+    NewProfile->CameraProbe.PivotZOffset = bHeavyStarter ? 260.0f : 160.0f;
+    NewProfile->CameraProbe.TargetDistance = bHeavyStarter ? 500.0f : 350.0f;
+    NewProfile->CameraProbe.VerticalOffset = bHeavyStarter ? 100.0f : 60.0f;
+    NewProfile->CameraProbe.ShoulderOffset = 0.0f;
+    NewProfile->CameraProbe.ProbeRadius = bHeavyStarter ? 20.0f : 12.0f;
+    NewProfile->CameraProbe.MinDistance = bHeavyStarter ? 100.0f : 60.0f;
+    NewProfile->CameraProbe.TraceChannel = ECC_Visibility;
 
-    NewPreset->CameraSightline.bShowCameraSightline = false;
-    NewPreset->CameraSightline.SubjectZOffset = bHeavyStarter ? 240.0f : 140.0f;
-    NewPreset->CameraSightline.FramingHalfAngle = bHeavyStarter ? 22.0f : 25.0f;
-    NewPreset->CameraSightline.TraceRadius = bHeavyStarter ? 6.0f : 4.0f;
-    NewPreset->CameraSightline.TraceChannel = ECC_Visibility;
+    NewProfile->CameraSightline.bShowCameraSightline = false;
+    NewProfile->CameraSightline.SubjectZOffset = bHeavyStarter ? 240.0f : 140.0f;
+    NewProfile->CameraSightline.FramingHalfAngle = bHeavyStarter ? 22.0f : 25.0f;
+    NewProfile->CameraSightline.TraceRadius = bHeavyStarter ? 6.0f : 4.0f;
+    NewProfile->CameraSightline.TraceChannel = ECC_Visibility;
 
-    NewPreset->GroundValidation.bShowGroundValidation = true;
-    NewPreset->GroundValidation.ForwardDistance = bHeavyStarter ? 400.0f : 300.0f;
-    NewPreset->GroundValidation.SampleSpacing = bHeavyStarter ? 75.0f : 50.0f;
-    NewPreset->GroundValidation.LateralCoverage = bHeavyStarter ? 180.0f : 88.0f;
-    NewPreset->GroundValidation.MaxWalkableSlope = bHeavyStarter ? 35.0f : 45.0f;
-    NewPreset->GroundValidation.MaxStepUp = bHeavyStarter ? 30.0f : 45.0f;
-    NewPreset->GroundValidation.MaxStepDown = bHeavyStarter ? 40.0f : 60.0f;
-    NewPreset->GroundValidation.TraceHeight = bHeavyStarter ? 160.0f : 120.0f;
-    NewPreset->GroundValidation.TraceDepth = bHeavyStarter ? 250.0f : 200.0f;
-    NewPreset->GroundValidation.TraceChannel = ECC_Visibility;
+    NewProfile->GroundValidation.bShowGroundValidation = true;
+    NewProfile->GroundValidation.ForwardDistance = bHeavyStarter ? 400.0f : 300.0f;
+    NewProfile->GroundValidation.SampleSpacing = bHeavyStarter ? 75.0f : 50.0f;
+    NewProfile->GroundValidation.LateralCoverage = bHeavyStarter ? 180.0f : 88.0f;
+    NewProfile->GroundValidation.MaxWalkableSlope = bHeavyStarter ? 35.0f : 45.0f;
+    NewProfile->GroundValidation.MaxStepUp = bHeavyStarter ? 30.0f : 45.0f;
+    NewProfile->GroundValidation.MaxStepDown = bHeavyStarter ? 40.0f : 60.0f;
+    NewProfile->GroundValidation.TraceHeight = bHeavyStarter ? 160.0f : 120.0f;
+    NewProfile->GroundValidation.TraceDepth = bHeavyStarter ? 250.0f : 200.0f;
+    NewProfile->GroundValidation.TraceChannel = ECC_Visibility;
 
-    NewPreset->FitAnalysis.bShowFitAnalysis = true;
-    NewPreset->FitAnalysis.ForwardDistance = bHeavyStarter ? 400.0f : 300.0f;
-    NewPreset->FitAnalysis.SampleSpacing = bHeavyStarter ? 75.0f : 50.0f;
-    NewPreset->FitAnalysis.MaxSideProbeDistance = bHeavyStarter ? 400.0f : 250.0f;
-    NewPreset->FitAnalysis.MaxCeilingProbeHeight = bHeavyStarter ? 450.0f : 300.0f;
-    NewPreset->FitAnalysis.WarningMargin = bHeavyStarter ? 20.0f : 15.0f;
-    NewPreset->FitAnalysis.FloorTraceHeight = bHeavyStarter ? 160.0f : 120.0f;
-    NewPreset->FitAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
-    NewPreset->FitAnalysis.TraceChannel = ECC_Visibility;
+    NewProfile->FitAnalysis.bShowFitAnalysis = true;
+    NewProfile->FitAnalysis.ForwardDistance = bHeavyStarter ? 400.0f : 300.0f;
+    NewProfile->FitAnalysis.SampleSpacing = bHeavyStarter ? 75.0f : 50.0f;
+    NewProfile->FitAnalysis.MaxSideProbeDistance = bHeavyStarter ? 400.0f : 250.0f;
+    NewProfile->FitAnalysis.MaxCeilingProbeHeight = bHeavyStarter ? 450.0f : 300.0f;
+    NewProfile->FitAnalysis.WarningMargin = bHeavyStarter ? 20.0f : 15.0f;
+    NewProfile->FitAnalysis.FloorTraceHeight = bHeavyStarter ? 160.0f : 120.0f;
+    NewProfile->FitAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
+    NewProfile->FitAnalysis.TraceChannel = ECC_Visibility;
 
-    NewPreset->ThresholdAnalysis.bShowThresholdAnalysis = true;
-    NewPreset->ThresholdAnalysis.ProbeDepth = bHeavyStarter ? 180.0f : 120.0f;
-    NewPreset->ThresholdAnalysis.MaxSideProbeDistance = bHeavyStarter ? 400.0f : 250.0f;
-    NewPreset->ThresholdAnalysis.MaxCeilingProbeHeight = bHeavyStarter ? 450.0f : 300.0f;
-    NewPreset->ThresholdAnalysis.WarningMargin = bHeavyStarter ? 20.0f : 15.0f;
-    NewPreset->ThresholdAnalysis.MaxStepUp = bHeavyStarter ? 30.0f : 45.0f;
-    NewPreset->ThresholdAnalysis.MaxStepDown = bHeavyStarter ? 40.0f : 60.0f;
-    NewPreset->ThresholdAnalysis.FloorTraceHeight = bHeavyStarter ? 160.0f : 120.0f;
-    NewPreset->ThresholdAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
-    NewPreset->ThresholdAnalysis.TraceChannel = ECC_Visibility;
+    NewProfile->ThresholdAnalysis.bShowThresholdAnalysis = true;
+    NewProfile->ThresholdAnalysis.ProbeDepth = bHeavyStarter ? 180.0f : 120.0f;
+    NewProfile->ThresholdAnalysis.MaxSideProbeDistance = bHeavyStarter ? 400.0f : 250.0f;
+    NewProfile->ThresholdAnalysis.MaxCeilingProbeHeight = bHeavyStarter ? 450.0f : 300.0f;
+    NewProfile->ThresholdAnalysis.WarningMargin = bHeavyStarter ? 20.0f : 15.0f;
+    NewProfile->ThresholdAnalysis.MaxStepUp = bHeavyStarter ? 30.0f : 45.0f;
+    NewProfile->ThresholdAnalysis.MaxStepDown = bHeavyStarter ? 40.0f : 60.0f;
+    NewProfile->ThresholdAnalysis.FloorTraceHeight = bHeavyStarter ? 160.0f : 120.0f;
+    NewProfile->ThresholdAnalysis.FloorTraceDepth = bHeavyStarter ? 250.0f : 200.0f;
+    NewProfile->ThresholdAnalysis.TraceChannel = ECC_Visibility;
 
-    NewPreset->TurnClearance.bShowTurnClearance = false;
-    NewPreset->TurnClearance.TurnRadius = bHeavyStarter ? 400.0f : 250.0f;
-    NewPreset->TurnClearance.TurnAngle = 90.0f;
-    NewPreset->TurnClearance.SampleAngle = bHeavyStarter ? 10.0f : 7.5f;
-    NewPreset->TurnClearance.Direction = EMetricTurnDirection::Both;
-    NewPreset->TurnClearance.TraceChannel = ECC_Visibility;
+    NewProfile->TurnClearance.bShowTurnClearance = false;
+    NewProfile->TurnClearance.TurnRadius = bHeavyStarter ? 400.0f : 250.0f;
+    NewProfile->TurnClearance.TurnAngle = 90.0f;
+    NewProfile->TurnClearance.SampleAngle = bHeavyStarter ? 10.0f : 7.5f;
+    NewProfile->TurnClearance.Direction = EMetricTurnDirection::Both;
+    NewProfile->TurnClearance.TraceChannel = ECC_Visibility;
 
-    NewPreset->LedgeAnalysis.bShowLedgeAnalysis = false;
-    NewPreset->LedgeAnalysis.ForwardDistance = bHeavyStarter ? 200.0f : 150.0f;
-    NewPreset->LedgeAnalysis.SampleSpacing = bHeavyStarter ? 20.0f : 15.0f;
-    NewPreset->LedgeAnalysis.MaxSafeDrop = bHeavyStarter ? 80.0f : 120.0f;
-    NewPreset->LedgeAnalysis.MaxProbeDepth = bHeavyStarter ? 650.0f : 500.0f;
-    NewPreset->LedgeAnalysis.TraceHeight = bHeavyStarter ? 150.0f : 100.0f;
-    NewPreset->LedgeAnalysis.TraceChannel = ECC_Visibility;
+    NewProfile->LedgeAnalysis.bShowLedgeAnalysis = false;
+    NewProfile->LedgeAnalysis.ForwardDistance = bHeavyStarter ? 200.0f : 150.0f;
+    NewProfile->LedgeAnalysis.SampleSpacing = bHeavyStarter ? 20.0f : 15.0f;
+    NewProfile->LedgeAnalysis.MaxSafeDrop = bHeavyStarter ? 80.0f : 120.0f;
+    NewProfile->LedgeAnalysis.MaxProbeDepth = bHeavyStarter ? 650.0f : 500.0f;
+    NewProfile->LedgeAnalysis.TraceHeight = bHeavyStarter ? 150.0f : 100.0f;
+    NewProfile->LedgeAnalysis.TraceChannel = ECC_Visibility;
 
-    NewPreset->StoppingDistance.bShowStoppingDistance = false;
-    NewPreset->StoppingDistance.Speed = bHeavyStarter ? 350.0f : 600.0f;
-    NewPreset->StoppingDistance.Deceleration = bHeavyStarter ? 900.0f : 1800.0f;
-    NewPreset->StoppingDistance.ReactionTime = bHeavyStarter ? 0.20f : 0.15f;
-    NewPreset->StoppingDistance.WarningMargin = bHeavyStarter ? 100.0f : 75.0f;
-    NewPreset->StoppingDistance.TraceChannel = ECC_Visibility;
+    NewProfile->StoppingDistance.bShowStoppingDistance = false;
+    NewProfile->StoppingDistance.Speed = bHeavyStarter ? 350.0f : 600.0f;
+    NewProfile->StoppingDistance.Deceleration = bHeavyStarter ? 900.0f : 1800.0f;
+    NewProfile->StoppingDistance.ReactionTime = bHeavyStarter ? 0.20f : 0.15f;
+    NewProfile->StoppingDistance.WarningMargin = bHeavyStarter ? 100.0f : 75.0f;
+    NewProfile->StoppingDistance.TraceChannel = ECC_Visibility;
 
-    NewPreset->CoverExposure.bShowCoverExposure = false;
-    NewPreset->CoverExposure.ThreatDistance = bHeavyStarter ? 1500.0f : 1200.0f;
-    NewPreset->CoverExposure.ThreatHeight = bHeavyStarter ? 240.0f : 160.0f;
-    NewPreset->CoverExposure.LowSampleHeight = bHeavyStarter ? 90.0f : 60.0f;
-    NewPreset->CoverExposure.TorsoSampleHeight = bHeavyStarter ? 190.0f : 120.0f;
-    NewPreset->CoverExposure.HeadSampleHeight = bHeavyStarter ? 275.0f : 170.0f;
-    NewPreset->CoverExposure.TraceChannel = ECC_Visibility;
+    NewProfile->CoverExposure.bShowCoverExposure = false;
+    NewProfile->CoverExposure.ThreatDistance = bHeavyStarter ? 1500.0f : 1200.0f;
+    NewProfile->CoverExposure.ThreatHeight = bHeavyStarter ? 240.0f : 160.0f;
+    NewProfile->CoverExposure.LowSampleHeight = bHeavyStarter ? 90.0f : 60.0f;
+    NewProfile->CoverExposure.TorsoSampleHeight = bHeavyStarter ? 190.0f : 120.0f;
+    NewProfile->CoverExposure.HeadSampleHeight = bHeavyStarter ? 275.0f : 170.0f;
+    NewProfile->CoverExposure.TraceChannel = ECC_Visibility;
 
-    NewPreset->JumpRunway.bShowJumpRunway = false;
-    NewPreset->JumpRunway.TakeoffRunway = bHeavyStarter ? 220.0f : 150.0f;
-    NewPreset->JumpRunway.LandingRunway = bHeavyStarter ? 260.0f : 180.0f;
-    NewPreset->JumpRunway.GroundProbeDepth = bHeavyStarter ? 220.0f : 150.0f;
-    NewPreset->JumpRunway.TraceChannel = ECC_Visibility;
+    NewProfile->JumpRunway.bShowJumpRunway = false;
+    NewProfile->JumpRunway.TakeoffRunway = bHeavyStarter ? 220.0f : 150.0f;
+    NewProfile->JumpRunway.LandingRunway = bHeavyStarter ? 260.0f : 180.0f;
+    NewProfile->JumpRunway.GroundProbeDepth = bHeavyStarter ? 220.0f : 150.0f;
+    NewProfile->JumpRunway.TraceChannel = ECC_Visibility;
 
-    NewPreset->InteractionReach.bShowInteractionReach = false;
-    NewPreset->InteractionReach.ReachDistance = bHeavyStarter ? 220.0f : 180.0f;
-    NewPreset->InteractionReach.ReachHeight = bHeavyStarter ? 220.0f : 130.0f;
-    NewPreset->InteractionReach.ProbeRadius = bHeavyStarter ? 28.0f : 18.0f;
-    NewPreset->InteractionReach.TraceChannel = ECC_Visibility;
+    NewProfile->InteractionReach.bShowInteractionReach = false;
+    NewProfile->InteractionReach.ReachDistance = bHeavyStarter ? 220.0f : 180.0f;
+    NewProfile->InteractionReach.ReachHeight = bHeavyStarter ? 220.0f : 130.0f;
+    NewProfile->InteractionReach.ProbeRadius = bHeavyStarter ? 28.0f : 18.0f;
+    NewProfile->InteractionReach.TraceChannel = ECC_Visibility;
 
-    NewPreset->ShoulderClearance.bShowShoulderClearance = false;
-    NewPreset->ShoulderClearance.PivotHeight = bHeavyStarter ? 250.0f : 150.0f;
-    NewPreset->ShoulderClearance.ShoulderOffset = bHeavyStarter ? 85.0f : 55.0f;
-    NewPreset->ShoulderClearance.CameraDistance = bHeavyStarter ? 450.0f : 300.0f;
-    NewPreset->ShoulderClearance.ProbeRadius = bHeavyStarter ? 20.0f : 12.0f;
-    NewPreset->ShoulderClearance.TraceChannel = ECC_Visibility;
+    NewProfile->ShoulderClearance.bShowShoulderClearance = false;
+    NewProfile->ShoulderClearance.PivotHeight = bHeavyStarter ? 250.0f : 150.0f;
+    NewProfile->ShoulderClearance.ShoulderOffset = bHeavyStarter ? 85.0f : 55.0f;
+    NewProfile->ShoulderClearance.CameraDistance = bHeavyStarter ? 450.0f : 300.0f;
+    NewProfile->ShoulderClearance.ProbeRadius = bHeavyStarter ? 20.0f : 12.0f;
+    NewProfile->ShoulderClearance.TraceChannel = ECC_Visibility;
 
-    NewPreset->CombatDensity.bShowCombatDensity = false;
-    NewPreset->CombatDensity.AreaRadius = bHeavyStarter ? 900.0f : 600.0f;
-    NewPreset->CombatDensity.PersonalSpacePadding = bHeavyStarter ? 90.0f : 50.0f;
+    NewProfile->CombatDensity.bShowCombatDensity = false;
+    NewProfile->CombatDensity.AreaRadius = bHeavyStarter ? 900.0f : 600.0f;
+    NewProfile->CombatDensity.PersonalSpacePadding = bHeavyStarter ? 90.0f : 50.0f;
 
-    NewPreset->AlternateStance.bShowAlternateStance = false;
-    NewPreset->AlternateStance.AlternateHeight = bHeavyStarter ? 190.0f : 110.0f;
-    NewPreset->AlternateStance.WarningMargin = bHeavyStarter ? 25.0f : 15.0f;
-    NewPreset->AlternateStance.TraceChannel = ECC_Visibility;
+    NewProfile->AlternateStance.bShowAlternateStance = false;
+    NewProfile->AlternateStance.AlternateHeight = bHeavyStarter ? 190.0f : 110.0f;
+    NewProfile->AlternateStance.WarningMargin = bHeavyStarter ? 25.0f : 15.0f;
+    NewProfile->AlternateStance.TraceChannel = ECC_Visibility;
 
-    NewPreset->MantleVault.bShowMantleVault = false;
-    NewPreset->MantleVault.ForwardReach = bHeavyStarter ? 160.0f : 120.0f;
-    NewPreset->MantleVault.MinObstacleHeight = bHeavyStarter ? 60.0f : 45.0f;
-    NewPreset->MantleVault.MaxObstacleHeight = bHeavyStarter ? 220.0f : 180.0f;
-    NewPreset->MantleVault.MaxObstacleDepth = bHeavyStarter ? 130.0f : 100.0f;
-    NewPreset->MantleVault.TraceChannel = ECC_Visibility;
+    NewProfile->MantleVault.bShowMantleVault = false;
+    NewProfile->MantleVault.ForwardReach = bHeavyStarter ? 160.0f : 120.0f;
+    NewProfile->MantleVault.MinObstacleHeight = bHeavyStarter ? 60.0f : 45.0f;
+    NewProfile->MantleVault.MaxObstacleHeight = bHeavyStarter ? 220.0f : 180.0f;
+    NewProfile->MantleVault.MaxObstacleDepth = bHeavyStarter ? 130.0f : 100.0f;
+    NewProfile->MantleVault.TraceChannel = ECC_Visibility;
 
-    NewPreset->RecoverySpace.bShowRecoverySpace = false;
-    NewPreset->RecoverySpace.ForwardDistance = bHeavyStarter ? 300.0f : 250.0f;
-    NewPreset->RecoverySpace.BackwardDistance = bHeavyStarter ? 220.0f : 180.0f;
-    NewPreset->RecoverySpace.SideDistance = bHeavyStarter ? 300.0f : 220.0f;
-    NewPreset->RecoverySpace.TraceChannel = ECC_Visibility;
+    NewProfile->RecoverySpace.bShowRecoverySpace = false;
+    NewProfile->RecoverySpace.ForwardDistance = bHeavyStarter ? 300.0f : 250.0f;
+    NewProfile->RecoverySpace.BackwardDistance = bHeavyStarter ? 220.0f : 180.0f;
+    NewProfile->RecoverySpace.SideDistance = bHeavyStarter ? 300.0f : 220.0f;
+    NewProfile->RecoverySpace.TraceChannel = ECC_Visibility;
 
-    NewPreset->Crossfire.bShowCrossfire = false;
-    NewPreset->Crossfire.ThreatDistance = bHeavyStarter ? 1600.0f : 1200.0f;
-    NewPreset->Crossfire.DirectionCount = 8;
-    NewPreset->Crossfire.SampleHeight = bHeavyStarter ? 220.0f : 130.0f;
-    NewPreset->Crossfire.TraceChannel = ECC_Visibility;
+    NewProfile->Crossfire.bShowCrossfire = false;
+    NewProfile->Crossfire.ThreatDistance = bHeavyStarter ? 1600.0f : 1200.0f;
+    NewProfile->Crossfire.DirectionCount = 8;
+    NewProfile->Crossfire.SampleHeight = bHeavyStarter ? 220.0f : 130.0f;
+    NewProfile->Crossfire.TraceChannel = ECC_Visibility;
 
     // Starter profiles intentionally use distinct visual identities. Custom profiles
     // start with the Human/cool defaults from FMetricVisualizationTheme and can
     // override every theme color in the Metric Profile Editor.
     if (bHeavyStarter)
     {
+        MetricProfileStyle::ApplyWarmTheme(NewProfile->VisualTheme);
     }
 
-    NewPreset->VisualizationThemeVersion = 1;
+    NewProfile->Representation.bShowStaticMesh = false;
+    NewProfile->Representation.StaticMesh.Reset();
+    NewProfile->Representation.RelativeTransform = FTransform::Identity;
 
-    NewPreset->Representation.bShowStaticMesh = false;
-    NewPreset->Representation.StaticMesh.Reset();
-    NewPreset->Representation.RelativeTransform = FTransform::Identity;
-
-    FAssetRegistryModule::AssetCreated(NewPreset);
+    FAssetRegistryModule::AssetCreated(NewProfile);
     Package->MarkPackageDirty();
 
     const FString Filename = FPackageName::LongPackageNameToFilename(
@@ -660,12 +811,12 @@ UMetricPreset* UMetricSubsystem::CreateStarterPresetAsset(
     SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
     SaveArgs.SaveFlags = SAVE_NoError;
 
-    if (!UPackage::SavePackage(Package, NewPreset, *Filename, SaveArgs))
+    if (!UPackage::SavePackage(Package, NewProfile, *Filename, SaveArgs))
     {
         return nullptr;
     }
 
-    return NewPreset;
+    return NewProfile;
 }
 
 void UMetricSubsystem::Deinitialize()
@@ -1243,15 +1394,15 @@ void UMetricSubsystem::RefreshCycleEntries()
     if (CycleEntries.IsValidIndex(ActiveIndex))
     {
         PreviousType = CycleEntries[ActiveIndex].Type;
-        PreviousIdentity = PreviousType == EMetricCycleEntryType::MetricPreset
-            ? CycleEntries[ActiveIndex].Preset.ToSoftObjectPath()
+        PreviousIdentity = PreviousType == EMetricCycleEntryType::MetricProfile
+            ? CycleEntries[ActiveIndex].Profile.ToSoftObjectPath()
             : CycleEntries[ActiveIndex].NativePreviewMesh;
     }
 
     CycleEntries.Reset();
 
     const UMetricProjectSettings* ProjectSettings = GetDefault<UMetricProjectSettings>();
-    if (!ProjectSettings || (ProjectSettings->bIncludeBuiltInHumanReference && ProjectSettings->RegisteredPresets.IsEmpty()))
+    if (!ProjectSettings || (ProjectSettings->bIncludeBuiltInHumanReference && ProjectSettings->RegisteredProfiles.IsEmpty()))
     {
         FMetricCycleEntry& BuiltIn = CycleEntries.AddDefaulted_GetRef();
         BuiltIn.Type = EMetricCycleEntryType::BuiltInMetric;
@@ -1260,17 +1411,17 @@ void UMetricSubsystem::RefreshCycleEntries()
 
     if (ProjectSettings)
     {
-        for (const TSoftObjectPtr<UMetricPreset>& PresetPtr : ProjectSettings->RegisteredPresets)
+        for (const TSoftObjectPtr<UMetricProfile>& ProfilePtr : ProjectSettings->RegisteredProfiles)
         {
-            if (PresetPtr.IsNull())
+            if (ProfilePtr.IsNull())
             {
                 continue;
             }
 
             FMetricCycleEntry& Entry = CycleEntries.AddDefaulted_GetRef();
-            Entry.Type = EMetricCycleEntryType::MetricPreset;
-            Entry.Preset = PresetPtr;
-            if (const UMetricPreset* LoadedPreset = PresetPtr.LoadSynchronous())
+            Entry.Type = EMetricCycleEntryType::MetricProfile;
+            Entry.Profile = ProfilePtr;
+            if (const UMetricProfile* LoadedPreset = ProfilePtr.LoadSynchronous())
             {
                 Entry.DisplayName = LoadedPreset->DisplayName.IsEmpty()
                     ? FText::FromString(LoadedPreset->GetName())
@@ -1278,7 +1429,7 @@ void UMetricSubsystem::RefreshCycleEntries()
             }
             else
             {
-                Entry.DisplayName = FText::FromString(PresetPtr.ToSoftObjectPath().GetAssetName());
+                Entry.DisplayName = FText::FromString(ProfilePtr.ToSoftObjectPath().GetAssetName());
             }
         }
     }
@@ -1311,8 +1462,8 @@ void UMetricSubsystem::RefreshCycleEntries()
         for (int32 Index = 0; Index < CycleEntries.Num(); ++Index)
         {
             const FMetricCycleEntry& Candidate = CycleEntries[Index];
-            const FSoftObjectPath CandidateIdentity = Candidate.Type == EMetricCycleEntryType::MetricPreset
-                ? Candidate.Preset.ToSoftObjectPath()
+            const FSoftObjectPath CandidateIdentity = Candidate.Type == EMetricCycleEntryType::MetricProfile
+                ? Candidate.Profile.ToSoftObjectPath()
                 : Candidate.NativePreviewMesh;
             if (Candidate.Type == PreviousType && CandidateIdentity == PreviousIdentity)
             {
@@ -1427,9 +1578,9 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
         return;
     }
 
-    if (Entry->Type == EMetricCycleEntryType::MetricPreset)
+    if (Entry->Type == EMetricCycleEntryType::MetricProfile)
     {
-        if (const UMetricPreset* Preset = Entry->Preset.LoadSynchronous())
+        if (const UMetricProfile* Preset = Entry->Profile.LoadSynchronous())
         {
             InOutState.Hull = Preset->Hull;
             InOutState.VisualTheme = Preset->VisualTheme;
@@ -1470,9 +1621,9 @@ void UMetricSubsystem::ApplyEntryToState(FMetricLiveState& InOutState) const
     InOutState.Label = FText::Format(LOCTEXT("BuiltInLabel", "METRIC - {0}"), Entry->DisplayName);
 }
 
-void UMetricSubsystem::EvaluatePresetAtLocation(
+void UMetricSubsystem::EvaluateProfileAtLocation(
     UWorld* World,
-    const UMetricPreset* Preset,
+    const UMetricProfile* Preset,
     const FVector& Location,
     const FVector& Forward,
     const FVector& SurfaceNormal,
@@ -1502,7 +1653,7 @@ void UMetricSubsystem::EvaluatePresetAtLocation(
     }
     OutState.AnalysisRight = FVector::CrossProduct(OutState.AnalysisUp, OutState.AnalysisForward).GetSafeNormal();
     OutState.ViewerLocation = Location - OutState.AnalysisForward * 500.0f + OutState.AnalysisUp * 200.0f;
-    OutState.EntryType = EMetricCycleEntryType::MetricPreset;
+    OutState.EntryType = EMetricCycleEntryType::MetricProfile;
     OutState.Label = FText::Format(LOCTEXT("MetricActorPresetLabel", "METRIC ACTOR - {0}"),
         Preset->DisplayName.IsEmpty() ? FText::FromString(Preset->GetName()) : Preset->DisplayName);
 
@@ -1919,56 +2070,13 @@ void UMetricSubsystem::EvaluateClearance(UWorld* World, FMetricLiveState& InOutS
         Forward = InOutState.AnalysisForward;
     }
 
-    const float Height = FMath::Max(1.0f, InOutState.Hull.Height);
-    const float Width = FMath::Max(1.0f, InOutState.Hull.Width);
-    const float Length = FMath::Max(1.0f, InOutState.Hull.Length);
     const float ProbeDistance = FMath::Max(10.0f, InOutState.ClearanceSettings.ProbeDistance);
 
     FCollisionShape Shape;
     FQuat Rotation = FQuat::Identity;
-    float CenterHeight = Height * 0.5f;
+    float CenterHeight = 0.0f;
     bool bApproximateShape = false;
-
-    switch (InOutState.Hull.HullType)
-    {
-    case EMetricHullType::Capsule:
-    {
-        const float Radius = FMath::Max(1.0f, Width * 0.5f);
-        const float HalfHeight = FMath::Max(Radius, Height * 0.5f);
-        Shape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
-        Rotation = FRotationMatrix::MakeFromXZ(Forward, InOutState.AnalysisUp).ToQuat();
-        CenterHeight = HalfHeight;
-        break;
-    }
-    case EMetricHullType::OrientedBox:
-    {
-        const FVector HalfExtent(Length * 0.5f, Width * 0.5f, Height * 0.5f);
-        Shape = FCollisionShape::MakeBox(HalfExtent);
-        Rotation = FRotationMatrix::MakeFromXZ(Forward, InOutState.AnalysisUp).ToQuat();
-        CenterHeight = HalfExtent.Z;
-        break;
-    }
-    case EMetricHullType::Sphere:
-    {
-        const float Radius = FMath::Max3(Width, Length, Height) * 0.5f;
-        Shape = FCollisionShape::MakeSphere(FMath::Max(1.0f, Radius));
-        CenterHeight = Radius;
-        break;
-    }
-    case EMetricHullType::Cylinder:
-    default:
-    {
-        // UE's standard FCollisionShape does not expose an exact cylinder. Use
-        // a capsule with matching width/height and mark the result approximate.
-        const float Radius = FMath::Max(1.0f, Width * 0.5f);
-        const float HalfHeight = FMath::Max(Radius, Height * 0.5f);
-        Shape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
-        Rotation = FRotationMatrix::MakeFromXZ(Forward, InOutState.AnalysisUp).ToQuat();
-        CenterHeight = HalfHeight;
-        bApproximateShape = true;
-        break;
-    }
-    }
+    MetricQueryAudit::BuildHullShape(InOutState, Shape, Rotation, CenterHeight, bApproximateShape);
 
     const float WarningMargin = FMath::Max(0.0f, InOutState.ClearanceSettings.WarningMargin);
     const FVector StartOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset) + InOutState.AnalysisUp * (CenterHeight + 1.0f);
@@ -2066,8 +2174,7 @@ void UMetricSubsystem::EvaluateSensorField(UWorld* World, FMetricLiveState& InOu
         return;
     }
 
-    FVector Forward = InOutState.Forward;
-    Forward = FVector::VectorPlaneProject(Forward, InOutState.AnalysisUp).GetSafeNormal();
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal();
     if (Forward.IsNearlyZero())
     {
         Forward = InOutState.AnalysisForward;
@@ -2075,13 +2182,17 @@ void UMetricSubsystem::EvaluateSensorField(UWorld* World, FMetricLiveState& InOu
 
     const FVector Up = InOutState.AnalysisUp;
     const float Range = FMath::Max(10.0f, InOutState.SensorFieldSettings.Range);
-    const float HalfAngle = FMath::Clamp(InOutState.SensorFieldSettings.HorizontalHalfAngle, 1.0f, 89.0f);
-    int32 RayCount = FMath::Clamp(InOutState.SensorFieldSettings.HorizontalRayCount, 3, 31);
-    if ((RayCount % 2) == 0)
+    const float HorizontalHalfAngle = FMath::Clamp(InOutState.SensorFieldSettings.HorizontalHalfAngle, 1.0f, 89.0f);
+    const float VerticalHalfAngle = FMath::Clamp(InOutState.SensorFieldSettings.VerticalHalfAngle, 1.0f, 89.0f);
+    int32 HorizontalRayCount = FMath::Clamp(InOutState.SensorFieldSettings.HorizontalRayCount, 3, 31);
+    if ((HorizontalRayCount % 2) == 0)
     {
-        ++RayCount;
+        ++HorizontalRayCount;
     }
 
+    // Three vertical bands make VerticalHalfAngle part of the actual query rather
+    // than a visualization-only cone: lower boundary, center, upper boundary.
+    constexpr int32 VerticalRayCount = 3;
     const FVector OriginOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset) + Up * FMath::Max(0.0f, InOutState.Sensors.PrimarySensorZOffset);
     const FVector Origin = InOutState.Location + OriginOffset;
 
@@ -2090,39 +2201,51 @@ void UMetricSubsystem::EvaluateSensorField(UWorld* World, FMetricLiveState& InOu
 
     FMetricSensorFieldResult& Result = InOutState.SensorField;
     Result.bVisible = true;
-    Result.TotalRays = RayCount;
+    Result.TotalRays = HorizontalRayCount * VerticalRayCount;
     Result.OriginOffset = OriginOffset;
     Result.NearestBlockDistance = Range;
-    Result.Rays.Reserve(RayCount);
+    Result.Rays.Reserve(Result.TotalRays);
 
-    for (int32 Index = 0; Index < RayCount; ++Index)
+    for (int32 HorizontalIndex = 0; HorizontalIndex < HorizontalRayCount; ++HorizontalIndex)
     {
-        const float Alpha = RayCount > 1
-            ? static_cast<float>(Index) / static_cast<float>(RayCount - 1)
+        const float HorizontalAlpha = HorizontalRayCount > 1
+            ? static_cast<float>(HorizontalIndex) / static_cast<float>(HorizontalRayCount - 1)
             : 0.5f;
-        const float YawDegrees = FMath::Lerp(-HalfAngle, HalfAngle, Alpha);
-        const FVector Direction = FQuat(Up, FMath::DegreesToRadians(YawDegrees)).RotateVector(Forward).GetSafeNormal();
-        const FVector End = Origin + Direction * Range;
-
-        FHitResult Hit;
-        const bool bBlocked = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            Hit,
-            Origin,
-            End,
-            InOutState.SensorFieldSettings.TraceChannel.GetValue(),
-            QueryParams);
-
-        FMetricSensorFieldRay Ray;
-        Ray.bBlocked = bBlocked;
-        Ray.Distance = bBlocked ? FMath::Max(0.0f, Hit.Distance) : Range;
-        const FVector ResolvedEnd = bBlocked ? Hit.ImpactPoint : End;
-        Ray.EndOffset = ResolvedEnd - InOutState.Location;
-        Result.Rays.Add(Ray);
-
-        if (bBlocked)
+        const float YawDegrees = FMath::Lerp(-HorizontalHalfAngle, HorizontalHalfAngle, HorizontalAlpha);
+        const FVector HorizontalDirection = FQuat(Up, FMath::DegreesToRadians(YawDegrees)).RotateVector(Forward).GetSafeNormal();
+        FVector PitchAxis = FVector::CrossProduct(Up, HorizontalDirection).GetSafeNormal();
+        if (PitchAxis.IsNearlyZero())
         {
-            ++Result.BlockedRays;
-            Result.NearestBlockDistance = FMath::Min(Result.NearestBlockDistance, Ray.Distance);
+            PitchAxis = InOutState.AnalysisRight;
+        }
+
+        for (int32 VerticalIndex = 0; VerticalIndex < VerticalRayCount; ++VerticalIndex)
+        {
+            const float VerticalAlpha = static_cast<float>(VerticalIndex) / static_cast<float>(VerticalRayCount - 1);
+            const float PitchDegrees = FMath::Lerp(-VerticalHalfAngle, VerticalHalfAngle, VerticalAlpha);
+            const FVector Direction = FQuat(PitchAxis, FMath::DegreesToRadians(PitchDegrees)).RotateVector(HorizontalDirection).GetSafeNormal();
+            const FVector End = Origin + Direction * Range;
+
+            FHitResult Hit;
+            const bool bBlocked = MetricEnvironmentQuery::LineTraceSingleByChannel(
+                World,
+                Hit,
+                Origin,
+                End,
+                InOutState.SensorFieldSettings.TraceChannel.GetValue(),
+                QueryParams);
+
+            FMetricSensorFieldRay Ray;
+            Ray.bBlocked = bBlocked;
+            Ray.Distance = bBlocked ? FMath::Max(0.0f, Hit.Distance) : Range;
+            Ray.EndOffset = (bBlocked ? Hit.ImpactPoint : End) - InOutState.Location;
+            Result.Rays.Add(Ray);
+
+            if (bBlocked)
+            {
+                ++Result.BlockedRays;
+                Result.NearestBlockDistance = FMath::Min(Result.NearestBlockDistance, Ray.Distance);
+            }
         }
     }
 
@@ -2130,7 +2253,6 @@ void UMetricSubsystem::EvaluateSensorField(UWorld* World, FMetricLiveState& InOu
         ? (static_cast<float>(Result.TotalRays - Result.BlockedRays) / static_cast<float>(Result.TotalRays)) * 100.0f
         : 100.0f;
 }
-
 
 void UMetricSubsystem::EvaluateTrajectory(UWorld* World, FMetricLiveState& InOutState) const
 {
@@ -2473,8 +2595,11 @@ void UMetricSubsystem::EvaluateCameraSightline(UWorld* World, FMetricLiveState& 
     }
     else
     {
-        FVector Forward = InOutState.Forward.GetSafeNormal2D();
-        if (Forward.IsNearlyZero()) Forward = InOutState.AnalysisForward;
+        FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal();
+        if (Forward.IsNearlyZero())
+        {
+            Forward = InOutState.AnalysisForward;
+        }
         CameraOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset) - Forward * 350.0f + InOutState.AnalysisUp * 220.0f;
         AimOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset) + InOutState.AnalysisUp * (InOutState.Hull.Height * 0.5f);
     }
@@ -2564,8 +2689,12 @@ void UMetricSubsystem::EvaluateGroundValidation(UWorld* World, FMetricLiveState&
 
     const int32 RowCount = FMath::Max(1, FMath::CeilToInt(ForwardDistance / SampleSpacing));
     const int32 LaneCount = HalfCoverage > KINDA_SMALL_NUMBER ? 3 : 1;
-    TArray<float> PreviousZ;
-    PreviousZ.Init(FVector::DotProduct(InOutState.Location, InOutState.AnalysisUp), LaneCount);
+    TArray<FVector> PreviousPoints;
+    TArray<FVector> PreviousNormals;
+    TArray<bool> bPreviousValid;
+    PreviousPoints.SetNumZeroed(LaneCount);
+    PreviousNormals.Init(InOutState.AnalysisUp, LaneCount);
+    bPreviousValid.Init(false, LaneCount);
 
     FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricGroundValidationTrace), true);
     QueryParams.bTraceComplex = true;
@@ -2583,7 +2712,7 @@ void UMetricSubsystem::EvaluateGroundValidation(UWorld* World, FMetricLiveState&
             const FVector TraceEnd = Target - InOutState.AnalysisUp * TraceDepth;
 
             FHitResult Hit;
-            const bool bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
+            const bool bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
                 Hit,
                 TraceStart,
                 TraceEnd,
@@ -2603,6 +2732,7 @@ void UMetricSubsystem::EvaluateGroundValidation(UWorld* World, FMetricLiveState&
                 ++Result.FailedSamples;
                 Result.bPass = false;
                 Result.MaxObservedStepDown = FMath::Max(Result.MaxObservedStepDown, TraceDepth);
+                bPreviousValid[Lane] = false;
                 continue;
             }
 
@@ -2612,20 +2742,26 @@ void UMetricSubsystem::EvaluateGroundValidation(UWorld* World, FMetricLiveState&
             Result.MaxObservedSlope = FMath::Max(Result.MaxObservedSlope, Sample.SlopeDegrees);
             Sample.bSlopeFail = Sample.SlopeDegrees > MaxSlope + KINDA_SMALL_NUMBER;
 
-            // Row zero establishes each lane's own baseline. This avoids falsely
-            // classifying a continuous cross-slope as a step just because the
-            // left/right lane begins above or below the cursor's center hit.
-            const float HitHeight = FVector::DotProduct(Hit.ImpactPoint, InOutState.AnalysisUp);
-            const float StepDelta = Row > 0 ? (HitHeight - PreviousZ[Lane]) : 0.0f;
-            Sample.StepDelta = StepDelta;
-            Sample.bStepUpFail = Row > 0 && StepDelta > MaxStepUp + KINDA_SMALL_NUMBER;
-            Sample.bStepDownFail = Row > 0 && StepDelta < -(MaxStepDown + KINDA_SMALL_NUMBER);
-            if (Row > 0)
+            // Step limits describe a discontinuity, not ordinary elevation change.
+            // Remove the grade predicted by the adjacent surface planes so a
+            // continuous ramp is judged by MaxWalkableSlope instead of MaxStepUp.
+            if (bPreviousValid[Lane])
             {
-                Result.MaxObservedStepUp = FMath::Max(Result.MaxObservedStepUp, FMath::Max(0.0f, StepDelta));
-                Result.MaxObservedStepDown = FMath::Max(Result.MaxObservedStepDown, FMath::Max(0.0f, -StepDelta));
+                Sample.StepDelta = MetricQueryAudit::ComputeSurfaceDiscontinuity(
+                    PreviousPoints[Lane],
+                    PreviousNormals[Lane],
+                    Hit.ImpactPoint,
+                    Sample.Normal,
+                    InOutState.AnalysisUp);
+                Sample.bStepUpFail = Sample.StepDelta > MaxStepUp + KINDA_SMALL_NUMBER;
+                Sample.bStepDownFail = Sample.StepDelta < -(MaxStepDown + KINDA_SMALL_NUMBER);
+                Result.MaxObservedStepUp = FMath::Max(Result.MaxObservedStepUp, FMath::Max(0.0f, Sample.StepDelta));
+                Result.MaxObservedStepDown = FMath::Max(Result.MaxObservedStepDown, FMath::Max(0.0f, -Sample.StepDelta));
             }
-            PreviousZ[Lane] = HitHeight;
+
+            PreviousPoints[Lane] = Hit.ImpactPoint;
+            PreviousNormals[Lane] = Sample.Normal;
+            bPreviousValid[Lane] = true;
 
             if (Sample.bSlopeFail || Sample.bStepUpFail || Sample.bStepDownFail)
             {
@@ -2640,11 +2776,8 @@ void UMetricSubsystem::EvaluateGroundValidation(UWorld* World, FMetricLiveState&
 void UMetricSubsystem::EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& InOutState) const
 {
     InOutState.LedgeAnalysis = FMetricLedgeAnalysisResult();
-    InOutState.StoppingDistance = FMetricStoppingDistanceResult();
 
-    if (!World
-        || !InOutState.bHasHit
-        || !InOutState.LedgeAnalysisSettings.bShowLedgeAnalysis
+    if (!World || !InOutState.bHasHit || !InOutState.LedgeAnalysisSettings.bShowLedgeAnalysis
         || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
     {
         return;
@@ -2654,8 +2787,8 @@ void UMetricSubsystem::EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& In
     FMetricLedgeAnalysisResult& Result = InOutState.LedgeAnalysis;
     Result.bVisible = true;
 
-    FVector Forward = InOutState.Forward;
-    Forward = FVector::VectorPlaneProject(Forward, InOutState.AnalysisUp).GetSafeNormal();
+    const FVector Up = InOutState.AnalysisUp.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, Up).GetSafeNormal();
     if (Forward.IsNearlyZero()) Forward = InOutState.AnalysisForward;
 
     const float ForwardDistance = FMath::Max(10.0f, Settings.ForwardDistance);
@@ -2663,31 +2796,45 @@ void UMetricSubsystem::EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& In
     const float TraceHeight = FMath::Max(10.0f, Settings.TraceHeight);
     const float MaxProbeDepth = FMath::Max(10.0f, Settings.MaxProbeDepth);
     const float MaxSafeDrop = FMath::Max(0.0f, Settings.MaxSafeDrop);
+    const float MaxTraversableStepDown = FMath::Max(0.0f, InOutState.GroundValidationSettings.MaxStepDown);
     const int32 SampleCount = FMath::Max(1, FMath::CeilToInt(ForwardDistance / SampleSpacing));
 
     FCollisionQueryParams QueryParams = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricLedgeAnalysisTrace), true);
     QueryParams.bTraceComplex = true;
 
-    float LastGroundZ = FVector::DotProduct(InOutState.Location, InOutState.AnalysisUp);
+    FVector PreviousPoint = InOutState.Location;
+    FVector PreviousNormal = InOutState.SurfaceNormal.GetSafeNormal(SMALL_NUMBER, Up);
+    FHitResult InitialGround;
+    if (MetricEnvironmentQuery::LineTraceSingleByChannel(World, InitialGround,
+        InOutState.Location + Up * TraceHeight, InOutState.Location - Up * MaxProbeDepth,
+        Settings.TraceChannel.GetValue(), QueryParams))
+    {
+        PreviousPoint = InitialGround.ImpactPoint;
+        PreviousNormal = InitialGround.ImpactNormal.GetSafeNormal(SMALL_NUMBER, Up);
+    }
+
     for (int32 SampleIndex = 1; SampleIndex <= SampleCount; ++SampleIndex)
     {
         const float Distance = FMath::Min(ForwardDistance, SampleIndex * SampleSpacing);
         const FVector Station = InOutState.Location + Forward * Distance;
         FHitResult GroundHit;
-        const bool bGround = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            GroundHit,
-            Station + InOutState.AnalysisUp * TraceHeight,
-            Station - InOutState.AnalysisUp * MaxProbeDepth,
-            Settings.TraceChannel.GetValue(),
-            QueryParams);
+        const bool bGround = MetricEnvironmentQuery::LineTraceSingleByChannel(World, GroundHit,
+            Station + Up * TraceHeight, Station - Up * MaxProbeDepth,
+            Settings.TraceChannel.GetValue(), QueryParams);
 
+        bool bEdge = !bGround;
+        float DiscreteDrop = 0.0f;
         if (bGround)
         {
-            const float GroundHeight = FVector::DotProduct(GroundHit.ImpactPoint, InOutState.AnalysisUp);
-            const float DropFromPrevious = FMath::Max(0.0f, LastGroundZ - GroundHeight);
-            if (DropFromPrevious <= SampleSpacing)
+            const FVector CurrentNormal = GroundHit.ImpactNormal.GetSafeNormal(SMALL_NUMBER, Up);
+            const float Discontinuity = MetricQueryAudit::ComputeSurfaceDiscontinuity(
+                PreviousPoint, PreviousNormal, GroundHit.ImpactPoint, CurrentNormal, Up);
+            DiscreteDrop = FMath::Max(0.0f, -Discontinuity);
+            bEdge = DiscreteDrop > MaxTraversableStepDown + KINDA_SMALL_NUMBER;
+            if (!bEdge)
             {
-                LastGroundZ = GroundHeight;
+                PreviousPoint = GroundHit.ImpactPoint;
+                PreviousNormal = CurrentNormal;
                 Result.EdgeDistance = Distance;
                 continue;
             }
@@ -2695,31 +2842,23 @@ void UMetricSubsystem::EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& In
 
         Result.bHasEdge = true;
         Result.EdgeDistance = FMath::Max(0.0f, Distance - SampleSpacing);
-        Result.EdgeOffset = Forward * Result.EdgeDistance + InOutState.AnalysisUp * (LastGroundZ - FVector::DotProduct(InOutState.Location, InOutState.AnalysisUp));
-
-        FHitResult LandingHit;
-        const FVector LandingStation = InOutState.Location + Forward * Distance;
-        const bool bLanding = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            LandingHit,
-            LandingStation + InOutState.AnalysisUp * TraceHeight,
-            LandingStation - InOutState.AnalysisUp * MaxProbeDepth,
-            Settings.TraceChannel.GetValue(),
-            QueryParams);
-
-        Result.bHasLanding = bLanding;
-        if (bLanding)
+        Result.EdgeOffset = PreviousPoint - InOutState.Location;
+        Result.bHasLanding = bGround;
+        if (bGround)
         {
-            Result.LandingOffset = LandingHit.ImpactPoint - InOutState.Location;
-            Result.DropDepth = FMath::Max(0.0f, LastGroundZ - FVector::DotProduct(LandingHit.ImpactPoint, InOutState.AnalysisUp));
+            Result.LandingOffset = GroundHit.ImpactPoint - InOutState.Location;
+            Result.DropDepth = FMath::Max(DiscreteDrop,
+                FMath::Max(0.0f, FVector::DotProduct(PreviousPoint - GroundHit.ImpactPoint, Up)));
             Result.bSafeDrop = Result.DropDepth <= MaxSafeDrop + KINDA_SMALL_NUMBER;
-            Result.bWarning = Result.bSafeDrop && MaxSafeDrop > KINDA_SMALL_NUMBER && Result.DropDepth >= MaxSafeDrop * 0.75f;
+            Result.bWarning = Result.bSafeDrop && MaxSafeDrop > KINDA_SMALL_NUMBER
+                && Result.DropDepth >= MaxSafeDrop * 0.75f;
         }
         else
         {
             Result.DropDepth = MaxProbeDepth;
             Result.bSafeDrop = false;
             Result.bWarning = false;
-            Result.LandingOffset = Forward * Distance - InOutState.AnalysisUp * MaxProbeDepth;
+            Result.LandingOffset = Forward * Distance - Up * MaxProbeDepth;
         }
         return;
     }
@@ -2727,7 +2866,6 @@ void UMetricSubsystem::EvaluateLedgeAnalysis(UWorld* World, FMetricLiveState& In
     Result.EdgeDistance = ForwardDistance;
     Result.bSafeDrop = true;
 }
-
 
 void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOutState) const
 {
@@ -2770,6 +2908,15 @@ void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOu
     const float FloorTraceHeight = FMath::Max(10.0f, Settings.FloorTraceHeight);
     const float FloorTraceDepth = FMath::Max(10.0f, Settings.FloorTraceDepth);
     const int32 SampleCount = ForwardDistance <= KINDA_SMALL_NUMBER ? 0 : FMath::Max(1, FMath::CeilToInt(ForwardDistance / SampleSpacing));
+    const FVector HullLocalOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+    const float HullVerticalOffset = FVector::DotProduct(HullLocalOffset, InOutState.AnalysisUp);
+    const FVector HullPlanarOffset = HullLocalOffset - InOutState.AnalysisUp * HullVerticalOffset;
+
+    FCollisionShape HullShape;
+    FQuat HullRotation = FQuat::Identity;
+    float HullCenterHeight = 0.0f;
+    bool bApproximateHull = false;
+    MetricQueryAudit::BuildHullShape(InOutState, HullShape, HullRotation, HullCenterHeight, bApproximateHull);
 
     Result.RequiredWidth = RequiredWidth;
     Result.RequiredHeight = RequiredHeight;
@@ -2791,7 +2938,7 @@ void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOu
         ++Result.TotalSamples;
 
         FHitResult FloorHit;
-        const bool bHasFloor = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
+        const bool bHasFloor = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
             FloorHit,
             Station + InOutState.AnalysisUp * FloorTraceHeight,
             Station - InOutState.AnalysisUp * FloorTraceDepth,
@@ -2809,63 +2956,103 @@ void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOu
         }
 
         const FVector FloorPoint = FloorHit.ImpactPoint;
-        Sample.BaseOffset = FloorPoint - InOutState.Location;
+        const FVector HullBase = FloorPoint + HullLocalOffset;
+        Sample.BaseOffset = HullBase - InOutState.Location;
 
-        // Measure lateral room at the hull's widest representative height.
-        const float WidthMeasureHeight = FMath::Clamp(RequiredHeight * 0.5f, 1.0f, FMath::Max(1.0f, RequiredHeight - 1.0f));
-        const FVector WidthCenter = FloorPoint + InOutState.AnalysisUp * WidthMeasureHeight;
-
-        FHitResult LeftHit;
-        FHitResult RightHit;
-        const bool bLeftHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            LeftHit,
-            WidthCenter,
-            WidthCenter - Right * SideProbeDistance,
+        // First answer the authoritative question: does the configured hull occupy
+        // free space at this station? A short sweep catches geometry that side and
+        // ceiling rays can miss, including centered or partial-height obstructions.
+        const float SupportHeight = MetricQueryAudit::ComputeHullSupportHeightAlongUp(
+            InOutState, FloorHit.ImpactNormal, HullPlanarOffset);
+        const FVector HullCenter = FloorPoint + HullPlanarOffset
+            + InOutState.AnalysisUp * (HullVerticalOffset + SupportHeight + 1.0f);
+        FHitResult HullHit;
+        Sample.bHullBlocked = MetricEnvironmentQuery::SweepSingleByChannel(World,
+            HullHit,
+            HullCenter - Forward,
+            HullCenter + Forward,
+            HullRotation,
             Settings.TraceChannel.GetValue(),
+            HullShape,
             QueryParams);
-        const bool bRightHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            RightHit,
-            WidthCenter,
-            WidthCenter + Right * SideProbeDistance,
-            Settings.TraceChannel.GetValue(),
-            QueryParams);
+        if (Sample.bHullBlocked)
+        {
+            Sample.HullImpactOffset = HullHit.ImpactPoint - InOutState.Location;
+            ++Result.HullBlockedSamples;
+        }
 
-        const float LeftDistance = bLeftHit ? FMath::Max(0.0f, LeftHit.Distance) : SideProbeDistance;
-        const float RightDistance = bRightHit ? FMath::Max(0.0f, RightHit.Distance) : SideProbeDistance;
-        Sample.bLeftBounded = bLeftHit;
-        Sample.bRightBounded = bRightHit;
-        Sample.LeftOffset = (bLeftHit ? LeftHit.Location : WidthCenter - Right * SideProbeDistance) - InOutState.Location;
-        Sample.RightOffset = (bRightHit ? RightHit.Location : WidthCenter + Right * SideProbeDistance) - InOutState.Location;
-        Sample.AvailableWidth = LeftDistance + RightDistance;
-        Sample.WidthDeficit = FMath::Max(0.0f, RequiredHalfWidth - LeftDistance)
-            + FMath::Max(0.0f, RequiredHalfWidth - RightDistance);
+        // Width probes remain useful descriptive evidence. Sample several heights
+        // and retain the tightest cross-section instead of trusting one mid-height ray.
+        float BestAvailableWidth = TNumericLimits<float>::Max();
+        float BestWidthDeficit = 0.0f;
+        bool bBestLeftHit = false;
+        bool bBestRightHit = false;
+        FVector BestLeftOffset = FVector::ZeroVector;
+        FVector BestRightOffset = FVector::ZeroVector;
+        bool bWidthNear = false;
+        constexpr float WidthFractions[] = { 0.10f, 0.50f, 0.90f };
+
+        for (const float Fraction : WidthFractions)
+        {
+            const float WidthMeasureHeight = FMath::Clamp(RequiredHeight * Fraction, 1.0f, FMath::Max(1.0f, RequiredHeight - 1.0f));
+            const FVector WidthCenter = HullBase + InOutState.AnalysisUp * WidthMeasureHeight;
+
+            FHitResult LeftHit;
+            FHitResult RightHit;
+            const bool bLeftHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
+                LeftHit, WidthCenter, WidthCenter - Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+            const bool bRightHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
+                RightHit, WidthCenter, WidthCenter + Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+
+            const float LeftDistance = bLeftHit ? FMath::Max(0.0f, LeftHit.Distance) : SideProbeDistance;
+            const float RightDistance = bRightHit ? FMath::Max(0.0f, RightHit.Distance) : SideProbeDistance;
+            const float AvailableWidth = LeftDistance + RightDistance;
+            const float WidthDeficit = FMath::Max(0.0f, RequiredHalfWidth - LeftDistance)
+                + FMath::Max(0.0f, RequiredHalfWidth - RightDistance);
+            bWidthNear = bWidthNear || (WidthDeficit <= KINDA_SMALL_NUMBER
+                && (LeftDistance < RequiredHalfWidth + WarningMargin || RightDistance < RequiredHalfWidth + WarningMargin));
+
+            if (AvailableWidth < BestAvailableWidth)
+            {
+                BestAvailableWidth = AvailableWidth;
+                BestWidthDeficit = WidthDeficit;
+                bBestLeftHit = bLeftHit;
+                bBestRightHit = bRightHit;
+                BestLeftOffset = (bLeftHit ? LeftHit.Location : WidthCenter - Right * SideProbeDistance) - InOutState.Location;
+                BestRightOffset = (bRightHit ? RightHit.Location : WidthCenter + Right * SideProbeDistance) - InOutState.Location;
+            }
+        }
+
+        Sample.bLeftBounded = bBestLeftHit;
+        Sample.bRightBounded = bBestRightHit;
+        Sample.LeftOffset = BestLeftOffset;
+        Sample.RightOffset = BestRightOffset;
+        Sample.AvailableWidth = BestAvailableWidth == TNumericLimits<float>::Max() ? 0.0f : BestAvailableWidth;
+        Sample.WidthDeficit = BestWidthDeficit;
         Sample.bWidthFail = Sample.WidthDeficit > KINDA_SMALL_NUMBER;
 
-        // Measure floor-to-ceiling room independently of the width rays.
         FHitResult CeilingHit;
-        const FVector CeilingStart = FloorPoint + InOutState.AnalysisUp * 1.0f;
-        const bool bCeilingHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
+        const FVector CeilingStart = HullBase + InOutState.AnalysisUp * 1.0f;
+        const bool bCeilingHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
             CeilingHit,
             CeilingStart,
-            FloorPoint + InOutState.AnalysisUp * CeilingProbeHeight,
+            HullBase + InOutState.AnalysisUp * CeilingProbeHeight,
             Settings.TraceChannel.GetValue(),
             QueryParams);
 
         const float AvailableHeight = bCeilingHit
-            ? FMath::Max(0.0f, FVector::DotProduct(CeilingHit.Location - FloorPoint, InOutState.AnalysisUp))
+            ? FMath::Max(0.0f, FVector::DotProduct(CeilingHit.Location - HullBase, InOutState.AnalysisUp))
             : CeilingProbeHeight;
         Sample.bCeilingBounded = bCeilingHit;
-        Sample.CeilingOffset = (bCeilingHit ? CeilingHit.Location : FloorPoint + InOutState.AnalysisUp * CeilingProbeHeight) - InOutState.Location;
+        Sample.CeilingOffset = (bCeilingHit ? CeilingHit.Location : HullBase + InOutState.AnalysisUp * CeilingProbeHeight) - InOutState.Location;
         Sample.AvailableHeight = AvailableHeight;
         Sample.HeightDeficit = bCeilingHit ? FMath::Max(0.0f, RequiredHeight - AvailableHeight) : 0.0f;
         Sample.bHeightFail = Sample.HeightDeficit > KINDA_SMALL_NUMBER;
 
-        const bool bWidthNear = !Sample.bWidthFail
-            && (LeftDistance < RequiredHalfWidth + WarningMargin || RightDistance < RequiredHalfWidth + WarningMargin);
         const bool bHeightNear = !Sample.bHeightFail
             && bCeilingHit
             && AvailableHeight < RequiredHeight + WarningMargin;
-        Sample.bNearThreshold = bWidthNear || bHeightNear;
+        Sample.bNearThreshold = !Sample.bHullBlocked && (bWidthNear || bHeightNear);
 
         Result.MinimumAvailableWidth = FMath::Min(Result.MinimumAvailableWidth, Sample.AvailableWidth);
         Result.MinimumAvailableHeight = FMath::Min(Result.MinimumAvailableHeight, Sample.AvailableHeight);
@@ -2873,7 +3060,7 @@ void UMetricSubsystem::EvaluateFitAnalysis(UWorld* World, FMetricLiveState& InOu
         Result.MaxHeightDeficit = FMath::Max(Result.MaxHeightDeficit, Sample.HeightDeficit);
         Result.bNearThreshold = Result.bNearThreshold || Sample.bNearThreshold;
 
-        if (Sample.bWidthFail || Sample.bHeightFail)
+        if (Sample.bHullBlocked || Sample.bWidthFail || Sample.bHeightFail)
         {
             ++Result.FailedSamples;
             Result.bPass = false;
@@ -2925,13 +3112,22 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
     const float RequiredHeight = FMath::Max(1.0f, InOutState.Hull.Height);
     const float RequiredHalfWidth = RequiredWidth * 0.5f;
     const float ProbeDepth = FMath::Max(10.0f, Settings.ProbeDepth);
-    const float SideProbeDistance = FMath::Max(FMath::Max(10.0f, Settings.MaxSideProbeDistance), RequiredHalfWidth + Settings.WarningMargin);
-    const float CeilingProbeHeight = FMath::Max(FMath::Max(10.0f, Settings.MaxCeilingProbeHeight), RequiredHeight + Settings.WarningMargin);
     const float WarningMargin = FMath::Max(0.0f, Settings.WarningMargin);
+    const float SideProbeDistance = FMath::Max(FMath::Max(10.0f, Settings.MaxSideProbeDistance), RequiredHalfWidth + WarningMargin);
+    const float CeilingProbeHeight = FMath::Max(FMath::Max(10.0f, Settings.MaxCeilingProbeHeight), RequiredHeight + WarningMargin);
     const float MaxStepUp = FMath::Max(0.0f, Settings.MaxStepUp);
     const float MaxStepDown = FMath::Max(0.0f, Settings.MaxStepDown);
     const float FloorTraceHeight = FMath::Max(10.0f, Settings.FloorTraceHeight);
     const float FloorTraceDepth = FMath::Max(10.0f, Settings.FloorTraceDepth);
+    const FVector HullLocalOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+    const float HullVerticalOffset = FVector::DotProduct(HullLocalOffset, InOutState.AnalysisUp);
+    const FVector HullPlanarOffset = HullLocalOffset - InOutState.AnalysisUp * HullVerticalOffset;
+
+    FCollisionShape HullShape;
+    FQuat HullRotation = FQuat::Identity;
+    float HullCenterHeight = 0.0f;
+    bool bApproximateHull = false;
+    MetricQueryAudit::BuildHullShape(InOutState, HullShape, HullRotation, HullCenterHeight, bApproximateHull);
 
     Result.RequiredWidth = RequiredWidth;
     Result.RequiredHeight = RequiredHeight;
@@ -2942,7 +3138,8 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
     QueryParams.bTraceComplex = true;
 
     bool bHavePreviousFloor = false;
-    float PreviousFloorZ = 0.0f;
+    FVector PreviousFloorPoint = FVector::ZeroVector;
+    FVector PreviousFloorNormal = InOutState.AnalysisUp;
 
     // Entry, midpoint, and exit. Threshold analysis is intentionally a compact
     // transition test rather than another long corridor sampler.
@@ -2956,7 +3153,7 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
         ++Result.TotalSamples;
 
         FHitResult FloorHit;
-        const bool bHasFloor = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
+        const bool bHasFloor = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
             FloorHit,
             Station + InOutState.AnalysisUp * FloorTraceHeight,
             Station - InOutState.AnalysisUp * FloorTraceDepth,
@@ -2978,56 +3175,104 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
         }
 
         const FVector FloorPoint = FloorHit.ImpactPoint;
-        Sample.BaseOffset = FloorPoint - InOutState.Location;
+        Sample.FloorNormal = FloorHit.ImpactNormal.GetSafeNormal();
+        const FVector HullBase = FloorPoint + HullLocalOffset;
+        Sample.BaseOffset = HullBase - InOutState.Location;
 
         if (bHavePreviousFloor)
         {
-            Sample.StepDelta = FVector::DotProduct(FloorPoint, InOutState.AnalysisUp) - PreviousFloorZ;
+            Sample.StepDelta = MetricQueryAudit::ComputeSurfaceDiscontinuity(
+                PreviousFloorPoint,
+                PreviousFloorNormal,
+                FloorPoint,
+                Sample.FloorNormal,
+                InOutState.AnalysisUp);
             Sample.bStepUpFail = Sample.StepDelta > MaxStepUp + KINDA_SMALL_NUMBER;
             Sample.bStepDownFail = Sample.StepDelta < -(MaxStepDown + KINDA_SMALL_NUMBER);
             Result.MaxObservedStepUp = FMath::Max(Result.MaxObservedStepUp, FMath::Max(0.0f, Sample.StepDelta));
             Result.MaxObservedStepDown = FMath::Max(Result.MaxObservedStepDown, FMath::Max(0.0f, -Sample.StepDelta));
         }
-        PreviousFloorZ = FVector::DotProduct(FloorPoint, InOutState.AnalysisUp);
+        PreviousFloorPoint = FloorPoint;
+        PreviousFloorNormal = Sample.FloorNormal;
         bHavePreviousFloor = true;
 
-        const float WidthMeasureHeight = FMath::Clamp(RequiredHeight * 0.5f, 1.0f, FMath::Max(1.0f, RequiredHeight - 1.0f));
-        const FVector WidthCenter = FloorPoint + InOutState.AnalysisUp * WidthMeasureHeight;
+        const float SupportHeight = MetricQueryAudit::ComputeHullSupportHeightAlongUp(
+            InOutState, Sample.FloorNormal, HullPlanarOffset);
+        const FVector HullCenter = FloorPoint + HullPlanarOffset
+            + InOutState.AnalysisUp * (HullVerticalOffset + SupportHeight + 1.0f);
+        FHitResult HullHit;
+        Sample.bHullBlocked = MetricEnvironmentQuery::SweepSingleByChannel(World,
+            HullHit,
+            HullCenter - Forward,
+            HullCenter + Forward,
+            HullRotation,
+            Settings.TraceChannel.GetValue(),
+            HullShape,
+            QueryParams);
+        if (Sample.bHullBlocked)
+        {
+            Sample.HullImpactOffset = HullHit.ImpactPoint - InOutState.Location;
+            ++Result.HullBlockedSamples;
+        }
 
-        FHitResult LeftHit;
-        FHitResult RightHit;
-        const bool bLeftHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            LeftHit, WidthCenter, WidthCenter - Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
-        const bool bRightHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-            RightHit, WidthCenter, WidthCenter + Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+        float BestAvailableWidth = TNumericLimits<float>::Max();
+        float BestWidthDeficit = 0.0f;
+        FVector BestLeftOffset = FVector::ZeroVector;
+        FVector BestRightOffset = FVector::ZeroVector;
+        bool bWidthNear = false;
+        constexpr float WidthFractions[] = { 0.10f, 0.50f, 0.90f };
 
-        const float LeftDistance = bLeftHit ? FMath::Max(0.0f, LeftHit.Distance) : SideProbeDistance;
-        const float RightDistance = bRightHit ? FMath::Max(0.0f, RightHit.Distance) : SideProbeDistance;
-        Sample.LeftOffset = (bLeftHit ? LeftHit.Location : WidthCenter - Right * SideProbeDistance) - InOutState.Location;
-        Sample.RightOffset = (bRightHit ? RightHit.Location : WidthCenter + Right * SideProbeDistance) - InOutState.Location;
-        Sample.AvailableWidth = LeftDistance + RightDistance;
-        Sample.WidthDeficit = FMath::Max(0.0f, RequiredHalfWidth - LeftDistance)
-            + FMath::Max(0.0f, RequiredHalfWidth - RightDistance);
+        for (const float Fraction : WidthFractions)
+        {
+            const float WidthMeasureHeight = FMath::Clamp(RequiredHeight * Fraction, 1.0f, FMath::Max(1.0f, RequiredHeight - 1.0f));
+            const FVector WidthCenter = HullBase + InOutState.AnalysisUp * WidthMeasureHeight;
+
+            FHitResult LeftHit;
+            FHitResult RightHit;
+            const bool bLeftHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
+                LeftHit, WidthCenter, WidthCenter - Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+            const bool bRightHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
+                RightHit, WidthCenter, WidthCenter + Right * SideProbeDistance, Settings.TraceChannel.GetValue(), QueryParams);
+
+            const float LeftDistance = bLeftHit ? FMath::Max(0.0f, LeftHit.Distance) : SideProbeDistance;
+            const float RightDistance = bRightHit ? FMath::Max(0.0f, RightHit.Distance) : SideProbeDistance;
+            const float AvailableWidth = LeftDistance + RightDistance;
+            const float WidthDeficit = FMath::Max(0.0f, RequiredHalfWidth - LeftDistance)
+                + FMath::Max(0.0f, RequiredHalfWidth - RightDistance);
+            bWidthNear = bWidthNear || (WidthDeficit <= KINDA_SMALL_NUMBER
+                && (LeftDistance < RequiredHalfWidth + WarningMargin || RightDistance < RequiredHalfWidth + WarningMargin));
+
+            if (AvailableWidth < BestAvailableWidth)
+            {
+                BestAvailableWidth = AvailableWidth;
+                BestWidthDeficit = WidthDeficit;
+                BestLeftOffset = (bLeftHit ? LeftHit.Location : WidthCenter - Right * SideProbeDistance) - InOutState.Location;
+                BestRightOffset = (bRightHit ? RightHit.Location : WidthCenter + Right * SideProbeDistance) - InOutState.Location;
+            }
+        }
+
+        Sample.LeftOffset = BestLeftOffset;
+        Sample.RightOffset = BestRightOffset;
+        Sample.AvailableWidth = BestAvailableWidth == TNumericLimits<float>::Max() ? 0.0f : BestAvailableWidth;
+        Sample.WidthDeficit = BestWidthDeficit;
         Sample.bWidthFail = Sample.WidthDeficit > KINDA_SMALL_NUMBER;
 
         FHitResult CeilingHit;
-        const bool bCeilingHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
+        const bool bCeilingHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World,
             CeilingHit,
-            FloorPoint + InOutState.AnalysisUp * 1.0f,
-            FloorPoint + InOutState.AnalysisUp * CeilingProbeHeight,
+            HullBase + InOutState.AnalysisUp * 1.0f,
+            HullBase + InOutState.AnalysisUp * CeilingProbeHeight,
             Settings.TraceChannel.GetValue(),
             QueryParams);
-        Sample.CeilingOffset = (bCeilingHit ? CeilingHit.Location : FloorPoint + InOutState.AnalysisUp * CeilingProbeHeight) - InOutState.Location;
-        Sample.AvailableHeight = bCeilingHit ? FMath::Max(0.0f, FVector::DotProduct(CeilingHit.Location - FloorPoint, InOutState.AnalysisUp)) : CeilingProbeHeight;
+        Sample.CeilingOffset = (bCeilingHit ? CeilingHit.Location : HullBase + InOutState.AnalysisUp * CeilingProbeHeight) - InOutState.Location;
+        Sample.AvailableHeight = bCeilingHit ? FMath::Max(0.0f, FVector::DotProduct(CeilingHit.Location - HullBase, InOutState.AnalysisUp)) : CeilingProbeHeight;
         Sample.HeightDeficit = bCeilingHit ? FMath::Max(0.0f, RequiredHeight - Sample.AvailableHeight) : 0.0f;
         Sample.bHeightFail = Sample.HeightDeficit > KINDA_SMALL_NUMBER;
 
-        const bool bWidthNear = !Sample.bWidthFail
-            && (LeftDistance < RequiredHalfWidth + WarningMargin || RightDistance < RequiredHalfWidth + WarningMargin);
         const bool bHeightNear = !Sample.bHeightFail
             && bCeilingHit
             && Sample.AvailableHeight < RequiredHeight + WarningMargin;
-        Sample.bNearThreshold = bWidthNear || bHeightNear;
+        Sample.bNearThreshold = !Sample.bHullBlocked && (bWidthNear || bHeightNear);
 
         Result.MinimumAvailableWidth = FMath::Min(Result.MinimumAvailableWidth, Sample.AvailableWidth);
         Result.MinimumAvailableHeight = FMath::Min(Result.MinimumAvailableHeight, Sample.AvailableHeight);
@@ -3035,7 +3280,7 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
         Result.MaxHeightDeficit = FMath::Max(Result.MaxHeightDeficit, Sample.HeightDeficit);
         Result.bNearThreshold = Result.bNearThreshold || Sample.bNearThreshold;
 
-        if (Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail)
+        if (Sample.bHullBlocked || Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail)
         {
             ++Result.FailedSamples;
             Result.bPass = false;
@@ -3051,6 +3296,7 @@ void UMetricSubsystem::EvaluateThresholdAnalysis(UWorld* World, FMetricLiveState
         Result.MinimumAvailableHeight = 0.0f;
     }
 }
+
 
 void UMetricSubsystem::EnsureRenderHost(UWorld* World)
 {
@@ -3262,18 +3508,43 @@ void UMetricSubsystem::EvaluateStoppingDistance(UWorld* World, FMetricLiveState&
 void UMetricSubsystem::EvaluateCoverExposure(UWorld* World, FMetricLiveState& InOutState) const
 {
     InOutState.CoverExposure = FMetricCoverExposureResult();
-    const FMetricCoverExposureSettings& S = InOutState.CoverExposureSettings;
-    if (!World || !InOutState.bHasHit || !S.bShowCoverExposure || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh) return;
-    FVector Forward = InOutState.Forward; Forward = FVector::VectorPlaneProject(Forward, InOutState.AnalysisUp).GetSafeNormal(); if (Forward.IsNearlyZero()) Forward = InOutState.AnalysisForward;
-    const FVector Threat = InOutState.Location + Forward * FMath::Max(50.0f, S.ThreatDistance) + InOutState.AnalysisUp * S.ThreatHeight;
-    const FVector Low = InOutState.Location + InOutState.AnalysisUp * S.LowSampleHeight;
-    const FVector Torso = InOutState.Location + InOutState.AnalysisUp * S.TorsoSampleHeight;
-    const FVector Head = InOutState.Location + InOutState.AnalysisUp * S.HeadSampleHeight;
+    const FMetricCoverExposureSettings& Settings = InOutState.CoverExposureSettings;
+    if (!World || !InOutState.bHasHit || !Settings.bShowCoverExposure || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal();
+    if (Forward.IsNearlyZero())
+    {
+        Forward = InOutState.AnalysisForward;
+    }
+
+    const FVector Base = InOutState.Location + MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+    const FVector Threat = Base + Forward * FMath::Max(50.0f, Settings.ThreatDistance) + InOutState.AnalysisUp * Settings.ThreatHeight;
+    const FVector Low = Base + InOutState.AnalysisUp * Settings.LowSampleHeight;
+    const FVector Torso = Base + InOutState.AnalysisUp * Settings.TorsoSampleHeight;
+    const FVector Head = Base + InOutState.AnalysisUp * Settings.HeadSampleHeight;
+
     FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCoverExposure), true);
-    auto Covered=[&](const FVector& Target){ FHitResult H; const bool bHit=MetricEnvironmentQuery::LineTraceSingleByChannel(World, H,Threat,Target,S.TraceChannel.GetValue(),Params); return bHit && H.Distance + 2.0f < FVector::Distance(Threat,Target); };
-    FMetricCoverExposureResult& R=InOutState.CoverExposure; R.bVisible=true; R.ThreatOffset=Threat-InOutState.Location; R.LowOffset=Low-InOutState.Location; R.TorsoOffset=Torso-InOutState.Location; R.HeadOffset=Head-InOutState.Location;
-    R.bLowCovered=Covered(Low); R.bTorsoCovered=Covered(Torso); R.bHeadCovered=Covered(Head);
-    const int32 CoveredCount=(R.bLowCovered?1:0)+(R.bTorsoCovered?1:0)+(R.bHeadCovered?1:0); R.ExposurePercent=100.0f*(3-CoveredCount)/3.0f;
+    const auto IsCovered = [&](const FVector& Target)
+    {
+        FHitResult Hit;
+        const bool bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, Hit, Threat, Target, Settings.TraceChannel.GetValue(), Params);
+        return bHit && Hit.Distance + 2.0f < FVector::Distance(Threat, Target);
+    };
+
+    FMetricCoverExposureResult& Result = InOutState.CoverExposure;
+    Result.bVisible = true;
+    Result.ThreatOffset = Threat - InOutState.Location;
+    Result.LowOffset = Low - InOutState.Location;
+    Result.TorsoOffset = Torso - InOutState.Location;
+    Result.HeadOffset = Head - InOutState.Location;
+    Result.bLowCovered = IsCovered(Low);
+    Result.bTorsoCovered = IsCovered(Torso);
+    Result.bHeadCovered = IsCovered(Head);
+    const int32 CoveredCount = (Result.bLowCovered ? 1 : 0) + (Result.bTorsoCovered ? 1 : 0) + (Result.bHeadCovered ? 1 : 0);
+    Result.ExposurePercent = 100.0f * static_cast<float>(3 - CoveredCount) / 3.0f;
 }
 
 void UMetricSubsystem::EvaluateJumpRunway(UWorld* World, FMetricLiveState& InOutState) const
@@ -3286,53 +3557,61 @@ void UMetricSubsystem::EvaluateJumpRunway(UWorld* World, FMetricLiveState& InOut
         return;
     }
 
-    FVector Forward = InOutState.Forward;
-    Forward = FVector::VectorPlaneProject(Forward, InOutState.AnalysisUp).GetSafeNormal();
-    if (Forward.IsNearlyZero())
-    {
-        Forward = InOutState.AnalysisForward;
-    }
+    const FVector Up = InOutState.AnalysisUp.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, Up).GetSafeNormal();
+    if (Forward.IsNearlyZero()) Forward = InOutState.AnalysisForward;
 
     FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricJumpRunway), true);
     Params.bTraceComplex = true;
 
     const float ProbeDepth = FMath::Max(20.0f, S.GroundProbeDepth);
     const float SampleSpacing = FMath::Clamp(FMath::Max(25.0f, InOutState.Hull.Width * 0.5f), 25.0f, 75.0f);
+    const float MaxWalkableSlope = FMath::Clamp(InOutState.GroundValidationSettings.MaxWalkableSlope, 0.0f, 89.0f);
+    const float MaxStepUp = FMath::Max(0.0f, InOutState.GroundValidationSettings.MaxStepUp);
+    const float MaxStepDown = FMath::Max(0.0f, InOutState.GroundValidationSettings.MaxStepDown);
 
     auto MeasureSupportedRunway = [&](const FVector& Start, const FVector& Direction, float RequestedDistance, float& OutAvailable)
     {
         RequestedDistance = FMath::Max(0.0f, RequestedDistance);
         OutAvailable = 0.0f;
-
-        if (RequestedDistance <= KINDA_SMALL_NUMBER)
-        {
-            return true;
-        }
+        if (RequestedDistance <= KINDA_SMALL_NUMBER) return true;
 
         const int32 SegmentCount = FMath::Max(1, FMath::CeilToInt(RequestedDistance / SampleSpacing));
+        bool bHavePrevious = false;
+        FVector PreviousPoint = FVector::ZeroVector;
+        FVector PreviousNormal = Up;
+
         for (int32 SegmentIndex = 0; SegmentIndex <= SegmentCount; ++SegmentIndex)
         {
             const float Distance = RequestedDistance * (static_cast<float>(SegmentIndex) / static_cast<float>(SegmentCount));
             const FVector Sample = Start + Direction * Distance;
-
             FHitResult GroundHit;
-            const FVector TraceStart = Sample + InOutState.AnalysisUp * 80.0f;
-            const FVector TraceEnd = Sample - InOutState.AnalysisUp * ProbeDepth;
-            const bool bHasGround = MetricEnvironmentQuery::LineTraceSingleByChannel(World, 
-                GroundHit,
-                TraceStart,
-                TraceEnd,
-                S.TraceChannel.GetValue(),
-                Params);
+            const bool bHasGround = MetricEnvironmentQuery::LineTraceSingleByChannel(World, GroundHit,
+                Sample + Up * 80.0f, Sample - Up * ProbeDepth,
+                S.TraceChannel.GetValue(), Params);
+            if (!bHasGround) return false;
 
-            if (!bHasGround)
+            const FVector Normal = GroundHit.ImpactNormal.GetSafeNormal(SMALL_NUMBER, Up);
+            const float SlopeDegrees = FMath::RadiansToDegrees(FMath::Acos(
+                FMath::Clamp(FVector::DotProduct(Normal, Up), -1.0f, 1.0f)));
+            if (SlopeDegrees > MaxWalkableSlope + KINDA_SMALL_NUMBER) return false;
+
+            if (bHavePrevious)
             {
-                return false;
+                const float Discontinuity = MetricQueryAudit::ComputeSurfaceDiscontinuity(
+                    PreviousPoint, PreviousNormal, GroundHit.ImpactPoint, Normal, Up);
+                if (Discontinuity > MaxStepUp + KINDA_SMALL_NUMBER
+                    || -Discontinuity > MaxStepDown + KINDA_SMALL_NUMBER)
+                {
+                    return false;
+                }
             }
 
+            PreviousPoint = GroundHit.ImpactPoint;
+            PreviousNormal = Normal;
+            bHavePrevious = true;
             OutAvailable = Distance;
         }
-
         return true;
     };
 
@@ -3340,46 +3619,124 @@ void UMetricSubsystem::EvaluateJumpRunway(UWorld* World, FMetricLiveState& InOut
     const float LandingDistance = FMath::Max(0.0f, S.LandingRunway);
     const FVector TakeoffEnd = InOutState.Location - Forward * TakeoffDistance;
 
-    FVector LandingStart = InOutState.Location + Forward * TakeoffDistance;
-    if (InOutState.Trajectory.bVisible && InOutState.Trajectory.bHasLanding)
+    FMetricTrajectoryResult LandingTrajectory = InOutState.Trajectory;
+    if (!LandingTrajectory.bVisible || !LandingTrajectory.bLandingValid)
     {
-        LandingStart = InOutState.Location + InOutState.Trajectory.ImpactPointOffset;
+        FMetricLiveState TrajectoryState = InOutState;
+        TrajectoryState.TrajectorySettings.bShowTrajectory = true;
+        TrajectoryState.TrajectorySettings.DisplayMode = EMetricTrajectoryDisplayMode::SingleArc;
+        EvaluateTrajectory(World, TrajectoryState);
+        LandingTrajectory = TrajectoryState.Trajectory;
     }
-
-    const FVector LandingEnd = LandingStart + Forward * LandingDistance;
 
     FMetricJumpRunwayResult& R = InOutState.JumpRunway;
     R.bVisible = true;
     R.TakeoffEndOffset = TakeoffEnd - InOutState.Location;
+    R.bTakeoffPass = MeasureSupportedRunway(InOutState.Location, -Forward, TakeoffDistance, R.TakeoffAvailable);
+
+    if (!LandingTrajectory.bLandingValid)
+    {
+        R.bLandingPass = false;
+        R.LandingStartOffset = FVector::ZeroVector;
+        R.LandingEndOffset = FVector::ZeroVector;
+        R.LandingAvailable = 0.0f;
+        return;
+    }
+
+    const FVector LandingStart = InOutState.Location + LandingTrajectory.ImpactPointOffset;
+    const FVector LandingEnd = LandingStart + Forward * LandingDistance;
     R.LandingStartOffset = LandingStart - InOutState.Location;
     R.LandingEndOffset = LandingEnd - InOutState.Location;
-
-    // Sample the entire runway so a narrow gap between valid endpoints cannot pass.
-    R.bTakeoffPass = MeasureSupportedRunway(InOutState.Location, -Forward, TakeoffDistance, R.TakeoffAvailable);
     R.bLandingPass = MeasureSupportedRunway(LandingStart, Forward, LandingDistance, R.LandingAvailable);
 }
 
 void UMetricSubsystem::EvaluateInteractionReach(UWorld* World, FMetricLiveState& InOutState) const
 {
-    InOutState.InteractionReach=FMetricInteractionReachResult(); const FMetricInteractionReachSettings& S=InOutState.InteractionReachSettings;
-    if(!World||!InOutState.bHasHit||!S.bShowInteractionReach||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
-    FVector Forward=FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal(); if(Forward.IsNearlyZero())Forward=InOutState.AnalysisForward;
-    const FVector Start=InOutState.Location+InOutState.AnalysisUp*S.ReachHeight; const FVector End=Start+Forward*FMath::Max(10.0f,S.ReachDistance);
-    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricInteractionReach), true); FHitResult H;
-    const bool bHit=MetricEnvironmentQuery::SweepSingleByChannel(World, H,Start,End,FQuat::Identity,S.TraceChannel.GetValue(),FCollisionShape::MakeSphere(FMath::Max(1.0f,S.ProbeRadius)),Params);
-    auto& R=InOutState.InteractionReach; R.bVisible=true; R.bHasTarget=bHit; R.TargetDistance=bHit?H.Distance:S.ReachDistance; R.OriginOffset=Start-InOutState.Location; R.EndOffset=End-InOutState.Location; if(bHit)R.HitOffset=H.ImpactPoint-InOutState.Location;
+    InOutState.InteractionReach = FMetricInteractionReachResult();
+    const FMetricInteractionReachSettings& Settings = InOutState.InteractionReachSettings;
+    if (!World || !InOutState.bHasHit || !Settings.bShowInteractionReach || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal();
+    if (Forward.IsNearlyZero())
+    {
+        Forward = InOutState.AnalysisForward;
+    }
+
+    const FVector Base = InOutState.Location + MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+    const FVector Start = Base + InOutState.AnalysisUp * Settings.ReachHeight;
+    const FVector End = Start + Forward * FMath::Max(10.0f, Settings.ReachDistance);
+
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricInteractionReach), true);
+    FHitResult Hit;
+    const bool bHit = MetricEnvironmentQuery::SweepSingleByChannel(
+        World,
+        Hit,
+        Start,
+        End,
+        FQuat::Identity,
+        Settings.TraceChannel.GetValue(),
+        FCollisionShape::MakeSphere(FMath::Max(1.0f, Settings.ProbeRadius)),
+        Params);
+
+    FMetricInteractionReachResult& Result = InOutState.InteractionReach;
+    Result.bVisible = true;
+    Result.bHasTarget = bHit;
+    Result.TargetDistance = bHit ? Hit.Distance : Settings.ReachDistance;
+    Result.OriginOffset = Start - InOutState.Location;
+    Result.EndOffset = End - InOutState.Location;
+    if (bHit)
+    {
+        Result.HitOffset = Hit.ImpactPoint - InOutState.Location;
+    }
 }
 
 void UMetricSubsystem::EvaluateShoulderClearance(UWorld* World, FMetricLiveState& InOutState) const
 {
-    InOutState.ShoulderClearance=FMetricShoulderClearanceResult(); const FMetricShoulderClearanceSettings& S=InOutState.ShoulderClearanceSettings;
-    if(!World||!InOutState.bHasHit||!S.bShowShoulderClearance||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
-    FVector Forward=InOutState.Forward; Forward=FVector::VectorPlaneProject(Forward, InOutState.AnalysisUp).GetSafeNormal(); if(Forward.IsNearlyZero())Forward=InOutState.AnalysisForward; const FVector Right=FVector::CrossProduct(InOutState.AnalysisUp,Forward).GetSafeNormal();
-    const FVector Pivot=InOutState.Location+InOutState.AnalysisUp*S.PivotHeight; const float Dist=FMath::Max(10.0f,S.CameraDistance); const float Side=FMath::Max(0.0f,S.ShoulderOffset);
-    const FVector LeftDesired=Pivot-Forward*Dist-Right*Side; const FVector RightDesired=Pivot-Forward*Dist+Right*Side;
-    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricShoulderClearance), true); const FCollisionShape Shape=FCollisionShape::MakeSphere(FMath::Max(1.0f,S.ProbeRadius));
-    FHitResult LH,RH; const bool bL=MetricEnvironmentQuery::SweepSingleByChannel(World, LH,Pivot,LeftDesired,FQuat::Identity,S.TraceChannel.GetValue(),Shape,Params); const bool bR=MetricEnvironmentQuery::SweepSingleByChannel(World, RH,Pivot,RightDesired,FQuat::Identity,S.TraceChannel.GetValue(),Shape,Params);
-    auto& R=InOutState.ShoulderClearance; R.bVisible=true; R.bLeftBlocked=bL; R.bRightBlocked=bR; R.LeftDistance=bL?LH.Distance:FVector::Distance(Pivot,LeftDesired); R.RightDistance=bR?RH.Distance:FVector::Distance(Pivot,RightDesired); R.PivotOffset=Pivot-InOutState.Location; R.LeftOffset=(bL?LH.Location:LeftDesired)-InOutState.Location; R.RightOffset=(bR?RH.Location:RightDesired)-InOutState.Location;
+    InOutState.ShoulderClearance = FMetricShoulderClearanceResult();
+    const FMetricShoulderClearanceSettings& Settings = InOutState.ShoulderClearanceSettings;
+    if (!World || !InOutState.bHasHit || !Settings.bShowShoulderClearance || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal();
+    if (Forward.IsNearlyZero())
+    {
+        Forward = InOutState.AnalysisForward;
+    }
+
+    FVector Right = FVector::CrossProduct(InOutState.AnalysisUp, Forward).GetSafeNormal();
+    if (Right.IsNearlyZero())
+    {
+        Right = InOutState.AnalysisRight;
+    }
+
+    const FVector Base = InOutState.Location + MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+    const FVector Pivot = Base + InOutState.AnalysisUp * Settings.PivotHeight;
+    const float Distance = FMath::Max(10.0f, Settings.CameraDistance);
+    const float Side = FMath::Max(0.0f, Settings.ShoulderOffset);
+    const FVector LeftDesired = Pivot - Forward * Distance - Right * Side;
+    const FVector RightDesired = Pivot - Forward * Distance + Right * Side;
+
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricShoulderClearance), true);
+    const FCollisionShape Shape = FCollisionShape::MakeSphere(FMath::Max(1.0f, Settings.ProbeRadius));
+    FHitResult LeftHit;
+    FHitResult RightHit;
+    const bool bLeft = MetricEnvironmentQuery::SweepSingleByChannel(World, LeftHit, Pivot, LeftDesired, FQuat::Identity, Settings.TraceChannel.GetValue(), Shape, Params);
+    const bool bRight = MetricEnvironmentQuery::SweepSingleByChannel(World, RightHit, Pivot, RightDesired, FQuat::Identity, Settings.TraceChannel.GetValue(), Shape, Params);
+
+    FMetricShoulderClearanceResult& Result = InOutState.ShoulderClearance;
+    Result.bVisible = true;
+    Result.bLeftBlocked = bLeft;
+    Result.bRightBlocked = bRight;
+    Result.LeftDistance = bLeft ? LeftHit.Distance : FVector::Distance(Pivot, LeftDesired);
+    Result.RightDistance = bRight ? RightHit.Distance : FVector::Distance(Pivot, RightDesired);
+    Result.PivotOffset = Pivot - InOutState.Location;
+    Result.LeftOffset = (bLeft ? LeftHit.Location : LeftDesired) - InOutState.Location;
+    Result.RightOffset = (bRight ? RightHit.Location : RightDesired) - InOutState.Location;
 }
 
 void UMetricSubsystem::EvaluateCombatDensity(UWorld* World, FMetricLiveState& InOutState) const
@@ -3392,11 +3749,64 @@ void UMetricSubsystem::EvaluateCombatDensity(UWorld* World, FMetricLiveState& In
 
 void UMetricSubsystem::EvaluateAlternateStance(UWorld* World, FMetricLiveState& InOutState) const
 {
-    InOutState.AlternateStance=FMetricAlternateStanceResult(); const auto& S=InOutState.AlternateStanceSettings;
-    if(!World||!InOutState.bHasHit||!S.bShowAlternateStance||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
-    const float MaxProbe=FMath::Max(InOutState.Hull.Height,S.AlternateHeight)+FMath::Max(0.0f,S.WarningMargin)+100.0f; FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricAlternateStance), true); FHitResult H;
-    const FVector Start=InOutState.Location+InOutState.AnalysisUp; const FVector End=InOutState.Location+InOutState.AnalysisUp*MaxProbe; const bool bHit=MetricEnvironmentQuery::LineTraceSingleByChannel(World, H,Start,End,S.TraceChannel.GetValue(),Params); const float Available=bHit?FMath::Max(0.0f,FVector::DotProduct(H.Location - InOutState.Location, InOutState.AnalysisUp)):MaxProbe;
-    auto& R=InOutState.AlternateStance; R.bVisible=true; R.AvailableHeight=Available; R.bStandingFits=Available+KINDA_SMALL_NUMBER>=InOutState.Hull.Height; R.bAlternateFits=Available+KINDA_SMALL_NUMBER>=S.AlternateHeight;
+    InOutState.AlternateStance = FMetricAlternateStanceResult();
+    const FMetricAlternateStanceSettings& S = InOutState.AlternateStanceSettings;
+    if (!World || !InOutState.bHasHit || !S.bShowAlternateStance
+        || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    const FVector Up = InOutState.AnalysisUp.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, Up).GetSafeNormal();
+    if (Forward.IsNearlyZero()) Forward = InOutState.AnalysisForward;
+
+    const float MaxProbe = FMath::Max(InOutState.Hull.Height, S.AlternateHeight)
+        + FMath::Max(0.0f, S.WarningMargin) + 100.0f;
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricAlternateStance), true);
+    Params.bTraceComplex = true;
+
+    FHitResult HeightHit;
+    const bool bHeightHit = MetricEnvironmentQuery::LineTraceSingleByChannel(
+        World, HeightHit, InOutState.Location + Up, InOutState.Location + Up * MaxProbe,
+        S.TraceChannel.GetValue(), Params);
+    const float Available = bHeightHit
+        ? FMath::Max(0.0f, FVector::DotProduct(HeightHit.Location - InOutState.Location, Up))
+        : MaxProbe;
+
+    auto FitsHullAtHeight = [&](float RequestedHeight)
+    {
+        FMetricLiveState HullState = InOutState;
+        HullState.Hull.Height = FMath::Max(1.0f, RequestedHeight);
+
+        FCollisionShape Shape;
+        FQuat Rotation = FQuat::Identity;
+        float IgnoredCenterHeight = 0.0f;
+        bool bApproximate = false;
+        MetricQueryAudit::BuildHullShape(HullState, Shape, Rotation, IgnoredCenterHeight, bApproximate);
+
+        const FVector HullLocalOffset = MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+        const float HullVerticalOffset = FVector::DotProduct(HullLocalOffset, Up);
+        const FVector HullPlanarOffset = HullLocalOffset - Up * HullVerticalOffset;
+        const float SupportHeight = MetricQueryAudit::ComputeHullSupportHeightAlongUp(
+            HullState, InOutState.SurfaceNormal.GetSafeNormal(SMALL_NUMBER, Up), HullPlanarOffset);
+        const FVector Center = InOutState.Location
+            + HullPlanarOffset
+            + Up * (HullVerticalOffset + SupportHeight + 1.0f);
+
+        FHitResult OccupancyHit;
+        return !MetricEnvironmentQuery::SweepSingleByChannel(
+            World, OccupancyHit, Center, Center + Forward,
+            Rotation, S.TraceChannel.GetValue(), Shape, Params);
+    };
+
+    FMetricAlternateStanceResult& R = InOutState.AlternateStance;
+    R.bVisible = true;
+    R.AvailableHeight = Available;
+    R.bStandingFits = Available + KINDA_SMALL_NUMBER >= InOutState.Hull.Height
+        && FitsHullAtHeight(InOutState.Hull.Height);
+    R.bAlternateFits = Available + KINDA_SMALL_NUMBER >= S.AlternateHeight
+        && FitsHullAtHeight(S.AlternateHeight);
 }
 
 void UMetricSubsystem::EvaluateMantleVault(UWorld* World, FMetricLiveState& InOutState) const
@@ -3581,38 +3991,135 @@ void UMetricSubsystem::EvaluateRecoverySpace(UWorld* World, FMetricLiveState& In
     FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricRecoverySpace), true);
     Params.bTraceComplex = true;
 
-    auto Sweep = [&](const FVector& Direction, float RequestedDistance, float& OutClearDistance)
+    const float GroundProbeDepth = FMath::Max(50.0f, InOutState.GroundValidationSettings.TraceDepth);
+    const float MaxWalkableSlope = FMath::Clamp(InOutState.GroundValidationSettings.MaxWalkableSlope, 0.0f, 89.0f);
+    const float MaxStepUp = FMath::Max(0.0f, InOutState.GroundValidationSettings.MaxStepUp);
+    const float MaxStepDown = FMath::Max(0.0f, InOutState.GroundValidationSettings.MaxStepDown);
+    const float SupportSpacing = FMath::Clamp(FMath::Max(25.0f, Width * 0.5f), 25.0f, 75.0f);
+
+    auto Sweep = [&](const FVector& Direction, float RequestedDistance, float& OutClearDistance, bool& bOutGroundSupported)
     {
         const float Distance = FMath::Max(0.0f, RequestedDistance);
         FHitResult Hit;
-        const bool bBlocked = MetricEnvironmentQuery::SweepSingleByChannel(World, 
-            Hit,
-            Start,
-            Start + Direction * Distance,
-            ShapeRotation,
-            S.TraceChannel.GetValue(),
-            Shape,
-            Params);
+        const bool bBlocked = MetricEnvironmentQuery::SweepSingleByChannel(World,
+            Hit, Start, Start + Direction * Distance, ShapeRotation,
+            S.TraceChannel.GetValue(), Shape, Params);
 
-        OutClearDistance = bBlocked ? FMath::Max(0.0f, Hit.Distance) : Distance;
+        const float ObstructionClearDistance = bBlocked ? FMath::Max(0.0f, Hit.Distance) : Distance;
+        OutClearDistance = ObstructionClearDistance;
+        bOutGroundSupported = true;
+
+        const int32 SegmentCount = FMath::Max(1, FMath::CeilToInt(ObstructionClearDistance / SupportSpacing));
+        bool bHavePrevious = false;
+        FVector PreviousPoint = FVector::ZeroVector;
+        FVector PreviousNormal = InOutState.SurfaceNormal.GetSafeNormal(SMALL_NUMBER, InOutState.AnalysisUp);
+
+        for (int32 SegmentIndex = 0; SegmentIndex <= SegmentCount; ++SegmentIndex)
+        {
+            const float SampleDistance = ObstructionClearDistance * (static_cast<float>(SegmentIndex) / static_cast<float>(SegmentCount));
+            const FVector Sample = InOutState.Location + Direction * SampleDistance;
+            FHitResult GroundHit;
+            const bool bGround = MetricEnvironmentQuery::LineTraceSingleByChannel(
+                World, GroundHit, Sample + InOutState.AnalysisUp * 80.0f,
+                Sample - InOutState.AnalysisUp * GroundProbeDepth,
+                S.TraceChannel.GetValue(), Params);
+
+            if (!bGround)
+            {
+                bOutGroundSupported = false;
+                OutClearDistance = FMath::Min(OutClearDistance, SampleDistance);
+                return false;
+            }
+
+            const FVector Normal = GroundHit.ImpactNormal.GetSafeNormal(SMALL_NUMBER, InOutState.AnalysisUp);
+            const float SlopeDegrees = FMath::RadiansToDegrees(FMath::Acos(
+                FMath::Clamp(FVector::DotProduct(Normal, InOutState.AnalysisUp), -1.0f, 1.0f)));
+            if (SlopeDegrees > MaxWalkableSlope + KINDA_SMALL_NUMBER)
+            {
+                bOutGroundSupported = false;
+                OutClearDistance = FMath::Min(OutClearDistance, SampleDistance);
+                return false;
+            }
+
+            if (bHavePrevious)
+            {
+                const float Discontinuity = MetricQueryAudit::ComputeSurfaceDiscontinuity(
+                    PreviousPoint, PreviousNormal, GroundHit.ImpactPoint, Normal, InOutState.AnalysisUp);
+                if (Discontinuity > MaxStepUp + KINDA_SMALL_NUMBER
+                    || -Discontinuity > MaxStepDown + KINDA_SMALL_NUMBER)
+                {
+                    bOutGroundSupported = false;
+                    OutClearDistance = FMath::Min(OutClearDistance, SampleDistance);
+                    return false;
+                }
+            }
+
+            PreviousPoint = GroundHit.ImpactPoint;
+            PreviousNormal = Normal;
+            bHavePrevious = true;
+        }
+
         return !bBlocked;
     };
 
     FMetricRecoverySpaceResult& R = InOutState.RecoverySpace;
     R.bVisible = true;
-    R.bForwardClear = Sweep(Forward, S.ForwardDistance, R.ForwardClear);
-    R.bBackwardClear = Sweep(-Forward, S.BackwardDistance, R.BackwardClear);
-    R.bLeftClear = Sweep(-Right, S.SideDistance, R.LeftClear);
-    R.bRightClear = Sweep(Right, S.SideDistance, R.RightClear);
+    R.bForwardClear = Sweep(Forward, S.ForwardDistance, R.ForwardClear, R.bForwardGroundSupported);
+    R.bBackwardClear = Sweep(-Forward, S.BackwardDistance, R.BackwardClear, R.bBackwardGroundSupported);
+    R.bLeftClear = Sweep(-Right, S.SideDistance, R.LeftClear, R.bLeftGroundSupported);
+    R.bRightClear = Sweep(Right, S.SideDistance, R.RightClear, R.bRightGroundSupported);
 }
 
 void UMetricSubsystem::EvaluateCrossfire(UWorld* World, FMetricLiveState& InOutState) const
 {
-    InOutState.Crossfire=FMetricCrossfireResult(); const auto& S=InOutState.CrossfireSettings;
-    if(!World||!InOutState.bHasHit||!S.bShowCrossfire||InOutState.EntryType==EMetricCycleEntryType::NativePreviewMesh)return;
-    const int32 Count=FMath::Clamp(S.DirectionCount,4,16); const FVector Target=InOutState.Location+InOutState.AnalysisUp*S.SampleHeight; FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCrossfire), true); auto& R=InOutState.Crossfire; R.bVisible=true; R.TotalDirections=Count; R.Rays.Reserve(Count);
-    for(int32 i=0;i<Count;++i){const float A=2.0f*PI*float(i)/float(Count); const FVector Dir(FMath::Cos(A),FMath::Sin(A),0); const FVector Threat=Target+Dir*FMath::Max(100.0f,S.ThreatDistance); FHitResult H; const bool bHit=MetricEnvironmentQuery::LineTraceSingleByChannel(World, H,Threat,Target,S.TraceChannel.GetValue(),Params); FMetricCrossfireRay& Ray=R.Rays.AddDefaulted_GetRef(); Ray.EndOffset=Threat-InOutState.Location; Ray.bExposed=!bHit || H.Distance+2.0f>=FVector::Distance(Threat,Target); if(Ray.bExposed)++R.ExposedDirections;}
-    R.ExposurePercent=100.0f*float(R.ExposedDirections)/float(FMath::Max(1,R.TotalDirections));
+    InOutState.Crossfire = FMetricCrossfireResult();
+    const FMetricCrossfireSettings& Settings = InOutState.CrossfireSettings;
+    if (!World || !InOutState.bHasHit || !Settings.bShowCrossfire || InOutState.EntryType == EMetricCycleEntryType::NativePreviewMesh)
+    {
+        return;
+    }
+
+    FVector Forward = FVector::VectorPlaneProject(InOutState.Forward, InOutState.AnalysisUp).GetSafeNormal();
+    if (Forward.IsNearlyZero())
+    {
+        Forward = InOutState.AnalysisForward;
+    }
+
+    FVector Right = FVector::CrossProduct(InOutState.AnalysisUp, Forward).GetSafeNormal();
+    if (Right.IsNearlyZero())
+    {
+        Right = InOutState.AnalysisRight;
+    }
+
+    const FVector Base = InOutState.Location + MetricFrame::LocalOffset(InOutState, InOutState.Hull.LocalOffset);
+    const int32 Count = FMath::Clamp(Settings.DirectionCount, 4, 16);
+    const FVector Target = Base + InOutState.AnalysisUp * Settings.SampleHeight;
+    const float ThreatDistance = FMath::Max(100.0f, Settings.ThreatDistance);
+    FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, SCENE_QUERY_STAT(MetricCrossfire), true);
+
+    FMetricCrossfireResult& Result = InOutState.Crossfire;
+    Result.bVisible = true;
+    Result.TotalDirections = Count;
+    Result.Rays.Reserve(Count);
+
+    for (int32 Index = 0; Index < Count; ++Index)
+    {
+        const float Angle = 2.0f * PI * static_cast<float>(Index) / static_cast<float>(Count);
+        const FVector Direction = (Forward * FMath::Cos(Angle) + Right * FMath::Sin(Angle)).GetSafeNormal();
+        const FVector Threat = Target + Direction * ThreatDistance;
+        FHitResult Hit;
+        const bool bHit = MetricEnvironmentQuery::LineTraceSingleByChannel(World, Hit, Threat, Target, Settings.TraceChannel.GetValue(), Params);
+
+        FMetricCrossfireRay& Ray = Result.Rays.AddDefaulted_GetRef();
+        Ray.EndOffset = Threat - InOutState.Location;
+        Ray.bExposed = !bHit || Hit.Distance + 2.0f >= FVector::Distance(Threat, Target);
+        if (Ray.bExposed)
+        {
+            ++Result.ExposedDirections;
+        }
+    }
+
+    Result.ExposurePercent = 100.0f * static_cast<float>(Result.ExposedDirections) / static_cast<float>(FMath::Max(1, Result.TotalDirections));
 }
 
 void UMetricSubsystem::EvaluateTurnClearance(UWorld* World, FMetricLiveState& InOutState) const
@@ -3802,7 +4309,7 @@ void UMetricSubsystem::BuildQueryEvidence(FMetricLiveState& InOutState) const
     {
         for (const FMetricFitSample& Sample : InOutState.FitAnalysis.Samples)
         {
-            const bool bFail = !Sample.bHasFloor || Sample.bWidthFail || Sample.bHeightFail;
+            const bool bFail = !Sample.bHasFloor || Sample.bHullBlocked || Sample.bWidthFail || Sample.bHeightFail;
             const bool bWarn = Sample.bNearThreshold && !bFail;
             const EMetricQueryEvidenceStatus Status = bFail ? EMetricQueryEvidenceStatus::Fail : (bWarn ? EMetricQueryEvidenceStatus::Warning : EMetricQueryEvidenceStatus::Pass);
             Add(EMetricInspectionTarget::FitAnalysis, EMetricQueryEvidenceKind::Sample, Status,
@@ -3811,6 +4318,12 @@ void UMetricSubsystem::BuildQueryEvidence(FMetricLiveState& InOutState) const
             Add(EMetricInspectionTarget::FitAnalysis, EMetricQueryEvidenceKind::Threshold, Status,
                 Sample.BaseOffset, Sample.CeilingOffset,
                 FString::Printf(TEXT("Height %.0f / %.0f cm"), Sample.AvailableHeight, InOutState.FitAnalysis.RequiredHeight));
+            if (Sample.bHullBlocked)
+            {
+                Add(EMetricInspectionTarget::FitAnalysis, EMetricQueryEvidenceKind::Sweep, EMetricQueryEvidenceStatus::Fail,
+                    Sample.BaseOffset, Sample.HullImpactOffset, TEXT("Configured hull intersects geometry"),
+                    true, Sample.HullImpactOffset, FVector::ZeroVector);
+            }
         }
     }
 
@@ -3818,7 +4331,7 @@ void UMetricSubsystem::BuildQueryEvidence(FMetricLiveState& InOutState) const
     {
         for (const FMetricThresholdSample& Sample : InOutState.ThresholdAnalysis.Samples)
         {
-            const bool bFail = !Sample.bHasFloor || Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail;
+            const bool bFail = !Sample.bHasFloor || Sample.bHullBlocked || Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail;
             const bool bWarn = Sample.bNearThreshold && !bFail;
             const EMetricQueryEvidenceStatus Status = bFail ? EMetricQueryEvidenceStatus::Fail : (bWarn ? EMetricQueryEvidenceStatus::Warning : EMetricQueryEvidenceStatus::Pass);
             Add(EMetricInspectionTarget::ThresholdAnalysis, EMetricQueryEvidenceKind::Sample, Status,
@@ -3827,6 +4340,12 @@ void UMetricSubsystem::BuildQueryEvidence(FMetricLiveState& InOutState) const
             Add(EMetricInspectionTarget::ThresholdAnalysis, EMetricQueryEvidenceKind::Threshold, Status,
                 Sample.BaseOffset, Sample.CeilingOffset,
                 FString::Printf(TEXT("Threshold height %.0f cm"), Sample.AvailableHeight));
+            if (Sample.bHullBlocked)
+            {
+                Add(EMetricInspectionTarget::ThresholdAnalysis, EMetricQueryEvidenceKind::Sweep, EMetricQueryEvidenceStatus::Fail,
+                    Sample.BaseOffset, Sample.HullImpactOffset, TEXT("Configured hull intersects threshold geometry"),
+                    true, Sample.HullImpactOffset, FVector::ZeroVector);
+            }
         }
     }
 
@@ -3881,20 +4400,23 @@ void UMetricSubsystem::BuildQueryEvidence(FMetricLiveState& InOutState) const
 
     if (InOutState.RecoverySpace.bVisible)
     {
-        struct FRecoveryEntry { FVector Dir; float Required; float Clear; bool bClear; const TCHAR* Label; };
+        struct FRecoveryEntry { FVector Dir; float Required; float Clear; bool bClear; bool bGroundSupported; const TCHAR* Label; };
         const FRecoveryEntry Entries[] = {
-            { InOutState.AnalysisForward, InOutState.RecoverySpaceSettings.ForwardDistance, InOutState.RecoverySpace.ForwardClear, InOutState.RecoverySpace.bForwardClear, TEXT("Forward") },
-            { -InOutState.AnalysisForward, InOutState.RecoverySpaceSettings.BackwardDistance, InOutState.RecoverySpace.BackwardClear, InOutState.RecoverySpace.bBackwardClear, TEXT("Backward") },
-            { -InOutState.AnalysisRight, InOutState.RecoverySpaceSettings.SideDistance, InOutState.RecoverySpace.LeftClear, InOutState.RecoverySpace.bLeftClear, TEXT("Left") },
-            { InOutState.AnalysisRight, InOutState.RecoverySpaceSettings.SideDistance, InOutState.RecoverySpace.RightClear, InOutState.RecoverySpace.bRightClear, TEXT("Right") }
+            { InOutState.AnalysisForward, InOutState.RecoverySpaceSettings.ForwardDistance, InOutState.RecoverySpace.ForwardClear, InOutState.RecoverySpace.bForwardClear, InOutState.RecoverySpace.bForwardGroundSupported, TEXT("Forward") },
+            { -InOutState.AnalysisForward, InOutState.RecoverySpaceSettings.BackwardDistance, InOutState.RecoverySpace.BackwardClear, InOutState.RecoverySpace.bBackwardClear, InOutState.RecoverySpace.bBackwardGroundSupported, TEXT("Backward") },
+            { -InOutState.AnalysisRight, InOutState.RecoverySpaceSettings.SideDistance, InOutState.RecoverySpace.LeftClear, InOutState.RecoverySpace.bLeftClear, InOutState.RecoverySpace.bLeftGroundSupported, TEXT("Left") },
+            { InOutState.AnalysisRight, InOutState.RecoverySpaceSettings.SideDistance, InOutState.RecoverySpace.RightClear, InOutState.RecoverySpace.bRightClear, InOutState.RecoverySpace.bRightGroundSupported, TEXT("Right") }
         };
         for (const FRecoveryEntry& Entry : Entries)
         {
+            const FString Label = Entry.bGroundSupported
+                ? FString::Printf(TEXT("%s %.0f / %.0f cm"), Entry.Label, Entry.Clear, Entry.Required)
+                : FString::Printf(TEXT("%s unsupported after %.0f / %.0f cm"), Entry.Label, Entry.Clear, Entry.Required);
             Add(EMetricInspectionTarget::RecoverySpace, EMetricQueryEvidenceKind::Sweep,
                 Entry.bClear ? EMetricQueryEvidenceStatus::Pass : EMetricQueryEvidenceStatus::Fail,
                 FVector::ZeroVector, Entry.Dir * Entry.Required,
-                FString::Printf(TEXT("%s %.0f / %.0f cm"), Entry.Label, Entry.Clear, Entry.Required),
-                !Entry.bClear, Entry.Dir * Entry.Clear, -Entry.Dir);
+                Label,
+                !Entry.bClear && Entry.bGroundSupported, Entry.Dir * Entry.Clear, -Entry.Dir);
         }
     }
 

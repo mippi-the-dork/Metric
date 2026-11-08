@@ -4,7 +4,7 @@
 #include "MetricEnvironmentQuery.h"
 #include "MetricStyle.h"
 #include "MetricSubsystem.h"
-#include "MetricPreset.h"
+#include "MetricProfile.h"
 #include "MetricProfileEditorToolkit.h"
 #include "MetricTypes.h"
 #include "MetricViewPreset.h"
@@ -206,31 +206,31 @@ namespace MetricOverlay
     {
         switch (static_cast<ELayer>(LayerIndex))
         {
-        case ELayer::Hull: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull);
-        case ELayer::Clearance: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance);
-        case ELayer::Overhead: return GET_MEMBER_NAME_CHECKED(UMetricPreset, OverheadClearance);
-        case ELayer::Ground: return GET_MEMBER_NAME_CHECKED(UMetricPreset, GroundValidation);
-        case ELayer::Fit: return GET_MEMBER_NAME_CHECKED(UMetricPreset, FitAnalysis);
-        case ELayer::Threshold: return GET_MEMBER_NAME_CHECKED(UMetricPreset, ThresholdAnalysis);
-        case ELayer::Turn: return GET_MEMBER_NAME_CHECKED(UMetricPreset, TurnClearance);
-        case ELayer::Ledge: return GET_MEMBER_NAME_CHECKED(UMetricPreset, LedgeAnalysis);
-        case ELayer::Stopping: return GET_MEMBER_NAME_CHECKED(UMetricPreset, StoppingDistance);
-        case ELayer::Sensors: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors);
-        case ELayer::SensorField: return GET_MEMBER_NAME_CHECKED(UMetricPreset, SensorField);
-        case ELayer::Ranges: return GET_MEMBER_NAME_CHECKED(UMetricPreset, EngagementRanges);
-        case ELayer::Locomotion: return GET_MEMBER_NAME_CHECKED(UMetricPreset, LocomotionBands);
-        case ELayer::Trajectory: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Trajectory);
-        case ELayer::Camera: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraProbe);
-        case ELayer::Cover: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CoverExposure);
-        case ELayer::JumpRunway: return GET_MEMBER_NAME_CHECKED(UMetricPreset, JumpRunway);
-        case ELayer::Interaction: return GET_MEMBER_NAME_CHECKED(UMetricPreset, InteractionReach);
-        case ELayer::Shoulder: return GET_MEMBER_NAME_CHECKED(UMetricPreset, ShoulderClearance);
-        case ELayer::CombatDensity: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CombatDensity);
-        case ELayer::AlternateStance: return GET_MEMBER_NAME_CHECKED(UMetricPreset, AlternateStance);
-        case ELayer::Mantle: return GET_MEMBER_NAME_CHECKED(UMetricPreset, MantleVault);
-        case ELayer::Recovery: return GET_MEMBER_NAME_CHECKED(UMetricPreset, RecoverySpace);
-        case ELayer::Crossfire: return GET_MEMBER_NAME_CHECKED(UMetricPreset, Crossfire);
-        case ELayer::Sightline: return GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraSightline);
+        case ELayer::Hull: return GET_MEMBER_NAME_CHECKED(UMetricProfile, Hull);
+        case ELayer::Clearance: return GET_MEMBER_NAME_CHECKED(UMetricProfile, Clearance);
+        case ELayer::Overhead: return GET_MEMBER_NAME_CHECKED(UMetricProfile, OverheadClearance);
+        case ELayer::Ground: return GET_MEMBER_NAME_CHECKED(UMetricProfile, GroundValidation);
+        case ELayer::Fit: return GET_MEMBER_NAME_CHECKED(UMetricProfile, FitAnalysis);
+        case ELayer::Threshold: return GET_MEMBER_NAME_CHECKED(UMetricProfile, ThresholdAnalysis);
+        case ELayer::Turn: return GET_MEMBER_NAME_CHECKED(UMetricProfile, TurnClearance);
+        case ELayer::Ledge: return GET_MEMBER_NAME_CHECKED(UMetricProfile, LedgeAnalysis);
+        case ELayer::Stopping: return GET_MEMBER_NAME_CHECKED(UMetricProfile, StoppingDistance);
+        case ELayer::Sensors: return GET_MEMBER_NAME_CHECKED(UMetricProfile, Sensors);
+        case ELayer::SensorField: return GET_MEMBER_NAME_CHECKED(UMetricProfile, SensorField);
+        case ELayer::Ranges: return GET_MEMBER_NAME_CHECKED(UMetricProfile, EngagementRanges);
+        case ELayer::Locomotion: return GET_MEMBER_NAME_CHECKED(UMetricProfile, LocomotionBands);
+        case ELayer::Trajectory: return GET_MEMBER_NAME_CHECKED(UMetricProfile, Trajectory);
+        case ELayer::Camera: return GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraProbe);
+        case ELayer::Cover: return GET_MEMBER_NAME_CHECKED(UMetricProfile, CoverExposure);
+        case ELayer::JumpRunway: return GET_MEMBER_NAME_CHECKED(UMetricProfile, JumpRunway);
+        case ELayer::Interaction: return GET_MEMBER_NAME_CHECKED(UMetricProfile, InteractionReach);
+        case ELayer::Shoulder: return GET_MEMBER_NAME_CHECKED(UMetricProfile, ShoulderClearance);
+        case ELayer::CombatDensity: return GET_MEMBER_NAME_CHECKED(UMetricProfile, CombatDensity);
+        case ELayer::AlternateStance: return GET_MEMBER_NAME_CHECKED(UMetricProfile, AlternateStance);
+        case ELayer::Mantle: return GET_MEMBER_NAME_CHECKED(UMetricProfile, MantleVault);
+        case ELayer::Recovery: return GET_MEMBER_NAME_CHECKED(UMetricProfile, RecoverySpace);
+        case ELayer::Crossfire: return GET_MEMBER_NAME_CHECKED(UMetricProfile, Crossfire);
+        case ELayer::Sightline: return GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraSightline);
         default: return NAME_None;
         }
     }
@@ -241,7 +241,7 @@ namespace MetricOverlay
         {
             if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
             {
-                return Entry->IsMetricEntry() && !Entry->Preset.IsNull();
+                return Entry->IsMetricEntry() && !Entry->Profile.IsNull();
             }
         }
         return false;
@@ -261,7 +261,7 @@ namespace MetricOverlay
             return FReply::Handled();
         }
 
-        if (UMetricPreset* Preset = Entry->Preset.LoadSynchronous())
+        if (UMetricProfile* Preset = Entry->Profile.LoadSynchronous())
         {
             const FName PropertyName = GetProfilePropertyForLayer(LayerIndex);
             if (!PropertyName.IsNone())
@@ -1259,7 +1259,7 @@ void SMetricViewportOverlay::Rebuild()
     }
 
     const FSlateBrush* MetricIcon = FMetricStyle::GetBrush(TEXT("Metric.HUDIcon"));
-    if (!MetricIcon) MetricIcon = FMetricStyle::GetBrush(TEXT("ClassIcon.MetricPreset"));
+    if (!MetricIcon) MetricIcon = FMetricStyle::GetBrush(TEXT("ClassIcon.MetricProfile"));
     if (!MetricIcon) MetricIcon = FAppStyle::GetBrush(TEXT("Icons.Info"));
 
     if (bLastHUDMinimized)
@@ -1574,7 +1574,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
             {
                 if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
                 {
-                    if (Entry->Type == EMetricCycleEntryType::MetricPreset && !Entry->Preset.IsNull())
+                    if (Entry->Type == EMetricCycleEntryType::MetricProfile && !Entry->Profile.IsNull())
                     {
                         return LOCTEXT("EditActiveProfileTip", "Open the active Metric Profile in the Metric Profile Editor.");
                     }
@@ -1588,7 +1588,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
             {
                 if (const FMetricCycleEntry* Entry = Subsystem->GetActiveEntry())
                 {
-                    return Entry->Type == EMetricCycleEntryType::MetricPreset && !Entry->Preset.IsNull();
+                    return Entry->Type == EMetricCycleEntryType::MetricProfile && !Entry->Profile.IsNull();
                 }
             }
             return false;
@@ -1888,11 +1888,11 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
     ];
     Box->AddSlot().AutoHeight().Padding(8,0,8,2)
     [
-        SNew(STextBlock).Text(LOCTEXT("ViewHeader", "VIEW")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        SNew(STextBlock).Text(LOCTEXT("ViewHeader", "VIEW PRESETS")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())
     ];
     Box->AddSlot().AutoHeight().Padding(8,2,8,2)
     [
-        SNew(STextBlock).Text(LOCTEXT("ViewPresetHeader", "Presets")).Font(FAppStyle::GetFontStyle("SmallFont"))
+        SNew(STextBlock).Text(LOCTEXT("ViewPresetHeader", "Built-In")).Font(FAppStyle::GetFontStyle("SmallFont"))
     ];
     Box->AddSlot().AutoHeight().Padding(6,0,6,2)
     [
@@ -1910,12 +1910,31 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
         + SHorizontalBox::Slot().AutoWidth().Padding(1,0)[SNew(SButton).Text(LOCTEXT("ViewCoreFit", "Core Fit")).ToolTipText(LOCTEXT("ViewCoreFitTip", "Show the smallest core set for quickly checking hull fit, clearance, and ground validity.")).OnClicked_Lambda([this,bForBenchmark](){ return ApplyBuiltInViewPreset(6,bForBenchmark); })]
     ];
 
+    Box->AddSlot().AutoHeight().Padding(8,2,8,2)
+    [
+        SNew(STextBlock).Text(LOCTEXT("ProjectViewPresetHeader", "Project View Presets")).Font(FAppStyle::GetFontStyle("SmallFont"))
+    ];
+
     {
         FARFilter Filter;
         Filter.ClassPaths.Add(UMetricViewPreset::StaticClass()->GetClassPathName());
         Filter.bRecursiveClasses = true;
         TArray<FAssetData> Assets;
         FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get().GetAssets(Filter, Assets);
+        Assets.Sort([](const FAssetData& A, const FAssetData& B)
+        {
+            return A.AssetName.ToString() < B.AssetName.ToString();
+        });
+        if (Assets.IsEmpty())
+        {
+            Box->AddSlot().AutoHeight().Padding(8,1,8,3)
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("NoProjectViewPresets", "No project View Presets found"))
+                .Font(FAppStyle::GetFontStyle("SmallFont"))
+                .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+            ];
+        }
         for (const FAssetData& Asset : Assets)
         {
             const FSoftObjectPath AssetPath = Asset.GetSoftObjectPath();
@@ -1929,13 +1948,19 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
             }
             Box->AddSlot().AutoHeight().Padding(8,1)
             [
-                SNew(SButton).HAlign(HAlign_Left).Text(Label).ToolTipText(FText::FromString(AssetPath.ToString()))
+                SNew(SButton).HAlign(HAlign_Left).Text(Label).ToolTipText(FText::Format(
+                    LOCTEXT("ProjectViewPresetTip", "Apply this project Metric View Preset. View Presets change presentation only and never modify Metric Profile measurements.\n{0}"),
+                    FText::FromString(AssetPath.ToString())))
                 .OnClicked_Lambda([this,bForBenchmark,AssetPath](){ return ApplyViewPresetAsset(AssetPath,bForBenchmark); })
             ];
         }
     }
 
     Box->AddSlot().AutoHeight().Padding(8,3,8,2)[SNew(SSeparator)];
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(STextBlock).Text(LOCTEXT("QuickVisibilityHeader", "QUICK VISIBILITY")).Font(FAppStyle::GetFontStyle("SmallFont")).ColorAndOpacity(FSlateColor::UseSubduedForeground())
+    ];
     Box->AddSlot().AutoHeight().Padding(6,0,6,5)
     [
         SNew(SHorizontalBox)
@@ -2097,7 +2122,7 @@ FReply SMetricViewportOverlay::OpenActiveMetricProfile()
         return FReply::Handled();
     }
 
-    if (UMetricPreset* Preset = Entry->Preset.LoadSynchronous())
+    if (UMetricProfile* Preset = Entry->Profile.LoadSynchronous())
     {
         if (UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
         {
@@ -2213,7 +2238,7 @@ FText SMetricViewportOverlay::BuildPinnedResultsText() const
     const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Subsystem->GetSelectedPinnedBenchmarkIndex());
     if (!Pin) return FText::GetEmpty();
     if (const FMetricLiveState* PinnedState = Subsystem->GetSelectedPinnedEvaluatedState()) return FText::FromString(MetricOverlay::ResultSummary(*PinnedState, Pin->Visibility));
-    if (Pin->CapturedResults.IsEmpty()) return LOCTEXT("LegacyPinNoResults", "Legacy benchmark: no captured analysis data. Use Replace to capture the current Metric results into this pin.");
+    if (Pin->CapturedResults.IsEmpty()) return LOCTEXT("BenchmarkNoResults", "This benchmark has no captured analysis data. Use Replace to capture the current Metric results into this pin.");
     return FText::FromString(MetricOverlay::FilterCapturedResults(Pin->CapturedResults, Pin->Visibility));
 }
 
@@ -2232,7 +2257,7 @@ FText SMetricViewportOverlay::BuildComparisonText() const
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
     if (Settings && !Settings->bShowLiveVisualizer)
     {
-        return LOCTEXT("LiveComparisonDisabled", "Live Metric disabled");
+        return LOCTEXT("LiveComparisonDisabled", "Live Analysis is off");
     }
     UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
     if (!Subsystem || !Subsystem->GetPinnedBenchmark(Subsystem->GetSelectedPinnedBenchmarkIndex())) return FText::GetEmpty();

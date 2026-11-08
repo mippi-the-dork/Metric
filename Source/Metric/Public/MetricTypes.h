@@ -5,7 +5,7 @@
 #include "UObject/SoftObjectPtr.h"
 #include "MetricTypes.generated.h"
 
-class UMetricPreset;
+class UMetricProfile;
 class UStaticMesh;
 
 UENUM(BlueprintType)
@@ -21,7 +21,7 @@ UENUM()
 enum class EMetricCycleEntryType : uint8
 {
     BuiltInMetric,
-    MetricPreset,
+    MetricProfile,
     NativePreviewMesh
 };
 
@@ -30,19 +30,19 @@ struct FMetricHullSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Hull")
+    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ToolTip = "Shape used for hull visualization and occupancy/sweep analyses. Cylinder uses a capsule approximation where Unreal query shapes do not provide an exact cylinder."))
     EMetricHullType HullType = EMetricHullType::Capsule;
 
-    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ClampMin = "1.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ClampMin = "1.0", Units = "cm", ToolTip = "Total reference height of the gameplay entity."))
     float Height = 180.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ClampMin = "1.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ClampMin = "1.0", Units = "cm", ToolTip = "Reference side-to-side width of the gameplay entity."))
     float Width = 88.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ClampMin = "1.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Hull", meta = (ClampMin = "1.0", Units = "cm", ToolTip = "Reference front-to-back length of the gameplay entity. Capsule and sphere queries primarily use Width and Height."))
     float Length = 88.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Hull", meta = (Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Hull", meta = (Units = "cm", ToolTip = "Local offset from the Metric placement point to the center of the gameplay hull. Entity-relative analyses use this same offset."))
     FVector LocalOffset = FVector::ZeroVector;
 };
 
@@ -52,16 +52,16 @@ struct FMetricClearanceSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Clearance")
+    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (ToolTip = "Enable forward hull-clearance analysis for this profile."))
     bool bShowClearanceProbe = true;
 
-    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (EditCondition = "bShowClearanceProbe", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (EditCondition = "bShowClearanceProbe", ClampMin = "10.0", Units = "cm", ToolTip = "Distance forward from the hull to test for unobstructed usable space."))
     float ProbeDistance = 300.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (EditCondition = "bShowClearanceProbe", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (EditCondition = "bShowClearanceProbe", ClampMin = "0.0", Units = "cm", ToolTip = "Remaining clearance at or below this distance is reported as Tight instead of Pass."))
     float WarningMargin = 25.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (EditCondition = "bShowClearanceProbe"))
+    UPROPERTY(EditAnywhere, Category = "Clearance", meta = (EditCondition = "bShowClearanceProbe", ToolTip = "Collision channel used by Clearance queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -87,16 +87,16 @@ struct FMetricSensorSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Sensors")
+    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (ToolTip = "Show authored sensor-height reference markers for this profile. These are reference points, not collision queries."))
     bool bShowSensorHeights = true;
 
-    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (EditCondition = "bShowSensorHeights", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (EditCondition = "bShowSensorHeights", ClampMin = "0.0", Units = "cm", ToolTip = "Primary sensor or eye reference height above the profile origin along Analysis Up."))
     float PrimarySensorZOffset = 160.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (EditCondition = "bShowSensorHeights", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (EditCondition = "bShowSensorHeights", ClampMin = "0.0", Units = "cm", ToolTip = "Secondary low-profile sensor or eye reference height above the profile origin along Analysis Up."))
     float LowProfileSensorZOffset = 100.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (EditCondition = "bShowSensorHeights", ClampMin = "5.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Sensors", meta = (EditCondition = "bShowSensorHeights", ClampMin = "5.0", Units = "cm", ToolTip = "World-space radius used to draw the sensor-height reference markers."))
     float MarkerRadius = 24.0f;
 };
 
@@ -105,22 +105,22 @@ struct FMetricSensorFieldSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Sensor Field")
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (ToolTip = "Enable sampled field-of-view analysis from the primary sensor origin."))
     bool bShowSensorField = false;
 
-    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance queried by each Sensor Field ray."))
     float Range = 1800.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "1.0", ClampMax = "89.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "1.0", ClampMax = "89.0", Units = "deg", ToolTip = "Half-angle to the left and right of Analysis Forward. The full horizontal field is twice this value."))
     float HorizontalHalfAngle = 45.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "1.0", ClampMax = "89.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "1.0", ClampMax = "89.0", Units = "deg", ToolTip = "Vertical half-angle of the queried sensor field. Metric traces the lower boundary, center plane, and upper boundary across the horizontal fan."))
     float VerticalHalfAngle = 30.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "3", ClampMax = "31"))
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ClampMin = "3", ClampMax = "31", ToolTip = "Number of horizontal directions sampled across the field. Each direction is queried at the lower, center, and upper vertical bands."))
     int32 HorizontalRayCount = 9;
 
-    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField"))
+    UPROPERTY(EditAnywhere, Category = "Sensor Field", meta = (EditCondition = "bShowSensorField", ToolTip = "Collision channel used by Sensor Field rays when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -147,16 +147,16 @@ struct FMetricRangeSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Engagement Ranges")
+    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (ToolTip = "Show authored short, medium, and long gameplay range references. These are visual references and do not query geometry."))
     bool bShowEngagementRanges = false;
 
-    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (EditCondition = "bShowEngagementRanges", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (EditCondition = "bShowEngagementRanges", ClampMin = "0.0", Units = "cm", ToolTip = "Radius of the authored short-range gameplay reference."))
     float ShortRange = 500.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (EditCondition = "bShowEngagementRanges", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (EditCondition = "bShowEngagementRanges", ClampMin = "0.0", Units = "cm", ToolTip = "Radius of the authored medium-range gameplay reference."))
     float MediumRange = 1500.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (EditCondition = "bShowEngagementRanges", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Engagement Ranges", meta = (EditCondition = "bShowEngagementRanges", ClampMin = "0.0", Units = "cm", ToolTip = "Radius of the authored long-range gameplay reference."))
     float LongRange = 3000.0f;
 };
 
@@ -165,19 +165,19 @@ struct FMetricLocomotionSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Locomotion Bands")
+    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (ToolTip = "Show movement-distance references derived from Speed multiplied by the Near, Mid, and Far times."))
     bool bShowLocomotionBands = false;
 
-    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "1.0", Units = "cm/s"))
+    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "1.0", Units = "cm/s", ToolTip = "Reference movement speed used to convert the authored time bands into world distances."))
     float Speed = 600.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "0.1", Units = "s"))
+    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "0.1", Units = "s", ToolTip = "Time horizon used for the near locomotion distance band."))
     float NearTime = 1.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "0.1", Units = "s"))
+    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "0.1", Units = "s", ToolTip = "Time horizon used for the middle locomotion distance band."))
     float MidTime = 3.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "0.1", Units = "s"))
+    UPROPERTY(EditAnywhere, Category = "Locomotion Bands", meta = (EditCondition = "bShowLocomotionBands", ClampMin = "0.1", Units = "s", ToolTip = "Time horizon used for the far locomotion distance band."))
     float FarTime = 5.0f;
 };
 
@@ -195,55 +195,55 @@ struct FMetricTrajectorySettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory")
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (ToolTip = "Enable ballistic trajectory analysis for this profile."))
     bool bShowTrajectory = false;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "1.0", Units = "cm/s"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "1.0", Units = "cm/s", ToolTip = "Primary horizontal launch speed along Analysis Forward."))
     float HorizontalSpeed = 600.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "1.0", Units = "cm/s"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "1.0", Units = "cm/s", ToolTip = "Initial launch speed along Analysis Up."))
     float LaunchVerticalSpeed = 550.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.05", ClampMax = "5.0"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.05", ClampMax = "5.0", ToolTip = "Multiplier applied to the editor world gravity magnitude along negative Analysis Up."))
     float GravityScale = 1.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.25", ClampMax = "10.0", Units = "s"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.25", ClampMax = "10.0", Units = "s", ToolTip = "Maximum simulated flight time before the trajectory stops if no valid landing is found."))
     float MaxSimulationTime = 2.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.01", ClampMax = "0.2", Units = "s"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.01", ClampMax = "0.2", Units = "s", ToolTip = "Time step between trajectory samples. Smaller values increase query density and cost."))
     float SampleInterval = 0.05f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", ClampMax = "89.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", ClampMax = "89.0", Units = "deg", ToolTip = "Maximum surface slope, relative to Analysis Up, accepted as a valid landing."))
     float MaxLandingSlope = 45.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory"))
-    bool bShowTrajectoryEnvelope = true;
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (DisplayName = "Show Trajectory Guide Rails", EditCondition = "bShowTrajectory", ToolTip = "Draw guide rails around the primary trajectory path to show the swept hull volume. This is separate from Jump Envelope, which evaluates multiple launch speeds."))
+    bool bShowTrajectoryGuideRails = true;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory && bShowTrajectoryEnvelope", ClampMin = "1", ClampMax = "12"))
-    int32 EnvelopeSampleStride = 3;
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (DisplayName = "Guide Rail Sample Stride", EditCondition = "bShowTrajectory && bShowTrajectoryGuideRails", ClampMin = "1", ClampMax = "12", ToolTip = "Draw guide-rail cross sections every N trajectory samples. Higher values reduce visual density without changing trajectory evaluation."))
+    int32 GuideRailSampleStride = 3;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum headroom distance checked above the hull at the primary trajectory apex."))
     float ApexProbeDistance = 200.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm", ToolTip = "Apex headroom at or below this margin is reported as Tight."))
     float ApexWarningMargin = 50.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory", meta = (EditCondition = "bShowTrajectory", ToolTip = "Collision channel used by trajectory, landing, and apex-clearance queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory", ToolTip = "Choose a single primary arc, a family of sampled launch speeds, or an animated sweep through that family."))
     EMetricTrajectoryDisplayMode DisplayMode = EMetricTrajectoryDisplayMode::SingleArc;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode != EMetricTrajectoryDisplayMode::SingleArc", ClampMin = "2", ClampMax = "12"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode != EMetricTrajectoryDisplayMode::SingleArc", ClampMin = "2", ClampMax = "12", ToolTip = "Number of horizontal-speed variants sampled for Jump Envelope modes, including the primary full-speed arc."))
     int32 JumpEnvelopeArcCount = 7;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode != EMetricTrajectoryDisplayMode::SingleArc", ClampMin = "0.0", ClampMax = "1.0"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode != EMetricTrajectoryDisplayMode::SingleArc", ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Slowest horizontal-speed fraction included in the Jump Envelope. 1.0 is the primary Horizontal Speed."))
     float MinimumHorizontalSpeedFraction = 0.05f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum downward travel from takeoff allowed before an arc stops searching for a landing. Set to 0 for no drop limit."))
     float MaximumDropDistance = 1000.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode == EMetricTrajectoryDisplayMode::AnimatedEnvelope", ClampMin = "0.05", ClampMax = "2.0", Units = "Hz"))
+    UPROPERTY(EditAnywhere, Category = "Trajectory | Jump Envelope", meta = (EditCondition = "bShowTrajectory && DisplayMode == EMetricTrajectoryDisplayMode::AnimatedEnvelope", ClampMin = "0.05", ClampMax = "2.0", Units = "Hz", ToolTip = "Rate used to cycle the highlighted arc in Animated Envelope mode. This affects presentation only."))
     float EnvelopeAnimationRate = 0.25f;
 };
 
@@ -293,28 +293,28 @@ struct FMetricCameraProbeSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe")
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (ToolTip = "Enable third-person camera-boom clearance analysis."))
     bool bShowCameraProbe = false;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "0.0", Units = "cm", ToolTip = "Camera pivot height above the profile origin along Analysis Up."))
     float PivotZOffset = 160.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "10.0", Units = "cm", ToolTip = "Desired camera-boom distance behind the profile."))
     float TargetDistance = 350.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", Units = "cm", ToolTip = "Additional camera endpoint offset along Analysis Up."))
     float VerticalOffset = 60.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", Units = "cm", ToolTip = "Camera endpoint offset along Analysis Right. Positive and negative values choose opposite shoulders."))
     float ShoulderOffset = 0.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "1.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "1.0", Units = "cm", ToolTip = "Radius of the camera sweep used to detect compression against geometry."))
     float ProbeRadius = 12.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ClampMin = "0.0", Units = "cm", ToolTip = "Camera distance at or below this value is considered too close after compression."))
     float MinDistance = 60.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe"))
+    UPROPERTY(EditAnywhere, Category = "Camera Probe", meta = (EditCondition = "bShowCameraProbe", ToolTip = "Collision channel used by Camera Probe sweeps when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -339,19 +339,19 @@ struct FMetricCameraSightlineSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Camera Sightline")
+    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (ToolTip = "Enable camera-to-subject visibility and framing analysis."))
     bool bShowCameraSightline = false;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ClampMin = "0.0", Units = "cm", ToolTip = "Subject point height above the profile origin along Analysis Up."))
     float SubjectZOffset = 140.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ClampMin = "1.0", ClampMax = "80.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ClampMin = "1.0", ClampMax = "80.0", Units = "deg", ToolTip = "Maximum allowed angular deviation between the camera view direction and subject direction before framing fails."))
     float FramingHalfAngle = 25.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ClampMin = "0.0", Units = "cm", ToolTip = "Radius of the sightline sweep. Use 0 for a line-like query or a larger value for a thicker visibility corridor."))
     float TraceRadius = 4.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline"))
+    UPROPERTY(EditAnywhere, Category = "Camera Sightline", meta = (EditCondition = "bShowCameraSightline", ToolTip = "Collision channel used by Camera Sightline queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -373,16 +373,16 @@ struct FMetricOverheadClearanceSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Overhead Clearance")
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (ToolTip = "Enable vertical headroom analysis above the active hull."))
     bool bShowOverheadClearance = false;
 
-    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ClampMin = "50.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ClampMin = "50.0", Units = "cm", ToolTip = "Maximum distance above the hull top searched for overhead geometry."))
     float MaxProbeHeight = 350.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ClampMin = "0.0", Units = "cm", ToolTip = "Extra headroom at or below this amount is reported as Tight."))
     float WarningMargin = 30.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance"))
+    UPROPERTY(EditAnywhere, Category = "Overhead Clearance", meta = (EditCondition = "bShowOverheadClearance", ToolTip = "Collision channel used by Overhead Clearance queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -403,34 +403,34 @@ struct FMetricGroundValidationSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation")
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (ToolTip = "Enable sampled floor continuity, slope, and discrete-step validation ahead of the profile."))
     bool bShowGroundValidation = false;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "50.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "50.0", Units = "cm", ToolTip = "Distance ahead of the profile covered by Ground Validation samples."))
     float ForwardDistance = 300.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "10.0", Units = "cm", ToolTip = "Distance between successive forward ground sample stations."))
     float SampleSpacing = 50.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", Units = "cm", ToolTip = "Total side-to-side ground coverage sampled around the forward path."))
     float LateralCoverage = 88.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", ClampMax = "89.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", ClampMax = "89.0", Units = "deg", ToolTip = "Maximum continuous floor slope accepted as walkable, measured relative to Analysis Up."))
     float MaxWalkableSlope = 45.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum discrete upward surface discontinuity accepted between neighboring samples. Continuous ramps are evaluated by Max Walkable Slope instead."))
     float MaxStepUp = 45.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum discrete downward surface discontinuity accepted between neighboring samples. Larger drops can also become ledges for Ledge Analysis."))
     float MaxStepDown = 60.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "10.0", Units = "cm", ToolTip = "Distance above each sample point from which the floor trace begins."))
     float TraceHeight = 120.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ClampMin = "10.0", Units = "cm", ToolTip = "Distance below the trace start searched for supporting floor."))
     float TraceDepth = 200.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation"))
+    UPROPERTY(EditAnywhere, Category = "Ground Validation", meta = (EditCondition = "bShowGroundValidation", ToolTip = "Collision channel used by Ground Validation floor queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -465,31 +465,31 @@ struct FMetricFitAnalysisSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis")
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (ToolTip = "Enable sampled corridor-fit analysis using the configured hull plus width and headroom measurements."))
     bool bShowFitAnalysis = false;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "0.0", Units = "cm", ToolTip = "Length of corridor sampled ahead of the profile."))
     float ForwardDistance = 300.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Distance between corridor sample stations."))
     float SampleSpacing = 50.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance searched to each side when measuring available corridor width."))
     float MaxSideProbeDistance = 250.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance above the sampled floor searched when measuring available height."))
     float MaxCeilingProbeHeight = 300.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "0.0", Units = "cm", ToolTip = "Width or height remaining within this margin of the required hull size is reported as Tight."))
     float WarningMargin = 10.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Distance above each corridor station from which the supporting-floor trace begins."))
     float FloorTraceHeight = 120.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Distance below the floor-trace start searched for supporting floor."))
     float FloorTraceDepth = 200.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis"))
+    UPROPERTY(EditAnywhere, Category = "Fit Analysis", meta = (EditCondition = "bShowFitAnalysis", ToolTip = "Collision channel used by Fit Analysis occupancy and measurement queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -505,11 +505,13 @@ struct FMetricFitSample
     bool bCeilingBounded = false;
     bool bWidthFail = false;
     bool bHeightFail = false;
+    bool bHullBlocked = false;
     bool bNearThreshold = false;
     float AvailableWidth = 0.0f;
     float AvailableHeight = 0.0f;
     float WidthDeficit = 0.0f;
     float HeightDeficit = 0.0f;
+    FVector HullImpactOffset = FVector::ZeroVector;
 };
 
 struct FMetricFitAnalysisResult
@@ -520,6 +522,7 @@ struct FMetricFitAnalysisResult
     int32 TotalSamples = 0;
     int32 FailedSamples = 0;
     int32 InvalidSamples = 0;
+    int32 HullBlockedSamples = 0;
     float RequiredWidth = 0.0f;
     float RequiredHeight = 0.0f;
     float MinimumAvailableWidth = 0.0f;
@@ -536,34 +539,34 @@ struct FMetricThresholdAnalysisSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis")
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (ToolTip = "Enable a short transition check for doorways, tunnel mouths, curbs, and similar thresholds."))
     bool bShowThresholdAnalysis = false;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Total transition depth sampled at the entry, midpoint, and far side."))
     float ProbeDepth = 120.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance searched to each side when measuring threshold width."))
     float MaxSideProbeDistance = 250.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance above the sampled floor searched when measuring threshold height."))
     float MaxCeilingProbeHeight = 300.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm", ToolTip = "Width or height remaining within this margin of the required hull size is reported as Tight."))
     float WarningMargin = 15.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum discrete step up accepted across the threshold. Continuous ramps are not treated as steps."))
     float MaxStepUp = 45.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum discrete step down accepted across the threshold. Continuous ramps are not treated as steps."))
     float MaxStepDown = 60.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Distance above each threshold station from which the supporting-floor trace begins."))
     float FloorTraceHeight = 120.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Distance below the floor-trace start searched for supporting floor."))
     float FloorTraceDepth = 200.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis"))
+    UPROPERTY(EditAnywhere, Category = "Threshold Analysis", meta = (EditCondition = "bShowThresholdAnalysis", ToolTip = "Collision channel used by Threshold Analysis occupancy, floor, and measurement queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -576,6 +579,7 @@ struct FMetricThresholdSample
     bool bHasFloor = false;
     bool bWidthFail = false;
     bool bHeightFail = false;
+    bool bHullBlocked = false;
     bool bStepUpFail = false;
     bool bStepDownFail = false;
     bool bNearThreshold = false;
@@ -584,6 +588,8 @@ struct FMetricThresholdSample
     float WidthDeficit = 0.0f;
     float HeightDeficit = 0.0f;
     float StepDelta = 0.0f;
+    FVector FloorNormal = FVector::UpVector;
+    FVector HullImpactOffset = FVector::ZeroVector;
 };
 
 struct FMetricThresholdAnalysisResult
@@ -594,6 +600,7 @@ struct FMetricThresholdAnalysisResult
     int32 TotalSamples = 0;
     int32 FailedSamples = 0;
     int32 InvalidSamples = 0;
+    int32 HullBlockedSamples = 0;
     float RequiredWidth = 0.0f;
     float RequiredHeight = 0.0f;
     float MinimumAvailableWidth = 0.0f;
@@ -618,22 +625,22 @@ struct FMetricTurnClearanceSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Turn Clearance")
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (ToolTip = "Enable swept turning-room analysis around the configured arc."))
     bool bShowTurnClearance = false;
 
-    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "10.0", Units = "cm", ToolTip = "Radius from the profile origin to the center path followed by the hull during the turn."))
     float TurnRadius = 250.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "10.0", ClampMax = "180.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "10.0", ClampMax = "180.0", Units = "deg", ToolTip = "Total angle tested from the starting forward direction."))
     float TurnAngle = 90.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "2.0", ClampMax = "30.0", Units = "deg"))
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ClampMin = "2.0", ClampMax = "30.0", Units = "deg", ToolTip = "Angular spacing between hull sweep samples. Smaller values increase fidelity and query cost."))
     float SampleAngle = 7.5f;
 
-    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance"))
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ToolTip = "Choose whether to test left turns, right turns, or both."))
     EMetricTurnDirection Direction = EMetricTurnDirection::Both;
 
-    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance"))
+    UPROPERTY(EditAnywhere, Category = "Turn Clearance", meta = (EditCondition = "bShowTurnClearance", ToolTip = "Collision channel used by Turn Clearance sweeps when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -662,25 +669,25 @@ struct FMetricLedgeAnalysisSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis")
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (ToolTip = "Enable forward ledge detection. Continuous ramps remain ground; drops beyond the Ground Validation step-down limit become ledge candidates."))
     bool bShowLedgeAnalysis = false;
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance ahead searched for the first ledge transition."))
     float ForwardDistance = 150.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "5.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "5.0", Units = "cm", ToolTip = "Distance between forward samples used to locate the ledge transition."))
     float SampleSpacing = 15.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "0.0", Units = "cm", ToolTip = "Maximum detected drop depth reported as safe. Deeper landings are failures."))
     float MaxSafeDrop = 120.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Maximum distance below a detected edge searched for a landing surface."))
     float MaxProbeDepth = 500.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ClampMin = "10.0", Units = "cm", ToolTip = "Distance above each ledge sample from which the downward floor trace begins."))
     float TraceHeight = 100.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis"))
+    UPROPERTY(EditAnywhere, Category = "Ledge Analysis", meta = (EditCondition = "bShowLedgeAnalysis", ToolTip = "Collision channel used by Ledge Analysis ground and landing queries when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -703,22 +710,22 @@ struct FMetricStoppingDistanceSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Stopping Distance")
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (ToolTip = "Enable modeled stopping-runway analysis using speed, reaction time, and deceleration."))
     bool bShowStoppingDistance = false;
 
-    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "1.0", Units = "cm/s"))
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "1.0", Units = "cm/s", ToolTip = "Movement speed used to calculate reaction and braking distance."))
     float Speed = 600.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "1.0", Units = "cm/s^2"))
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "1.0", Units = "cm/s^2", ToolTip = "Braking deceleration used to calculate modeled braking distance."))
     float Deceleration = 1800.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "0.0", Units = "s"))
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "0.0", Units = "s", ToolTip = "Delay before braking begins. Speed multiplied by this time becomes reaction distance."))
     float ReactionTime = 0.15f;
 
-    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "0.0", Units = "cm"))
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ClampMin = "0.0", Units = "cm", ToolTip = "Available runway within this distance of the required stopping distance is reported as Tight."))
     float WarningMargin = 75.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance"))
+    UPROPERTY(EditAnywhere, Category = "Stopping Distance", meta = (EditCondition = "bShowStoppingDistance", ToolTip = "Collision channel used by the stopping-runway hull sweep when the Environment Source includes collision."))
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 
@@ -746,13 +753,13 @@ USTRUCT(BlueprintType)
 struct FMetricCoverExposureSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure") bool bShowCoverExposure = false;
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="50.0", Units="cm")) float ThreatDistance = 1200.0f;
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float ThreatHeight = 160.0f;
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float LowSampleHeight = 60.0f;
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float TorsoSampleHeight = 120.0f;
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm")) float HeadSampleHeight = 170.0f;
-    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta = (ToolTip = "Enable three-height cover sampling against a threat point ahead of the profile.")) bool bShowCoverExposure = false;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="50.0", Units="cm", ToolTip = "Distance from the profile to the sampled threat point along Analysis Forward.")) float ThreatDistance = 1200.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm", ToolTip = "Threat point height above the profile origin along Analysis Up.")) float ThreatHeight = 160.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm", ToolTip = "Low body sample height used to determine whether low cover blocks the threat.")) float LowSampleHeight = 60.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm", ToolTip = "Torso sample height used for the middle cover/exposure query.")) float TorsoSampleHeight = 120.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ClampMin="0.0", Units="cm", ToolTip = "Head sample height used for the upper cover/exposure query.")) float HeadSampleHeight = 170.0f;
+    UPROPERTY(EditAnywhere, Category="Cover / Exposure", meta=(EditCondition="bShowCoverExposure", ToolTip = "Collision channel used by Cover / Exposure sightlines when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricCoverExposureResult
 {
@@ -764,11 +771,11 @@ USTRUCT(BlueprintType)
 struct FMetricJumpRunwaySettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Jump Runway") bool bShowJumpRunway = false;
-    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="0.0", Units="cm")) float TakeoffRunway = 150.0f;
-    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="0.0", Units="cm")) float LandingRunway = 180.0f;
-    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="10.0", Units="cm")) float GroundProbeDepth = 150.0f;
-    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(ToolTip="Validate continuous walkable support before takeoff and after the primary trajectory landing. Runway support uses the profile Ground Validation slope and step limits.")) bool bShowJumpRunway = false;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="0.0", Units="cm", ToolTip = "Required continuous supported distance behind the takeoff point.")) float TakeoffRunway = 150.0f;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="0.0", Units="cm", ToolTip = "Required continuous supported distance forward from the actual primary trajectory landing.")) float LandingRunway = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ClampMin="10.0", Units="cm", ToolTip = "Maximum depth searched for walkable support beneath runway samples.")) float GroundProbeDepth = 150.0f;
+    UPROPERTY(EditAnywhere, Category="Jump Runway", meta=(EditCondition="bShowJumpRunway", ToolTip = "Collision channel used by Jump Runway support queries when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricJumpRunwayResult
 {
@@ -780,11 +787,11 @@ USTRUCT(BlueprintType)
 struct FMetricInteractionReachSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Interaction Reach") bool bShowInteractionReach = false;
-    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="10.0", Units="cm")) float ReachDistance = 180.0f;
-    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="0.0", Units="cm")) float ReachHeight = 130.0f;
-    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="1.0", Units="cm")) float ProbeRadius = 18.0f;
-    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta = (ToolTip = "Enable forward interaction-reach probing from the configured reach origin.")) bool bShowInteractionReach = false;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="10.0", Units="cm", ToolTip = "Maximum forward distance searched for an interaction target.")) float ReachDistance = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="0.0", Units="cm", ToolTip = "Interaction origin height above the offset hull origin along Analysis Up.")) float ReachHeight = 130.0f;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ClampMin="1.0", Units="cm", ToolTip = "Radius of the interaction sweep used to find reachable geometry.")) float ProbeRadius = 18.0f;
+    UPROPERTY(EditAnywhere, Category="Interaction Reach", meta=(EditCondition="bShowInteractionReach", ToolTip = "Collision channel used by Interaction Reach when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricInteractionReachResult
 {
@@ -795,12 +802,12 @@ USTRUCT(BlueprintType)
 struct FMetricShoulderClearanceSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance") bool bShowShoulderClearance = false;
-    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="0.0", Units="cm")) float PivotHeight = 150.0f;
-    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="0.0", Units="cm")) float ShoulderOffset = 55.0f;
-    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="10.0", Units="cm")) float CameraDistance = 300.0f;
-    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="1.0", Units="cm")) float ProbeRadius = 12.0f;
-    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta = (ToolTip = "Enable independent left and right third-person shoulder-camera clearance checks.")) bool bShowShoulderClearance = false;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="0.0", Units="cm", ToolTip = "Camera pivot height above the offset hull origin along Analysis Up.")) float PivotHeight = 150.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="0.0", Units="cm", ToolTip = "Sideways distance from the pivot to each shoulder camera path along Analysis Right.")) float ShoulderOffset = 55.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="10.0", Units="cm", ToolTip = "Distance behind the profile tested for each shoulder camera position.")) float CameraDistance = 300.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ClampMin="1.0", Units="cm", ToolTip = "Radius of each shoulder camera sweep.")) float ProbeRadius = 12.0f;
+    UPROPERTY(EditAnywhere, Category="Shoulder Camera Clearance", meta=(EditCondition="bShowShoulderClearance", ToolTip = "Collision channel used by Shoulder Camera Clearance when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricShoulderClearanceResult
 {
@@ -812,9 +819,9 @@ USTRUCT(BlueprintType)
 struct FMetricCombatDensitySettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Combat Spacing Density") bool bShowCombatDensity = false;
-    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta=(EditCondition="bShowCombatDensity", ClampMin="50.0", Units="cm")) float AreaRadius = 600.0f;
-    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta=(EditCondition="bShowCombatDensity", ClampMin="0.0", Units="cm")) float PersonalSpacePadding = 50.0f;
+    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta = (ToolTip = "Show an approximate capacity reference for profile-sized personal-space cells inside a circular encounter area. This does not query scene occupancy.")) bool bShowCombatDensity = false;
+    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta=(EditCondition="bShowCombatDensity", ClampMin="50.0", Units="cm", ToolTip = "Radius of the encounter area used for the capacity estimate.")) float AreaRadius = 600.0f;
+    UPROPERTY(EditAnywhere, Category="Combat Spacing Density", meta=(EditCondition="bShowCombatDensity", ClampMin="0.0", Units="cm", ToolTip = "Additional spacing added around the profile hull when estimating personal-space cell size.")) float PersonalSpacePadding = 50.0f;
 };
 struct FMetricCombatDensityResult
 {
@@ -825,10 +832,10 @@ USTRUCT(BlueprintType)
 struct FMetricAlternateStanceSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit") bool bShowAlternateStance = false;
-    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ClampMin="10.0", Units="cm")) float AlternateHeight = 110.0f;
-    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ClampMin="0.0", Units="cm")) float WarningMargin = 15.0f;
-    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(ToolTip="Check whether the full configured hull fits at standing height and at the alternate stance height. Uses hull occupancy, not only a centerline headroom trace.")) bool bShowAlternateStance = false;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ClampMin="10.0", Units="cm", ToolTip = "Hull height used for the alternate stance, such as crouch or low-profile traversal.")) float AlternateHeight = 110.0f;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ClampMin="0.0", Units="cm", ToolTip = "Available headroom within this amount of the required stance height is reported as Tight.")) float WarningMargin = 15.0f;
+    UPROPERTY(EditAnywhere, Category="Alternate Stance Fit", meta=(EditCondition="bShowAlternateStance", ToolTip = "Collision channel used by Alternate Stance hull-occupancy and headroom queries when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricAlternateStanceResult
 {
@@ -839,12 +846,12 @@ USTRUCT(BlueprintType)
 struct FMetricMantleVaultSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope") bool bShowMantleVault = false;
-    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float ForwardReach = 120.0f;
-    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float MinObstacleHeight = 45.0f;
-    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float MaxObstacleHeight = 180.0f;
-    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm")) float MaxObstacleDepth = 100.0f;
-    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta = (ToolTip = "Enable approximate obstacle height/depth validation for mantle or vault candidates ahead of the profile.")) bool bShowMantleVault = false;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm", ToolTip = "Maximum forward distance searched for a mantle or vault obstacle.")) float ForwardReach = 120.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm", ToolTip = "Minimum obstacle height considered a valid mantle/vault candidate.")) float MinObstacleHeight = 45.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm", ToolTip = "Maximum obstacle height considered a valid mantle/vault candidate.")) float MaxObstacleHeight = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ClampMin="10.0", Units="cm", ToolTip = "Maximum top-surface depth accepted for the configured mantle/vault envelope.")) float MaxObstacleDepth = 100.0f;
+    UPROPERTY(EditAnywhere, Category="Mantle / Vault Envelope", meta=(EditCondition="bShowMantleVault", ToolTip = "Collision channel used by Mantle / Vault obstacle queries when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricMantleVaultResult
 {
@@ -856,15 +863,16 @@ USTRUCT(BlueprintType)
 struct FMetricRecoverySpaceSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space") bool bShowRecoverySpace = false;
-    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm")) float ForwardDistance = 250.0f;
-    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm")) float BackwardDistance = 180.0f;
-    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm")) float SideDistance = 220.0f;
-    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(ToolTip="Validate directional recovery space using the configured hull. A direction passes only when the hull path is unobstructed and supporting ground remains within the profile Ground Validation slope and step limits.")) bool bShowRecoverySpace = false;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm", ToolTip = "Required supported unobstructed recovery distance along Analysis Forward.")) float ForwardDistance = 250.0f;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm", ToolTip = "Required supported unobstructed recovery distance opposite Analysis Forward.")) float BackwardDistance = 180.0f;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ClampMin="10.0", Units="cm", ToolTip = "Required supported unobstructed recovery distance to both left and right.")) float SideDistance = 220.0f;
+    UPROPERTY(EditAnywhere, Category="Recovery / Dodge Space", meta=(EditCondition="bShowRecoverySpace", ToolTip = "Collision channel used by Recovery / Dodge hull sweeps and support queries when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricRecoverySpaceResult
 {
     bool bVisible=false; bool bForwardClear=false; bool bBackwardClear=false; bool bLeftClear=false; bool bRightClear=false;
+    bool bForwardGroundSupported=true; bool bBackwardGroundSupported=true; bool bLeftGroundSupported=true; bool bRightGroundSupported=true;
     float ForwardClear=0.0f; float BackwardClear=0.0f; float LeftClear=0.0f; float RightClear=0.0f;
 };
 
@@ -872,11 +880,11 @@ USTRUCT(BlueprintType)
 struct FMetricCrossfireSettings
 {
     GENERATED_BODY()
-    UPROPERTY(EditAnywhere, Category="Crossfire Exposure") bool bShowCrossfire = false;
-    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="100.0", Units="cm")) float ThreatDistance = 1200.0f;
-    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="4", ClampMax="16")) int32 DirectionCount = 8;
-    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="0.0", Units="cm")) float SampleHeight = 130.0f;
-    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta = (ToolTip = "Enable exposure sampling from evenly distributed threat directions in the active Analysis Frame.")) bool bShowCrossfire = false;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="100.0", Units="cm", ToolTip = "Radius at which threat origins are placed around the profile.")) float ThreatDistance = 1200.0f;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="4", ClampMax="16", ToolTip = "Number of evenly spaced threat directions sampled around the profile.")) int32 DirectionCount = 8;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ClampMin="0.0", Units="cm", ToolTip = "Body sample height above the offset hull origin along Analysis Up.")) float SampleHeight = 130.0f;
+    UPROPERTY(EditAnywhere, Category="Crossfire Exposure", meta=(EditCondition="bShowCrossfire", ToolTip = "Collision channel used by Crossfire Exposure sightlines when the Environment Source includes collision.")) TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 };
 struct FMetricCrossfireRay
 {
@@ -892,13 +900,13 @@ struct FMetricRepresentationSettings
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Representation")
+    UPROPERTY(EditAnywhere, Category = "Representation", meta = (ToolTip = "Show an optional visual-only Static Mesh representation with this profile. It does not affect Metric queries."))
     bool bShowStaticMesh = false;
 
-    UPROPERTY(EditAnywhere, Category = "Representation", meta = (EditCondition = "bShowStaticMesh"))
+    UPROPERTY(EditAnywhere, Category = "Representation", meta = (EditCondition = "bShowStaticMesh", ToolTip = "Static Mesh used only as a visual representation of the profile."))
     TSoftObjectPtr<UStaticMesh> StaticMesh;
 
-    UPROPERTY(EditAnywhere, Category = "Representation", meta = (EditCondition = "bShowStaticMesh"))
+    UPROPERTY(EditAnywhere, Category = "Representation", meta = (EditCondition = "bShowStaticMesh", ToolTip = "Transform applied to the visual-only Static Mesh relative to the Metric profile origin."))
     FTransform RelativeTransform = FTransform::Identity;
 };
 
@@ -906,12 +914,12 @@ struct FMetricCycleEntry
 {
     EMetricCycleEntryType Type = EMetricCycleEntryType::BuiltInMetric;
     FText DisplayName;
-    TSoftObjectPtr<UMetricPreset> Preset;
+    TSoftObjectPtr<UMetricProfile> Profile;
     FSoftObjectPath NativePreviewMesh;
 
     bool IsMetricEntry() const
     {
-        return Type == EMetricCycleEntryType::BuiltInMetric || Type == EMetricCycleEntryType::MetricPreset;
+        return Type == EMetricCycleEntryType::BuiltInMetric || Type == EMetricCycleEntryType::MetricProfile;
     }
 };
 
@@ -921,13 +929,13 @@ struct FMetricStatusColors
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Colors")
+    UPROPERTY(EditAnywhere, Category = "Colors", meta = (ToolTip = "Color used when the associated analysis passes."))
     FLinearColor Pass = FLinearColor(0.10f, 0.82f, 1.00f, 1.0f);
 
-    UPROPERTY(EditAnywhere, Category = "Colors")
+    UPROPERTY(EditAnywhere, Category = "Colors", meta = (ToolTip = "Color used when the associated analysis is close to its configured limit or reports a warning."))
     FLinearColor Tight = FLinearColor(0.72f, 0.42f, 1.00f, 1.0f);
 
-    UPROPERTY(EditAnywhere, Category = "Colors")
+    UPROPERTY(EditAnywhere, Category = "Colors", meta = (ToolTip = "Color used when the associated analysis fails."))
     FLinearColor Fail = FLinearColor(1.00f, 0.28f, 0.38f, 1.0f);
 };
 
@@ -1015,119 +1023,119 @@ struct FMetricLayerVisibility
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Hull Visual", ToolTip = "Show or hide the Hull world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bHullVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Hull Results", ToolTip = "Show or hide the Hull HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bHullResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Clearance Visual", ToolTip = "Show or hide the Clearance world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bClearanceVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Clearance Results", ToolTip = "Show or hide the Clearance HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bClearanceResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Overhead Visual", ToolTip = "Show or hide the Overhead world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bOverheadVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Overhead Results", ToolTip = "Show or hide the Overhead HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bOverheadResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Ground Visual", ToolTip = "Show or hide the Ground world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bGroundVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Ground Results", ToolTip = "Show or hide the Ground HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bGroundResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Fit Visual", ToolTip = "Show or hide the Fit world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bFitVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Fit Results", ToolTip = "Show or hide the Fit HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bFitResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Threshold Visual", ToolTip = "Show or hide the Threshold world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bThresholdVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Threshold Results", ToolTip = "Show or hide the Threshold HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bThresholdResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Sensors Visual", ToolTip = "Show or hide the Sensors world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bSensorsVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Sensors Results", ToolTip = "Show or hide the Sensors HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bSensorsResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Sensor Field Visual", ToolTip = "Show or hide the Sensor Field world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bSensorFieldVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Sensor Field Results", ToolTip = "Show or hide the Sensor Field HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bSensorFieldResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Ranges Visual", ToolTip = "Show or hide the Ranges world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bRangesVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Ranges Results", ToolTip = "Show or hide the Ranges HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bRangesResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Locomotion Visual", ToolTip = "Show or hide the Locomotion world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bLocomotionVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Locomotion Results", ToolTip = "Show or hide the Locomotion HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bLocomotionResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Trajectory Visual", ToolTip = "Show or hide the Trajectory world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bTrajectoryVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Trajectory Results", ToolTip = "Show or hide the Trajectory HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bTrajectoryResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Camera Probe Visual", ToolTip = "Show or hide the Camera Probe world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bCameraVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Camera Probe Results", ToolTip = "Show or hide the Camera Probe HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bCameraResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Turn Visual", ToolTip = "Show or hide the Turn world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bTurnVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Turn Results", ToolTip = "Show or hide the Turn HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bTurnResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Ledge Visual", ToolTip = "Show or hide the Ledge world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bLedgeVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Ledge Results", ToolTip = "Show or hide the Ledge HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bLedgeResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Stopping Visual", ToolTip = "Show or hide the Stopping world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bStoppingVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Stopping Results", ToolTip = "Show or hide the Stopping HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bStoppingResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCoverVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCoverResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bJumpRunwayVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bJumpRunwayResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bInteractionVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bInteractionResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bShoulderVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bShoulderResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCombatDensityVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCombatDensityResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bAlternateStanceVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bAlternateStanceResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bMantleVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bMantleResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bRecoveryVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bRecoveryResults = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCrossfireVisual = true;
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility") bool bCrossfireResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Cover Visual", ToolTip = "Show or hide the Cover world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bCoverVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Cover Results", ToolTip = "Show or hide the Cover HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bCoverResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Jump Runway Visual", ToolTip = "Show or hide the Jump Runway world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bJumpRunwayVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Jump Runway Results", ToolTip = "Show or hide the Jump Runway HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bJumpRunwayResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Interaction Visual", ToolTip = "Show or hide the Interaction world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bInteractionVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Interaction Results", ToolTip = "Show or hide the Interaction HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bInteractionResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Shoulder Visual", ToolTip = "Show or hide the Shoulder world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bShoulderVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Shoulder Results", ToolTip = "Show or hide the Shoulder HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bShoulderResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Combat Density Visual", ToolTip = "Show or hide the Combat Density world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bCombatDensityVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Combat Density Results", ToolTip = "Show or hide the Combat Density HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bCombatDensityResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Alternate Stance Visual", ToolTip = "Show or hide the Alternate Stance world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bAlternateStanceVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Alternate Stance Results", ToolTip = "Show or hide the Alternate Stance HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bAlternateStanceResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Mantle Visual", ToolTip = "Show or hide the Mantle world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bMantleVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Mantle Results", ToolTip = "Show or hide the Mantle HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bMantleResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Recovery Visual", ToolTip = "Show or hide the Recovery world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bRecoveryVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Recovery Results", ToolTip = "Show or hide the Recovery HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bRecoveryResults = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Crossfire Visual", ToolTip = "Show or hide the Crossfire world-space visualization when this visibility mask is applied. This changes presentation only, not analysis.")) bool bCrossfireVisual = true;
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Crossfire Results", ToolTip = "Show or hide the Crossfire HUD result row when this visibility mask is applied. This changes presentation only, not analysis.")) bool bCrossfireResults = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Camera Sightline Visual", ToolTip = "Show or hide the Camera Sightline world-space visualization when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bSightlineVisual = true;
 
-    UPROPERTY(EditAnywhere, Category = "Metric Visibility")
+    UPROPERTY(EditAnywhere, Category = "Metric Visibility", meta = (DisplayName = "Camera Sightline Results", ToolTip = "Show or hide the Camera Sightline HUD result row when this visibility mask is applied. This changes presentation only, not analysis."))
     bool bSightlineResults = true;
 
 };

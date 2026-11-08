@@ -1,6 +1,6 @@
 #include "MetricProfileEditorToolkit.h"
 
-#include "MetricPreset.h"
+#include "MetricProfile.h"
 #include "MetricProfileDetailsCustomization.h"
 #include "Editor.h"
 #include "IDetailsView.h"
@@ -30,8 +30,8 @@ namespace MetricProfileEditor
 {
     static const FName AppIdentifier(TEXT("MetricProfileEditorApp"));
     static const FName ProfileTabId(TEXT("MetricProfileEditor.Profile"));
-    static TMap<TWeakObjectPtr<UMetricPreset>, FMetricProfileEditorToolkit*> OpenEditors;
-    static TMap<TWeakObjectPtr<UMetricPreset>, FName> PendingSections;
+    static TMap<TWeakObjectPtr<UMetricProfile>, FMetricProfileEditorToolkit*> OpenEditors;
+    static TMap<TWeakObjectPtr<UMetricProfile>, FName> PendingSections;
 }
 
 FMetricProfileEditorToolkit::FMetricProfileEditorToolkit()
@@ -47,36 +47,36 @@ FMetricProfileEditorToolkit::FMetricProfileEditorToolkit()
     const FText Visual = LOCTEXT("GroupVisual", "REPRESENTATION");
 
     Sections = {
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, VisualTheme), LOCTEXT("VisualTheme", "Visualization Colors"), VisualIdentity, LOCTEXT("VisualThemeDesc", "Defines every semantic color used by this Metric Profile. World visualization and HUD/result colors are paired: changing a state or aspect here changes both surfaces together. Each analysis exposes only the colors that are meaningful to its visualization and states."), LOCTEXT("VisualIdentityFidelity", "Visual identity"), false },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull), LOCTEXT("Hull", "Hull"), Core, LOCTEXT("HullDesc", "Defines the gameplay entity's reference shape and dimensions used by Metric analyses."), LOCTEXT("ReferenceFidelity", "Reference"), false },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors), LOCTEXT("Sensors", "Sensor Heights"), Core, LOCTEXT("SensorsDesc", "Reference points for primary and low-profile sensing or eye-height comparisons."), LOCTEXT("ReferenceFidelity2", "Reference"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance), LOCTEXT("Clearance", "Clearance"), Space, LOCTEXT("ClearanceDesc", "Tests forward usable space with the active Metric hull."), LOCTEXT("MeasuredFidelity", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, OverheadClearance), LOCTEXT("Overhead", "Overhead Clearance"), Space, LOCTEXT("OverheadDesc", "Measures vertical headroom above the current placement."), LOCTEXT("MeasuredFidelity2", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, GroundValidation), LOCTEXT("Ground", "Ground Validation"), Space, LOCTEXT("GroundDesc", "Samples floor continuity, slope, and step changes across the space ahead."), LOCTEXT("MeasuredFidelity3", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, FitAnalysis), LOCTEXT("Fit", "Fit Analysis"), Space, LOCTEXT("FitDesc", "Estimates whether the profile can continuously fit through the sampled corridor."), LOCTEXT("EstimatedFidelity", "Estimated"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, ThresholdAnalysis), LOCTEXT("Threshold", "Threshold Analysis"), Space, LOCTEXT("ThresholdDesc", "Evaluates a short doorway or transition for width, height, floor, and step limits."), LOCTEXT("EstimatedFidelity2", "Estimated"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, TurnClearance), LOCTEXT("Turn", "Turn Clearance"), Space, LOCTEXT("TurnDesc", "Sweeps the profile around a configured turning arc to estimate turning room."), LOCTEXT("ModeledFidelity", "Modeled"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, LedgeAnalysis), LOCTEXT("Ledge", "Ledge Analysis"), Space, LOCTEXT("LedgeDesc", "Finds nearby ledges and evaluates the drop against the profile's safe-drop threshold."), LOCTEXT("MeasuredFidelity4", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, LocomotionBands), LOCTEXT("Locomotion", "Locomotion Bands"), Traversal, LOCTEXT("LocomotionDesc", "Shows distance bands derived from configured movement speed and time."), LOCTEXT("ModeledFidelity2", "Modeled"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, StoppingDistance), LOCTEXT("Stopping", "Stopping Distance"), Traversal, LOCTEXT("StoppingDesc", "Estimates required stopping runway from speed, deceleration, and reaction time."), LOCTEXT("ModeledFidelity3", "Modeled"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, Trajectory), LOCTEXT("Trajectory", "Trajectory"), Traversal, LOCTEXT("TrajectoryDesc", "Models a ballistic arc, swept envelope, landing validity, and apex headroom."), LOCTEXT("ModeledFidelity4", "Modeled"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, JumpRunway), LOCTEXT("JumpRunway", "Jump Runway"), Traversal, LOCTEXT("JumpRunwayDesc", "Checks continuous supported runway before takeoff and after landing."), LOCTEXT("MeasuredFidelity5", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, AlternateStance), LOCTEXT("Alternate", "Alternate Stance Fit"), Traversal, LOCTEXT("AlternateDesc", "Compares standing fit against a second configured stance height."), LOCTEXT("MeasuredFidelity6", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, MantleVault), LOCTEXT("Mantle", "Mantle / Vault Envelope"), Traversal, LOCTEXT("MantleDesc", "Estimates whether a nearby obstacle sits inside the configured mantle or vault envelope."), LOCTEXT("EstimatedFidelity3", "Estimated"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, RecoverySpace), LOCTEXT("Recovery", "Recovery / Dodge Space"), Traversal, LOCTEXT("RecoveryDesc", "Measures clear movement space forward, backward, left, and right using the active hull."), LOCTEXT("MeasuredFidelity7", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraProbe), LOCTEXT("CameraProbe", "Camera Probe"), Camera, LOCTEXT("CameraProbeDesc", "Models a third-person camera boom and reports compression against scene collision."), LOCTEXT("ModeledFidelity5", "Modeled"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraSightline), LOCTEXT("Sightline", "Camera Sightline"), Camera, LOCTEXT("SightlineDesc", "Tests camera-to-subject visibility and configured framing tolerance."), LOCTEXT("MeasuredModeledFidelity", "Measured / Modeled"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, ShoulderClearance), LOCTEXT("Shoulder", "Shoulder Camera Clearance"), Camera, LOCTEXT("ShoulderDesc", "Compares left and right shoulder-camera clearance from a configured pivot."), LOCTEXT("MeasuredFidelity8", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, InteractionReach), LOCTEXT("Interaction", "Interaction Reach"), Camera, LOCTEXT("InteractionDesc", "Tests whether scene geometry is reachable from a configured interaction origin."), LOCTEXT("MeasuredFidelity9", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, SensorField), LOCTEXT("SensorField", "Sensor Field"), Combat, LOCTEXT("SensorFieldDesc", "Samples a configured field of view and reports blocked versus clear sensing directions."), LOCTEXT("EstimatedFidelity4", "Estimated"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, EngagementRanges), LOCTEXT("Ranges", "Engagement Ranges"), Combat, LOCTEXT("RangesDesc", "Displays authored short, medium, and long gameplay range references."), LOCTEXT("ReferenceFidelity3", "Reference"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, CoverExposure), LOCTEXT("Cover", "Cover / Exposure"), Combat, LOCTEXT("CoverDesc", "Samples low, torso, and head visibility against a threat direction."), LOCTEXT("MeasuredFidelity10", "Measured"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, CombatDensity), LOCTEXT("Density", "Combat Spacing Density"), Combat, LOCTEXT("DensityDesc", "Estimates how many profile-sized personal-space cells fit inside the configured combat area."), LOCTEXT("EstimatedFidelity5", "Estimated"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, Crossfire), LOCTEXT("Crossfire", "Crossfire Exposure"), Combat, LOCTEXT("CrossfireDesc", "Samples exposure from multiple threat directions around the profile."), LOCTEXT("EstimatedFidelity6", "Estimated"), true },
-        { GET_MEMBER_NAME_CHECKED(UMetricPreset, Representation), LOCTEXT("Representation", "Representation"), Visual, LOCTEXT("RepresentationDesc", "Optional visual-only Static Mesh representation layered onto the Metric profile."), LOCTEXT("VisualOnlyFidelity", "Visual only"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, VisualTheme), LOCTEXT("VisualTheme", "Visualization Colors"), VisualIdentity, LOCTEXT("VisualThemeDesc", "Defines every semantic color used by this Metric Profile. World visualization and HUD/result colors are paired: changing a state or aspect here changes both surfaces together. Each analysis exposes only the colors that are meaningful to its visualization and states."), LOCTEXT("VisualIdentityFidelity", "Visual identity"), false },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, Hull), LOCTEXT("Hull", "Hull"), Core, LOCTEXT("HullDesc", "Defines the gameplay entity's reference shape and dimensions used by Metric analyses."), LOCTEXT("ReferenceFidelity", "Reference"), false },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, Sensors), LOCTEXT("Sensors", "Sensor Heights"), Core, LOCTEXT("SensorsDesc", "Reference points for primary and low-profile sensing or eye-height comparisons."), LOCTEXT("ReferenceFidelity2", "Reference"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, Clearance), LOCTEXT("Clearance", "Clearance"), Space, LOCTEXT("ClearanceDesc", "Tests forward usable space with the active Metric hull."), LOCTEXT("MeasuredFidelity", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, OverheadClearance), LOCTEXT("Overhead", "Overhead Clearance"), Space, LOCTEXT("OverheadDesc", "Measures vertical headroom above the current placement."), LOCTEXT("MeasuredFidelity2", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, GroundValidation), LOCTEXT("Ground", "Ground Validation"), Space, LOCTEXT("GroundDesc", "Samples floor continuity, slope, and step changes across the space ahead."), LOCTEXT("MeasuredFidelity3", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, FitAnalysis), LOCTEXT("Fit", "Fit Analysis"), Space, LOCTEXT("FitDesc", "Samples whether the configured hull can occupy the corridor while also measuring available width and headroom."), LOCTEXT("EstimatedFidelity", "Estimated"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, ThresholdAnalysis), LOCTEXT("Threshold", "Threshold Analysis"), Space, LOCTEXT("ThresholdDesc", "Checks a short doorway or transition for hull occupancy, width, height, supporting floor, and discrete step limits."), LOCTEXT("EstimatedFidelity2", "Estimated"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, TurnClearance), LOCTEXT("Turn", "Turn Clearance"), Space, LOCTEXT("TurnDesc", "Sweeps the profile around a configured turning arc to estimate turning room."), LOCTEXT("ModeledFidelity", "Modeled"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, LedgeAnalysis), LOCTEXT("Ledge", "Ledge Analysis"), Space, LOCTEXT("LedgeDesc", "Finds true downward surface discontinuities, searches for a landing, and evaluates the drop against the profile's safe-drop threshold."), LOCTEXT("MeasuredFidelity4", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, LocomotionBands), LOCTEXT("Locomotion", "Locomotion Bands"), Traversal, LOCTEXT("LocomotionDesc", "Shows distance bands derived from configured movement speed and time."), LOCTEXT("ModeledFidelity2", "Modeled"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, StoppingDistance), LOCTEXT("Stopping", "Stopping Distance"), Traversal, LOCTEXT("StoppingDesc", "Estimates required stopping runway from speed, deceleration, and reaction time."), LOCTEXT("ModeledFidelity3", "Modeled"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, Trajectory), LOCTEXT("Trajectory", "Trajectory"), Traversal, LOCTEXT("TrajectoryDesc", "Models a ballistic arc, swept envelope, landing validity, and apex headroom."), LOCTEXT("ModeledFidelity4", "Modeled"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, JumpRunway), LOCTEXT("JumpRunway", "Jump Runway"), Traversal, LOCTEXT("JumpRunwayDesc", "Checks continuous walkable support before takeoff and after the primary trajectory's actual landing."), LOCTEXT("MeasuredFidelity5", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, AlternateStance), LOCTEXT("Alternate", "Alternate Stance Fit"), Traversal, LOCTEXT("AlternateDesc", "Compares full-hull occupancy at standing height against a second configured stance height."), LOCTEXT("MeasuredFidelity6", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, MantleVault), LOCTEXT("Mantle", "Mantle / Vault Envelope"), Traversal, LOCTEXT("MantleDesc", "Estimates whether a nearby obstacle sits inside the configured mantle or vault envelope."), LOCTEXT("EstimatedFidelity3", "Estimated"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, RecoverySpace), LOCTEXT("Recovery", "Recovery / Dodge Space"), Traversal, LOCTEXT("RecoveryDesc", "Checks unobstructed hull movement plus walkable supporting ground forward, backward, left, and right."), LOCTEXT("MeasuredFidelity7", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraProbe), LOCTEXT("CameraProbe", "Camera Probe"), Camera, LOCTEXT("CameraProbeDesc", "Models a third-person camera boom and reports compression against scene collision."), LOCTEXT("ModeledFidelity5", "Modeled"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraSightline), LOCTEXT("Sightline", "Camera Sightline"), Camera, LOCTEXT("SightlineDesc", "Tests camera-to-subject visibility and configured framing tolerance."), LOCTEXT("MeasuredModeledFidelity", "Measured / Modeled"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, ShoulderClearance), LOCTEXT("Shoulder", "Shoulder Camera Clearance"), Camera, LOCTEXT("ShoulderDesc", "Compares left and right shoulder-camera clearance from a configured pivot."), LOCTEXT("MeasuredFidelity8", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, InteractionReach), LOCTEXT("Interaction", "Interaction Reach"), Camera, LOCTEXT("InteractionDesc", "Tests whether scene geometry is reachable from a configured interaction origin."), LOCTEXT("MeasuredFidelity9", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, SensorField), LOCTEXT("SensorField", "Sensor Field"), Combat, LOCTEXT("SensorFieldDesc", "Samples lower, center, and upper vertical bands across a configured field of view and reports blocked versus clear sensing directions."), LOCTEXT("EstimatedFidelity4", "Estimated"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, EngagementRanges), LOCTEXT("Ranges", "Engagement Ranges"), Combat, LOCTEXT("RangesDesc", "Displays authored short, medium, and long gameplay range references."), LOCTEXT("ReferenceFidelity3", "Reference"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, CoverExposure), LOCTEXT("Cover", "Cover / Exposure"), Combat, LOCTEXT("CoverDesc", "Samples low, torso, and head visibility against a threat direction."), LOCTEXT("MeasuredFidelity10", "Measured"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, CombatDensity), LOCTEXT("Density", "Combat Spacing Density"), Combat, LOCTEXT("DensityDesc", "Estimates how many profile-sized personal-space cells fit inside the configured combat area."), LOCTEXT("EstimatedFidelity5", "Estimated"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, Crossfire), LOCTEXT("Crossfire", "Crossfire Exposure"), Combat, LOCTEXT("CrossfireDesc", "Samples exposure from evenly distributed threat directions around the profile in the active Analysis Frame."), LOCTEXT("EstimatedFidelity6", "Estimated"), true },
+        { GET_MEMBER_NAME_CHECKED(UMetricProfile, Representation), LOCTEXT("Representation", "Representation"), Visual, LOCTEXT("RepresentationDesc", "Optional visual-only Static Mesh representation layered onto the Metric profile."), LOCTEXT("VisualOnlyFidelity", "Visual only"), true },
     };
 
-    EditorState->SelectedProperty = GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull);
+    EditorState->SelectedProperty = GET_MEMBER_NAME_CHECKED(UMetricProfile, Hull);
 }
 
 FMetricProfileEditorToolkit::~FMetricProfileEditorToolkit()
@@ -93,7 +93,7 @@ FMetricProfileEditorToolkit::~FMetricProfileEditorToolkit()
     }
 }
 
-void FMetricProfileEditorToolkit::Initialize(UMetricPreset* InPreset, EToolkitMode::Type InMode, const TSharedPtr<IToolkitHost>& InToolkitHost)
+void FMetricProfileEditorToolkit::Initialize(UMetricProfile* InPreset, EToolkitMode::Type InMode, const TSharedPtr<IToolkitHost>& InToolkitHost)
 {
     Preset = InPreset;
     check(Preset);
@@ -135,7 +135,7 @@ void FMetricProfileEditorToolkit::Initialize(UMetricPreset* InPreset, EToolkitMo
     RegenerateMenusAndToolbars();
 }
 
-void FMetricProfileEditorToolkit::OpenAndFocusProfileSection(UMetricPreset* InPreset, FName PropertyName)
+void FMetricProfileEditorToolkit::OpenAndFocusProfileSection(UMetricProfile* InPreset, FName PropertyName)
 {
     if (!InPreset || !GEditor)
     {
@@ -259,7 +259,7 @@ TSharedRef<SWidget> FMetricProfileEditorToolkit::BuildProfileEditor()
     FPropertyEditorModule& PropertyEditor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
     DetailsView = PropertyEditor.CreateDetailView(DetailsArgs);
     DetailsView->RegisterInstancedCustomPropertyLayout(
-        UMetricPreset::StaticClass(),
+        UMetricProfile::StaticClass(),
         FOnGetDetailCustomizationInstance::CreateStatic(&FMetricProfileDetailsCustomization::MakeInstance, EditorState.ToSharedRef()));
     DetailsView->OnFinishedChangingProperties().AddLambda([this](const FPropertyChangedEvent&)
     {
@@ -350,14 +350,14 @@ TSharedRef<SWidget> FMetricProfileEditorToolkit::BuildSidebar()
         .Padding(10.0f, 0.0f, 10.0f, 3.0f)
         [
             SNew(SObjectPropertyEntryBox)
-            .AllowedClass(UMetricPreset::StaticClass())
+            .AllowedClass(UMetricProfile::StaticClass())
             .ObjectPath_Lambda([this]()
             {
                 return ComparisonPreset ? ComparisonPreset->GetPathName() : FString();
             })
             .OnObjectChanged_Lambda([this](const FAssetData& AssetData)
             {
-                UMetricPreset* NewComparison = Cast<UMetricPreset>(AssetData.GetAsset());
+                UMetricProfile* NewComparison = Cast<UMetricProfile>(AssetData.GetAsset());
                 SetComparisonPreset(NewComparison);
             })
         ];
@@ -906,39 +906,39 @@ bool FMetricProfileEditorToolkit::IsSectionEnabled(FName PropertyName) const
         return false;
     }
 
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, VisualTheme)) return true;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull)) return true;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance)) return Preset->Clearance.bShowClearanceProbe;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, OverheadClearance)) return Preset->OverheadClearance.bShowOverheadClearance;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors)) return Preset->Sensors.bShowSensorHeights;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, SensorField)) return Preset->SensorField.bShowSensorField;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, EngagementRanges)) return Preset->EngagementRanges.bShowEngagementRanges;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, LocomotionBands)) return Preset->LocomotionBands.bShowLocomotionBands;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Trajectory)) return Preset->Trajectory.bShowTrajectory;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraProbe)) return Preset->CameraProbe.bShowCameraProbe;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraSightline)) return Preset->CameraSightline.bShowCameraSightline;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, GroundValidation)) return Preset->GroundValidation.bShowGroundValidation;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, FitAnalysis)) return Preset->FitAnalysis.bShowFitAnalysis;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, ThresholdAnalysis)) return Preset->ThresholdAnalysis.bShowThresholdAnalysis;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, TurnClearance)) return Preset->TurnClearance.bShowTurnClearance;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, LedgeAnalysis)) return Preset->LedgeAnalysis.bShowLedgeAnalysis;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, StoppingDistance)) return Preset->StoppingDistance.bShowStoppingDistance;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CoverExposure)) return Preset->CoverExposure.bShowCoverExposure;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, JumpRunway)) return Preset->JumpRunway.bShowJumpRunway;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, InteractionReach)) return Preset->InteractionReach.bShowInteractionReach;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, ShoulderClearance)) return Preset->ShoulderClearance.bShowShoulderClearance;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CombatDensity)) return Preset->CombatDensity.bShowCombatDensity;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, AlternateStance)) return Preset->AlternateStance.bShowAlternateStance;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, MantleVault)) return Preset->MantleVault.bShowMantleVault;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, RecoverySpace)) return Preset->RecoverySpace.bShowRecoverySpace;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Crossfire)) return Preset->Crossfire.bShowCrossfire;
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Representation)) return Preset->Representation.bShowStaticMesh;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, VisualTheme)) return true;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Hull)) return true;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Clearance)) return Preset->Clearance.bShowClearanceProbe;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, OverheadClearance)) return Preset->OverheadClearance.bShowOverheadClearance;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Sensors)) return Preset->Sensors.bShowSensorHeights;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, SensorField)) return Preset->SensorField.bShowSensorField;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, EngagementRanges)) return Preset->EngagementRanges.bShowEngagementRanges;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, LocomotionBands)) return Preset->LocomotionBands.bShowLocomotionBands;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Trajectory)) return Preset->Trajectory.bShowTrajectory;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraProbe)) return Preset->CameraProbe.bShowCameraProbe;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraSightline)) return Preset->CameraSightline.bShowCameraSightline;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, GroundValidation)) return Preset->GroundValidation.bShowGroundValidation;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, FitAnalysis)) return Preset->FitAnalysis.bShowFitAnalysis;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, ThresholdAnalysis)) return Preset->ThresholdAnalysis.bShowThresholdAnalysis;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, TurnClearance)) return Preset->TurnClearance.bShowTurnClearance;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, LedgeAnalysis)) return Preset->LedgeAnalysis.bShowLedgeAnalysis;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, StoppingDistance)) return Preset->StoppingDistance.bShowStoppingDistance;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CoverExposure)) return Preset->CoverExposure.bShowCoverExposure;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, JumpRunway)) return Preset->JumpRunway.bShowJumpRunway;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, InteractionReach)) return Preset->InteractionReach.bShowInteractionReach;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, ShoulderClearance)) return Preset->ShoulderClearance.bShowShoulderClearance;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CombatDensity)) return Preset->CombatDensity.bShowCombatDensity;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, AlternateStance)) return Preset->AlternateStance.bShowAlternateStance;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, MantleVault)) return Preset->MantleVault.bShowMantleVault;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, RecoverySpace)) return Preset->RecoverySpace.bShowRecoverySpace;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Crossfire)) return Preset->Crossfire.bShowCrossfire;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Representation)) return Preset->Representation.bShowStaticMesh;
     return false;
 }
 
 void FMetricProfileEditorToolkit::SetSectionEnabled(FName PropertyName, bool bEnabled)
 {
-    if (!Preset || PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull) || IsSectionEnabled(PropertyName) == bEnabled)
+    if (!Preset || PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Hull) || IsSectionEnabled(PropertyName) == bEnabled)
     {
         return;
     }
@@ -963,31 +963,31 @@ bool FMetricProfileEditorToolkit::SetSectionEnabledValue(FName PropertyName, boo
         return false;
     }
 
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Clearance)) Preset->Clearance.bShowClearanceProbe = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, OverheadClearance)) Preset->OverheadClearance.bShowOverheadClearance = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors)) Preset->Sensors.bShowSensorHeights = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, SensorField)) Preset->SensorField.bShowSensorField = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, EngagementRanges)) Preset->EngagementRanges.bShowEngagementRanges = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, LocomotionBands)) Preset->LocomotionBands.bShowLocomotionBands = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Trajectory)) Preset->Trajectory.bShowTrajectory = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraProbe)) Preset->CameraProbe.bShowCameraProbe = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraSightline)) Preset->CameraSightline.bShowCameraSightline = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, GroundValidation)) Preset->GroundValidation.bShowGroundValidation = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, FitAnalysis)) Preset->FitAnalysis.bShowFitAnalysis = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, ThresholdAnalysis)) Preset->ThresholdAnalysis.bShowThresholdAnalysis = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, TurnClearance)) Preset->TurnClearance.bShowTurnClearance = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, LedgeAnalysis)) Preset->LedgeAnalysis.bShowLedgeAnalysis = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, StoppingDistance)) Preset->StoppingDistance.bShowStoppingDistance = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CoverExposure)) Preset->CoverExposure.bShowCoverExposure = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, JumpRunway)) Preset->JumpRunway.bShowJumpRunway = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, InteractionReach)) Preset->InteractionReach.bShowInteractionReach = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, ShoulderClearance)) Preset->ShoulderClearance.bShowShoulderClearance = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, CombatDensity)) Preset->CombatDensity.bShowCombatDensity = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, AlternateStance)) Preset->AlternateStance.bShowAlternateStance = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, MantleVault)) Preset->MantleVault.bShowMantleVault = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, RecoverySpace)) Preset->RecoverySpace.bShowRecoverySpace = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Crossfire)) Preset->Crossfire.bShowCrossfire = bEnabled;
-    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricPreset, Representation)) Preset->Representation.bShowStaticMesh = bEnabled;
+    if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Clearance)) Preset->Clearance.bShowClearanceProbe = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, OverheadClearance)) Preset->OverheadClearance.bShowOverheadClearance = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Sensors)) Preset->Sensors.bShowSensorHeights = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, SensorField)) Preset->SensorField.bShowSensorField = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, EngagementRanges)) Preset->EngagementRanges.bShowEngagementRanges = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, LocomotionBands)) Preset->LocomotionBands.bShowLocomotionBands = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Trajectory)) Preset->Trajectory.bShowTrajectory = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraProbe)) Preset->CameraProbe.bShowCameraProbe = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraSightline)) Preset->CameraSightline.bShowCameraSightline = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, GroundValidation)) Preset->GroundValidation.bShowGroundValidation = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, FitAnalysis)) Preset->FitAnalysis.bShowFitAnalysis = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, ThresholdAnalysis)) Preset->ThresholdAnalysis.bShowThresholdAnalysis = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, TurnClearance)) Preset->TurnClearance.bShowTurnClearance = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, LedgeAnalysis)) Preset->LedgeAnalysis.bShowLedgeAnalysis = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, StoppingDistance)) Preset->StoppingDistance.bShowStoppingDistance = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CoverExposure)) Preset->CoverExposure.bShowCoverExposure = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, JumpRunway)) Preset->JumpRunway.bShowJumpRunway = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, InteractionReach)) Preset->InteractionReach.bShowInteractionReach = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, ShoulderClearance)) Preset->ShoulderClearance.bShowShoulderClearance = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, CombatDensity)) Preset->CombatDensity.bShowCombatDensity = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, AlternateStance)) Preset->AlternateStance.bShowAlternateStance = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, MantleVault)) Preset->MantleVault.bShowMantleVault = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, RecoverySpace)) Preset->RecoverySpace.bShowRecoverySpace = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Crossfire)) Preset->Crossfire.bShowCrossfire = bEnabled;
+    else if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, Representation)) Preset->Representation.bShowStaticMesh = bEnabled;
     else return false;
 
     return true;
@@ -1115,45 +1115,45 @@ void FMetricProfileEditorToolkit::GatherValidationIssues(TArray<FValidationIssue
 
     if (Preset->Hull.Height <= 0.0f || Preset->Hull.Width <= 0.0f || Preset->Hull.Length <= 0.0f)
     {
-        AddError(GET_MEMBER_NAME_CHECKED(UMetricPreset, Hull), LOCTEXT("ValidationHullDimensions", "Hull dimensions must all be greater than zero."));
+        AddError(GET_MEMBER_NAME_CHECKED(UMetricProfile, Hull), LOCTEXT("ValidationHullDimensions", "Hull dimensions must all be greater than zero."));
     }
     if (Preset->Sensors.bShowSensorHeights && Preset->Sensors.LowProfileSensorZOffset > Preset->Sensors.PrimarySensorZOffset)
     {
-        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricPreset, Sensors), LOCTEXT("ValidationSensorOrder", "Low-profile sensor height is above the primary sensor height."));
+        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricProfile, Sensors), LOCTEXT("ValidationSensorOrder", "Low-profile sensor height is above the primary sensor height."));
     }
     if (Preset->EngagementRanges.bShowEngagementRanges
         && !(Preset->EngagementRanges.ShortRange <= Preset->EngagementRanges.MediumRange
             && Preset->EngagementRanges.MediumRange <= Preset->EngagementRanges.LongRange))
     {
-        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricPreset, EngagementRanges), LOCTEXT("ValidationRangeOrder", "Engagement ranges should be ordered Short <= Medium <= Long."));
+        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricProfile, EngagementRanges), LOCTEXT("ValidationRangeOrder", "Engagement ranges should be ordered Short <= Medium <= Long."));
     }
     if (Preset->LocomotionBands.bShowLocomotionBands
         && !(Preset->LocomotionBands.NearTime <= Preset->LocomotionBands.MidTime
             && Preset->LocomotionBands.MidTime <= Preset->LocomotionBands.FarTime))
     {
-        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricPreset, LocomotionBands), LOCTEXT("ValidationLocomotionOrder", "Locomotion times should be ordered Near <= Mid <= Far."));
+        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricProfile, LocomotionBands), LOCTEXT("ValidationLocomotionOrder", "Locomotion times should be ordered Near <= Mid <= Far."));
     }
     if (Preset->Trajectory.bShowTrajectory && Preset->Trajectory.SampleInterval >= Preset->Trajectory.MaxSimulationTime)
     {
-        AddError(GET_MEMBER_NAME_CHECKED(UMetricPreset, Trajectory), LOCTEXT("ValidationTrajectorySampling", "Trajectory sample interval must be smaller than maximum simulation time."));
+        AddError(GET_MEMBER_NAME_CHECKED(UMetricProfile, Trajectory), LOCTEXT("ValidationTrajectorySampling", "Trajectory sample interval must be smaller than maximum simulation time."));
     }
     if (Preset->CameraProbe.bShowCameraProbe && Preset->CameraProbe.MinDistance > Preset->CameraProbe.TargetDistance)
     {
-        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricPreset, CameraProbe), LOCTEXT("ValidationCameraDistance", "Camera minimum distance is greater than the target distance, so the camera will always be considered too close."));
+        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricProfile, CameraProbe), LOCTEXT("ValidationCameraDistance", "Camera minimum distance is greater than the target distance, so the camera will always be considered too close."));
     }
     if (Preset->CoverExposure.bShowCoverExposure
         && !(Preset->CoverExposure.LowSampleHeight < Preset->CoverExposure.TorsoSampleHeight
             && Preset->CoverExposure.TorsoSampleHeight < Preset->CoverExposure.HeadSampleHeight))
     {
-        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricPreset, CoverExposure), LOCTEXT("ValidationCoverHeights", "Cover sample heights should be ordered Low < Torso < Head."));
+        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricProfile, CoverExposure), LOCTEXT("ValidationCoverHeights", "Cover sample heights should be ordered Low < Torso < Head."));
     }
     if (Preset->AlternateStance.bShowAlternateStance && Preset->AlternateStance.AlternateHeight >= Preset->Hull.Height)
     {
-        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricPreset, AlternateStance), LOCTEXT("ValidationAlternateHeight", "Alternate stance height is not lower than the standing hull height."));
+        AddWarning(GET_MEMBER_NAME_CHECKED(UMetricProfile, AlternateStance), LOCTEXT("ValidationAlternateHeight", "Alternate stance height is not lower than the standing hull height."));
     }
     if (Preset->MantleVault.bShowMantleVault && Preset->MantleVault.MinObstacleHeight > Preset->MantleVault.MaxObstacleHeight)
     {
-        AddError(GET_MEMBER_NAME_CHECKED(UMetricPreset, MantleVault), LOCTEXT("ValidationMantleRange", "Minimum obstacle height is greater than maximum obstacle height."));
+        AddError(GET_MEMBER_NAME_CHECKED(UMetricProfile, MantleVault), LOCTEXT("ValidationMantleRange", "Minimum obstacle height is greater than maximum obstacle height."));
     }
 }
 
@@ -1275,7 +1275,7 @@ int32 FMetricProfileEditorToolkit::CountToggleableAnalyses() const
 }
 
 
-void FMetricProfileEditorToolkit::SetComparisonPreset(UMetricPreset* InPreset)
+void FMetricProfileEditorToolkit::SetComparisonPreset(UMetricProfile* InPreset)
 {
     ComparisonPreset = (InPreset && InPreset != Preset.Get()) ? InPreset : nullptr;
     if (!ComparisonPreset)
@@ -1292,7 +1292,7 @@ bool FMetricProfileEditorToolkit::IsSectionDifferentFromComparison(FName Propert
         return false;
     }
 
-    const FProperty* Property = FindFProperty<FProperty>(UMetricPreset::StaticClass(), PropertyName);
+    const FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), PropertyName);
     return Property && !Property->Identical_InContainer(Preset.Get(), ComparisonPreset.Get());
 }
 
@@ -1341,7 +1341,7 @@ void FMetricProfileEditorToolkit::GatherSectionComparisonRows(FName PropertyName
         return;
     }
 
-    const FProperty* RootProperty = FindFProperty<FProperty>(UMetricPreset::StaticClass(), PropertyName);
+    const FProperty* RootProperty = FindFProperty<FProperty>(UMetricProfile::StaticClass(), PropertyName);
     if (!RootProperty || RootProperty->Identical_InContainer(Preset.Get(), ComparisonPreset.Get()))
     {
         return;
@@ -1465,8 +1465,8 @@ bool FMetricProfileEditorToolkit::CanResetSelectedSectionToDefaults() const
         return false;
     }
 
-    const UMetricPreset* Defaults = GetDefault<UMetricPreset>();
-    const FProperty* Property = FindFProperty<FProperty>(UMetricPreset::StaticClass(), EditorState->SelectedProperty);
+    const UMetricProfile* Defaults = GetDefault<UMetricProfile>();
+    const FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), EditorState->SelectedProperty);
     return Defaults && Property && !Property->Identical_InContainer(Preset.Get(), Defaults);
 }
 
@@ -1477,8 +1477,8 @@ FReply FMetricProfileEditorToolkit::ResetSelectedSectionToDefaults()
         return FReply::Handled();
     }
 
-    const UMetricPreset* Defaults = GetDefault<UMetricPreset>();
-    FProperty* Property = FindFProperty<FProperty>(UMetricPreset::StaticClass(), EditorState->SelectedProperty);
+    const UMetricProfile* Defaults = GetDefault<UMetricProfile>();
+    FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), EditorState->SelectedProperty);
     if (!Defaults || !Property)
     {
         return FReply::Handled();
@@ -1510,7 +1510,7 @@ FReply FMetricProfileEditorToolkit::CopySelectedSectionFromComparison()
         return FReply::Handled();
     }
 
-    FProperty* Property = FindFProperty<FProperty>(UMetricPreset::StaticClass(), EditorState->SelectedProperty);
+    FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), EditorState->SelectedProperty);
     if (!Property || Property->Identical_InContainer(Preset.Get(), ComparisonPreset.Get()))
     {
         return FReply::Handled();
@@ -1537,7 +1537,7 @@ FReply FMetricProfileEditorToolkit::CopyComparisonPropertyValue(TArray<FName> Pr
         return FReply::Handled();
     }
 
-    FProperty* RootProperty = FindFProperty<FProperty>(UMetricPreset::StaticClass(), EditorState->SelectedProperty);
+    FProperty* RootProperty = FindFProperty<FProperty>(UMetricProfile::StaticClass(), EditorState->SelectedProperty);
     FStructProperty* RootStruct = CastField<FStructProperty>(RootProperty);
     if (!RootProperty || !RootStruct || !RootStruct->Struct)
     {

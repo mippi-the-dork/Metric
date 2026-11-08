@@ -3,11 +3,12 @@
 #include "Misc/AutomationTest.h"
 
 #include "MetricEditorSettings.h"
+#include "MetricCustomVersion.h"
 #include "MetricActor.h"
 #include "MetricEnvironmentQuery.h"
 #include "MetricFrameUtils.h"
 #include "MetricPerformance.h"
-#include "MetricPreset.h"
+#include "MetricProfile.h"
 #include "MetricProjectSettings.h"
 #include "MetricSubsystem.h"
 #include "MetricViewportComponent.h"
@@ -18,6 +19,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "PreviewScene.h"
+#include "UObject/UnrealType.h"
 
 #define METRIC_AUTOMATION_FLAGS (EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -171,6 +173,40 @@ namespace MetricAutomation
         return SpawnBox(World, FVector(CenterX, 0.0f, SurfaceZ - 10.0f), FVector(HalfX, 500.0f, 10.0f), true);
     }
 
+    UBoxComponent* SpawnRamp(UWorld* World, float SlopeDegrees, float CenterX = 150.0f, float HalfX = 300.0f)
+    {
+        if (!World)
+        {
+            return nullptr;
+        }
+
+        const FVector Extent(HalfX, 500.0f, 10.0f);
+        const FRotator Rotation(SlopeDegrees, 0.0f, 0.0f);
+        const FQuat Quat = Rotation.Quaternion();
+        const FVector TopFaceOffset = Quat.RotateVector(FVector(0.0f, 0.0f, Extent.Z));
+        const float SurfaceZAtCenter = FMath::Tan(FMath::DegreesToRadians(SlopeDegrees)) * CenterX;
+        const FVector Location = FVector(CenterX, 0.0f, SurfaceZAtCenter) - TopFaceOffset;
+
+        AActor* Actor = World->SpawnActor<AActor>(Location, Rotation);
+        if (!Actor)
+        {
+            return nullptr;
+        }
+
+        UBoxComponent* Box = NewObject<UBoxComponent>(Actor, NAME_None, RF_Transient);
+        Actor->SetRootComponent(Box);
+        Box->SetBoxExtent(Extent);
+        Box->SetVisibility(true);
+        Box->SetHiddenInGame(false);
+        Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        Box->SetCollisionObjectType(ECC_WorldStatic);
+        Box->SetCollisionResponseToAllChannels(ECR_Block);
+        Box->RegisterComponent();
+        Box->SetWorldTransform(FTransform(Rotation, Location));
+        Box->UpdateBounds();
+        return Box;
+    }
+
     FMetricLiveState MakeTrajectoryState()
     {
         FMetricLiveState State;
@@ -200,9 +236,9 @@ namespace MetricAutomation
     }
 
 
-    UMetricPreset* MakePerformanceProfile()
+    UMetricProfile* MakePerformanceProfile()
     {
-        UMetricPreset* Profile = NewObject<UMetricPreset>(GetTransientPackage());
+        UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
         Profile->DisplayName = FText::FromString(TEXT("Metric Performance Profile"));
         Profile->Clearance.bShowClearanceProbe = true;
         Profile->OverheadClearance.bShowOverheadClearance = true;
@@ -618,6 +654,111 @@ bool FMetricThresholdOpenSpace::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricGroundContinuousRamp, "MetricPlugin.Analysis.Ground.ContinuousRampIsNotStep", METRIC_AUTOMATION_FLAGS)
+bool FMetricGroundContinuousRamp::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnRamp(World, 20.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.GroundValidationSettings.bShowGroundValidation = true;
+    State.GroundValidationSettings.ForwardDistance = 200.0f;
+    State.GroundValidationSettings.SampleSpacing = 100.0f;
+    State.GroundValidationSettings.LateralCoverage = 0.0f;
+    State.GroundValidationSettings.MaxWalkableSlope = 30.0f;
+    State.GroundValidationSettings.MaxStepUp = 5.0f;
+    State.GroundValidationSettings.MaxStepDown = 5.0f;
+    if (Subsystem) Subsystem->EvaluateGroundValidationForAutomation(World, State);
+    TestTrue(TEXT("Continuous ramp within slope limit passes even when total rise exceeds step limit"), State.GroundValidation.bPass);
+    TestTrue(TEXT("Ramp does not report a discrete step up"), State.GroundValidation.MaxObservedStepUp < 2.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricGroundDiscreteStep, "MetricPlugin.Analysis.Ground.DiscreteStepFails", METRIC_AUTOMATION_FLAGS)
+bool FMetricGroundDiscreteStep::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World, 25.0f, 25.0f, 0.0f);
+    MetricAutomation::SpawnFloor(World, 175.0f, 125.0f, 30.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.GroundValidationSettings.bShowGroundValidation = true;
+    State.GroundValidationSettings.ForwardDistance = 150.0f;
+    State.GroundValidationSettings.SampleSpacing = 50.0f;
+    State.GroundValidationSettings.LateralCoverage = 0.0f;
+    State.GroundValidationSettings.MaxWalkableSlope = 45.0f;
+    State.GroundValidationSettings.MaxStepUp = 20.0f;
+    if (Subsystem) Subsystem->EvaluateGroundValidationForAutomation(World, State);
+    TestFalse(TEXT("Discrete step above Max Step Up fails"), State.GroundValidation.bPass);
+    TestTrue(TEXT("Discrete step magnitude is reported"), State.GroundValidation.MaxObservedStepUp > 20.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFitCenteredObstacle, "MetricPlugin.Analysis.Fit.CenteredObstacleBlocked", METRIC_AUTOMATION_FLAGS)
+bool FMetricFitCenteredObstacle::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World);
+    MetricAutomation::SpawnBox(World, FVector(100.0f, 0.0f, 90.0f), FVector(12.0f, 12.0f, 80.0f), true);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.FitAnalysisSettings.bShowFitAnalysis = true;
+    State.FitAnalysisSettings.ForwardDistance = 150.0f;
+    State.FitAnalysisSettings.SampleSpacing = 50.0f;
+    if (Subsystem) Subsystem->EvaluateFitAnalysisForAutomation(World, State);
+    TestFalse(TEXT("Centered obstruction inside the configured hull fails fit"), State.FitAnalysis.bPass);
+    TestTrue(TEXT("Fit records a blocked hull sample"), State.FitAnalysis.HullBlockedSamples > 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricThresholdContinuousRamp, "MetricPlugin.Analysis.Threshold.ContinuousRampIsNotStep", METRIC_AUTOMATION_FLAGS)
+bool FMetricThresholdContinuousRamp::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnRamp(World, 20.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.ThresholdAnalysisSettings.bShowThresholdAnalysis = true;
+    State.ThresholdAnalysisSettings.ProbeDepth = 120.0f;
+    State.ThresholdAnalysisSettings.MaxStepUp = 5.0f;
+    State.ThresholdAnalysisSettings.MaxStepDown = 5.0f;
+    if (Subsystem) Subsystem->EvaluateThresholdAnalysisForAutomation(World, State);
+    TestTrue(TEXT("Continuous ramp is not classified as a threshold step"), State.ThresholdAnalysis.bPass);
+    TestTrue(TEXT("Threshold reports negligible discrete step on ramp"), State.ThresholdAnalysis.MaxObservedStepUp < 2.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricThresholdCenteredObstacle, "MetricPlugin.Analysis.Threshold.CenteredObstacleBlocked", METRIC_AUTOMATION_FLAGS)
+bool FMetricThresholdCenteredObstacle::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World);
+    MetricAutomation::SpawnBox(World, FVector(60.0f, 0.0f, 90.0f), FVector(10.0f, 10.0f, 80.0f), true);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.ThresholdAnalysisSettings.bShowThresholdAnalysis = true;
+    State.ThresholdAnalysisSettings.ProbeDepth = 120.0f;
+    if (Subsystem) Subsystem->EvaluateThresholdAnalysisForAutomation(World, State);
+    TestFalse(TEXT("Centered obstruction inside threshold hull fails"), State.ThresholdAnalysis.bPass);
+    TestTrue(TEXT("Threshold records a blocked hull sample"), State.ThresholdAnalysis.HullBlockedSamples > 0);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricLedgeEdgeDetected, "MetricPlugin.Analysis.Ledge.EdgeDetected", METRIC_AUTOMATION_FLAGS)
 bool FMetricLedgeEdgeDetected::RunTest(const FString& Parameters)
 {
@@ -689,6 +830,7 @@ bool FMetricRecoveryDirectionalBlock::RunTest(const FString& Parameters)
     MetricAutomation::FProjectExclusionScope Exclusions;
     MetricAutomation::FTestWorld TestWorld;
     UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World);
     MetricAutomation::SpawnBox(World, FVector(140.0f, 0.0f, 90.0f), FVector(20.0f, 100.0f, 100.0f), true);
     UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
     FMetricLiveState State = MetricAutomation::MakeAnalysisState();
@@ -701,6 +843,303 @@ bool FMetricRecoveryDirectionalBlock::RunTest(const FString& Parameters)
     TestTrue(TEXT("Backward recovery remains clear"), State.RecoverySpace.bBackwardClear);
     TestTrue(TEXT("Left recovery remains clear"), State.RecoverySpace.bLeftClear);
     TestTrue(TEXT("Right recovery remains clear"), State.RecoverySpace.bRightClear);
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricLedgeContinuousRamp, "MetricPlugin.Analysis.Ledge.ContinuousRampIsNotEdge", METRIC_AUTOMATION_FLAGS)
+bool FMetricLedgeContinuousRamp::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnRamp(World, 20.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.LedgeAnalysisSettings.bShowLedgeAnalysis = true;
+    State.LedgeAnalysisSettings.ForwardDistance = 150.0f;
+    State.LedgeAnalysisSettings.SampleSpacing = 15.0f;
+    State.GroundValidationSettings.MaxStepDown = 20.0f;
+    if (Subsystem) Subsystem->EvaluateLedgeAnalysisForAutomation(World, State);
+    TestFalse(TEXT("Continuous walkable ramp is not classified as a ledge"), State.LedgeAnalysis.bHasEdge);
+    TestTrue(TEXT("Continuous ramp remains a safe supported path"), State.LedgeAnalysis.bSafeDrop);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricLedgePreservesStopping, "MetricPlugin.Analysis.Ledge.DoesNotResetStoppingDistance", METRIC_AUTOMATION_FLAGS)
+bool FMetricLedgePreservesStopping::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.LedgeAnalysisSettings.bShowLedgeAnalysis = true;
+    State.StoppingDistance.bVisible = true;
+    State.StoppingDistance.RequiredDistance = 321.0f;
+    State.StoppingDistance.bBlocked = true;
+    if (Subsystem) Subsystem->EvaluateLedgeAnalysisForAutomation(World, State);
+    TestTrue(TEXT("Ledge evaluation preserves the existing stopping result"), State.StoppingDistance.bVisible);
+    TestTrue(TEXT("Ledge evaluation does not clear stopping failure state"), State.StoppingDistance.bBlocked);
+    TestTrue(TEXT("Ledge evaluation does not rewrite stopping measurements"), FMath::IsNearlyEqual(State.StoppingDistance.RequiredDistance, 321.0f));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricJumpRunwayRequiresLanding, "MetricPlugin.Analysis.JumpRunway.RequiresRealLanding", METRIC_AUTOMATION_FLAGS)
+bool FMetricJumpRunwayRequiresLanding::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World, -100.0f, 100.0f, 0.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeTrajectoryState();
+    State.Hull.HullType = EMetricHullType::Capsule;
+    State.Hull.Width = 60.0f;
+    State.Hull.Length = 60.0f;
+    State.Hull.Height = 180.0f;
+    State.TrajectorySettings.bShowTrajectory = false;
+    State.JumpRunwaySettings.bShowJumpRunway = true;
+    State.JumpRunwaySettings.TakeoffRunway = 90.0f;
+    State.JumpRunwaySettings.LandingRunway = 120.0f;
+    State.JumpRunwaySettings.GroundProbeDepth = 150.0f;
+    if (Subsystem) Subsystem->EvaluateJumpRunwayForAutomation(World, State);
+    TestTrue(TEXT("Supported takeoff runway behind the edge passes"), State.JumpRunway.bTakeoffPass);
+    TestFalse(TEXT("Jump runway does not invent a landing when the trajectory has none"), State.JumpRunway.bLandingPass);
+    TestTrue(TEXT("Missing landing reports zero landing runway"), FMath::IsNearlyZero(State.JumpRunway.LandingAvailable));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricJumpRunwayValidLanding, "MetricPlugin.Analysis.JumpRunway.UsesTrajectoryLanding", METRIC_AUTOMATION_FLAGS)
+bool FMetricJumpRunwayValidLanding::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World, 250.0f, 900.0f, 0.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeTrajectoryState();
+    State.JumpRunwaySettings.bShowJumpRunway = true;
+    State.JumpRunwaySettings.TakeoffRunway = 90.0f;
+    State.JumpRunwaySettings.LandingRunway = 120.0f;
+    if (Subsystem) Subsystem->EvaluateJumpRunwayForAutomation(World, State);
+    TestTrue(TEXT("Continuous takeoff runway passes"), State.JumpRunway.bTakeoffPass);
+    TestTrue(TEXT("Landing runway is measured from the real trajectory landing"), State.JumpRunway.bLandingPass);
+    TestTrue(TEXT("Landing runway starts ahead of the takeoff point"), FVector::DotProduct(State.JumpRunway.LandingStartOffset, State.AnalysisForward) > 0.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricRecoveryMissingGround, "MetricPlugin.Analysis.RecoverySpace.UnsupportedGroundFails", METRIC_AUTOMATION_FLAGS)
+bool FMetricRecoveryMissingGround::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World, -250.0f, 300.0f, 0.0f);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.RecoverySpaceSettings.bShowRecoverySpace = true;
+    State.RecoverySpaceSettings.ForwardDistance = 250.0f;
+    State.RecoverySpaceSettings.BackwardDistance = 180.0f;
+    State.RecoverySpaceSettings.SideDistance = 150.0f;
+    if (Subsystem) Subsystem->EvaluateRecoverySpaceForAutomation(World, State);
+    TestFalse(TEXT("Recovery path running off the floor fails"), State.RecoverySpace.bForwardClear);
+    TestFalse(TEXT("Forward recovery identifies unsupported ground"), State.RecoverySpace.bForwardGroundSupported);
+    TestTrue(TEXT("Backward recovery remains supported"), State.RecoverySpace.bBackwardClear && State.RecoverySpace.bBackwardGroundSupported);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricAlternateStanceOccupancy, "MetricPlugin.Analysis.AlternateStance.HullOccupancy", METRIC_AUTOMATION_FLAGS)
+bool FMetricAlternateStanceOccupancy::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World);
+    MetricAutomation::SpawnBox(World, FVector(0.0f, 25.0f, 90.0f), FVector(10.0f, 10.0f, 80.0f), true);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AlternateStanceSettings.bShowAlternateStance = true;
+    State.AlternateStanceSettings.AlternateHeight = 110.0f;
+    if (Subsystem) Subsystem->EvaluateAlternateStanceForAutomation(World, State);
+    TestTrue(TEXT("Centerline height probe alone still sees sufficient headroom"), State.AlternateStance.AvailableHeight >= State.Hull.Height);
+    TestFalse(TEXT("Standing stance fails when geometry intrudes into the hull away from the centerline"), State.AlternateStance.bStandingFits);
+    TestFalse(TEXT("Alternate stance also fails when the intrusion occupies its hull"), State.AlternateStance.bAlternateFits);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricMantleDepthTooLarge, "MetricPlugin.Analysis.MantleVault.DepthTooLargeFails", METRIC_AUTOMATION_FLAGS)
+bool FMetricMantleDepthTooLarge::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnBox(World, FVector(100.0f, 0.0f, 40.0f), FVector(75.0f, 100.0f, 40.0f), true);
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.MantleVaultSettings.bShowMantleVault = true;
+    State.MantleVaultSettings.ForwardReach = 120.0f;
+    State.MantleVaultSettings.MinObstacleHeight = 45.0f;
+    State.MantleVaultSettings.MaxObstacleHeight = 120.0f;
+    State.MantleVaultSettings.MaxObstacleDepth = 60.0f;
+    if (Subsystem) Subsystem->EvaluateMantleVaultForAutomation(World, State);
+    TestTrue(TEXT("Deep mantle fixture finds an obstacle"), State.MantleVault.bHasObstacle);
+    TestTrue(TEXT("Deep obstacle height remains valid"), State.MantleVault.bHeightValid);
+    TestFalse(TEXT("Obstacle continuing beyond maximum mantle depth fails"), State.MantleVault.bDepthValid);
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricInteractionReachLocalOffset, "MetricPlugin.Analysis.InteractionReach.HullLocalOffset", METRIC_AUTOMATION_FLAGS)
+bool FMetricInteractionReachLocalOffset::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.Hull.LocalOffset = FVector(0.0f, 100.0f, 0.0f);
+    State.InteractionReachSettings.bShowInteractionReach = true;
+    State.InteractionReachSettings.ReachDistance = 180.0f;
+    State.InteractionReachSettings.ReachHeight = 130.0f;
+    State.InteractionReachSettings.ProbeRadius = 18.0f;
+    MetricAutomation::SpawnBox(World, FVector(100.0f, 100.0f, 130.0f), FVector(15.0f, 25.0f, 25.0f), true);
+    if (Subsystem) Subsystem->EvaluateInteractionReachForAutomation(World, State);
+    TestTrue(TEXT("Interaction reach is visible"), State.InteractionReach.bVisible);
+    TestTrue(TEXT("Interaction reach follows Hull Local Offset to the target"), State.InteractionReach.bHasTarget);
+    TestTrue(TEXT("Interaction origin contains the hull lateral offset"), FMath::IsNearlyEqual(State.InteractionReach.OriginOffset.Y, 100.0f, 0.5f));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricShoulderClearanceAsymmetricBlock, "MetricPlugin.Analysis.ShoulderClearance.AsymmetricBlock", METRIC_AUTOMATION_FLAGS)
+bool FMetricShoulderClearanceAsymmetricBlock::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.ShoulderClearanceSettings.bShowShoulderClearance = true;
+    State.ShoulderClearanceSettings.PivotHeight = 150.0f;
+    State.ShoulderClearanceSettings.ShoulderOffset = 55.0f;
+    State.ShoulderClearanceSettings.CameraDistance = 300.0f;
+    State.ShoulderClearanceSettings.ProbeRadius = 12.0f;
+    MetricAutomation::SpawnBox(World, FVector(-150.0f, -28.0f, 150.0f), FVector(18.0f, 18.0f, 40.0f), true);
+    if (Subsystem) Subsystem->EvaluateShoulderClearanceForAutomation(World, State);
+    TestTrue(TEXT("Shoulder clearance is visible"), State.ShoulderClearance.bVisible);
+    TestTrue(TEXT("Left shoulder path detects its obstruction"), State.ShoulderClearance.bLeftBlocked);
+    TestFalse(TEXT("Right shoulder path remains clear"), State.ShoulderClearance.bRightBlocked);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricCoverExposurePartialCover, "MetricPlugin.Analysis.CoverExposure.PartialCover", METRIC_AUTOMATION_FLAGS)
+bool FMetricCoverExposurePartialCover::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.CoverExposureSettings.bShowCoverExposure = true;
+    State.CoverExposureSettings.ThreatDistance = 1200.0f;
+    State.CoverExposureSettings.ThreatHeight = 160.0f;
+    State.CoverExposureSettings.LowSampleHeight = 60.0f;
+    State.CoverExposureSettings.TorsoSampleHeight = 120.0f;
+    State.CoverExposureSettings.HeadSampleHeight = 170.0f;
+    MetricAutomation::SpawnBox(World, FVector(600.0f, 0.0f, 75.0f), FVector(25.0f, 120.0f, 75.0f), true);
+    if (Subsystem) Subsystem->EvaluateCoverExposureForAutomation(World, State);
+    TestTrue(TEXT("Cover result is visible"), State.CoverExposure.bVisible);
+    TestTrue(TEXT("Low sample is covered"), State.CoverExposure.bLowCovered);
+    TestTrue(TEXT("Torso sample is covered"), State.CoverExposure.bTorsoCovered);
+    TestFalse(TEXT("Head sample remains exposed"), State.CoverExposure.bHeadCovered);
+    TestTrue(TEXT("Exposure percent reflects one exposed sample"), FMath::IsNearlyEqual(State.CoverExposure.ExposurePercent, 100.0f / 3.0f, 0.5f));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricCrossfireAnalysisFrame, "MetricPlugin.Analysis.Crossfire.AnalysisFrame", METRIC_AUTOMATION_FLAGS)
+bool FMetricCrossfireAnalysisFrame::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisUp = FVector::RightVector;
+    State.AnalysisForward = FVector::ForwardVector;
+    State.AnalysisRight = FVector(0.0f, 0.0f, -1.0f);
+    State.Forward = State.AnalysisForward;
+    State.CrossfireSettings.bShowCrossfire = true;
+    State.CrossfireSettings.DirectionCount = 8;
+    State.CrossfireSettings.ThreatDistance = 600.0f;
+    State.CrossfireSettings.SampleHeight = 130.0f;
+    if (Subsystem) Subsystem->EvaluateCrossfireForAutomation(World, State);
+    TestEqual(TEXT("Crossfire evaluates the requested number of directions"), State.Crossfire.Rays.Num(), 8);
+    bool bAllThreatsRemainInFramePlane = true;
+    for (const FMetricCrossfireRay& Ray : State.Crossfire.Rays)
+    {
+        const FVector PlanarDelta = Ray.EndOffset - State.AnalysisUp * State.CrossfireSettings.SampleHeight;
+        bAllThreatsRemainInFramePlane &= FMath::Abs(FVector::DotProduct(PlanarDelta, State.AnalysisUp)) < 0.5f;
+    }
+    TestTrue(TEXT("Crossfire threat ring lies in the active analysis plane"), bAllThreatsRemainInFramePlane);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricSensorFieldVerticalBands, "MetricPlugin.Analysis.SensorField.VerticalBands", METRIC_AUTOMATION_FLAGS)
+bool FMetricSensorFieldVerticalBands::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.SensorFieldSettings.bShowSensorField = true;
+    State.SensorFieldSettings.Range = 500.0f;
+    State.SensorFieldSettings.HorizontalHalfAngle = 20.0f;
+    State.SensorFieldSettings.VerticalHalfAngle = 30.0f;
+    State.SensorFieldSettings.HorizontalRayCount = 3;
+    State.Sensors.PrimarySensorZOffset = 160.0f;
+    MetricAutomation::SpawnBox(World, FVector(350.0f, 0.0f, -42.0f), FVector(30.0f, 80.0f, 35.0f), true);
+    if (Subsystem) Subsystem->EvaluateSensorFieldForAutomation(World, State);
+    TestEqual(TEXT("Sensor field queries three vertical bands for every horizontal direction"), State.SensorField.TotalRays, 9);
+    TestTrue(TEXT("Vertical boundary ray detects geometry outside the center plane"), State.SensorField.BlockedRays > 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricCameraSightlineAnalysisFrameFallback, "MetricPlugin.Analysis.Camera.SightlineAnalysisFrameFallback", METRIC_AUTOMATION_FLAGS)
+bool FMetricCameraSightlineAnalysisFrameFallback::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisUp = FVector::RightVector;
+    State.AnalysisForward = FVector(1.0f, 0.0f, 1.0f).GetSafeNormal();
+    State.AnalysisRight = FVector::CrossProduct(State.AnalysisUp, State.AnalysisForward).GetSafeNormal();
+    State.Forward = State.AnalysisForward;
+    State.CameraProbe.bVisible = false;
+    State.CameraSightlineSettings.bShowCameraSightline = true;
+    State.CameraSightlineSettings.SubjectZOffset = 140.0f;
+    State.CameraSightlineSettings.TraceRadius = 0.0f;
+    if (Subsystem) Subsystem->EvaluateCameraSightlineForAutomation(World, State);
+    TestTrue(TEXT("Sightline fallback result is visible"), State.CameraSightline.bVisible);
+    const float BackDistance = -FVector::DotProduct(State.CameraSightline.CameraOffset, State.AnalysisForward);
+    TestTrue(TEXT("Fallback camera backs up along the active analysis forward"), FMath::IsNearlyEqual(BackDistance, 350.0f, 1.0f));
+    TestTrue(TEXT("Fallback camera preserves the non-world-XY forward component"), FMath::Abs(State.CameraSightline.CameraOffset.Z) > 200.0f);
     return true;
 }
 
@@ -811,6 +1250,7 @@ bool FMetricInspectionRecoveryEvidence::RunTest(const FString& Parameters)
     MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
     MetricAutomation::FTestWorld TestWorld;
     UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World);
     MetricAutomation::SpawnBox(World, FVector(140.0f, 0.0f, 90.0f), FVector(20.0f, 100.0f, 100.0f), true);
     UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
     FMetricLiveState State = MetricAutomation::MakeAnalysisState();
@@ -970,7 +1410,7 @@ bool FMetricActorProfilePass::RunTest(const FString& Parameters)
     UWorld* World = TestWorld.GetWorld();
     MetricAutomation::SpawnFloor(World, 100.0f, 500.0f, 0.0f);
 
-    UMetricPreset* Profile = NewObject<UMetricPreset>(GetTransientPackage());
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
     Profile->DisplayName = FText::FromString(TEXT("Automation Pass Profile"));
     Profile->Clearance.bShowClearanceProbe = true;
     Profile->Clearance.ProbeDistance = 100.0f;
@@ -1001,7 +1441,7 @@ bool FMetricActorProfileFail::RunTest(const FString& Parameters)
     MetricAutomation::SpawnFloor(World, 100.0f, 500.0f, 0.0f);
     MetricAutomation::SpawnBox(World, FVector(60.0f, 0.0f, 90.0f), FVector(10.0f, 100.0f, 100.0f), true);
 
-    UMetricPreset* Profile = NewObject<UMetricPreset>(GetTransientPackage());
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
     Profile->DisplayName = FText::FromString(TEXT("Automation Fail Profile"));
     Profile->Clearance.bShowClearanceProbe = true;
     Profile->Clearance.ProbeDistance = 150.0f;
@@ -1048,7 +1488,7 @@ bool FMetricActorIndependentFromLiveTool::RunTest(const FString& Parameters)
     UWorld* World = TestWorld.GetWorld();
     MetricAutomation::SpawnFloor(World, 100.0f, 500.0f, 0.0f);
 
-    UMetricPreset* Profile = NewObject<UMetricPreset>(GetTransientPackage());
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
     Profile->DisplayName = FText::FromString(TEXT("Automation Independent Profile"));
     Profile->GroundValidation.bShowGroundValidation = true;
     Profile->GroundValidation.ForwardDistance = 50.0f;
@@ -1072,13 +1512,110 @@ bool FMetricActorIndependentFromLiveTool::RunTest(const FString& Parameters)
 }
 
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricDataModelSchemaV1, "MetricPlugin.DataModel.SchemaV1", METRIC_AUTOMATION_FLAGS)
+bool FMetricDataModelSchemaV1::RunTest(const FString& Parameters)
+{
+    TestEqual(TEXT("Metric public schema version is 1"), static_cast<int32>(FMetricCustomVersion::LatestVersion), 1);
+
+    UStruct* ProjectSettingsStruct = UMetricProjectSettings::StaticClass();
+    TestNotNull(TEXT("Registered Profiles project setting exists"), FindFProperty<FProperty>(ProjectSettingsStruct, TEXT("RegisteredProfiles")));
+    TestNotNull(TEXT("Starter Profile creation setting exists"), FindFProperty<FProperty>(ProjectSettingsStruct, TEXT("bCreateStarterProfileAssetsIfMissing")));
+    TestTrue(TEXT("Old Registered Presets setting is removed"), FindFProperty<FProperty>(ProjectSettingsStruct, TEXT("RegisteredPresets")) == nullptr);
+    TestTrue(TEXT("Old starter preset creation setting is removed"), FindFProperty<FProperty>(ProjectSettingsStruct, TEXT("bCreateStarterPresetAssetsIfMissing")) == nullptr);
+
+    UScriptStruct* TrajectoryStruct = FMetricTrajectorySettings::StaticStruct();
+    TestNotNull(TEXT("Trajectory Guide Rails setting exists"), FindFProperty<FProperty>(TrajectoryStruct, TEXT("bShowTrajectoryGuideRails")));
+    TestNotNull(TEXT("Guide Rail Sample Stride setting exists"), FindFProperty<FProperty>(TrajectoryStruct, TEXT("GuideRailSampleStride")));
+    TestTrue(TEXT("Old Trajectory Envelope setting is removed"), FindFProperty<FProperty>(TrajectoryStruct, TEXT("bShowTrajectoryEnvelope")) == nullptr);
+    TestTrue(TEXT("Old Envelope Sample Stride setting is removed"), FindFProperty<FProperty>(TrajectoryStruct, TEXT("EnvelopeSampleStride")) == nullptr);
+
+    TestTrue(TEXT("Legacy visualization theme migration guard is removed"), FindFProperty<FProperty>(UMetricProfile::StaticClass(), TEXT("VisualizationThemeVersion")) == nullptr);
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricUXAuthoringMetadata, "MetricPlugin.UX.AuthoringMetadata", METRIC_AUTOMATION_FLAGS)
+bool FMetricUXAuthoringMetadata::RunTest(const FString& Parameters)
+{
+    const TArray<UScriptStruct*> AuthoringStructs =
+    {
+        FMetricHullSettings::StaticStruct(),
+        FMetricClearanceSettings::StaticStruct(),
+        FMetricSensorSettings::StaticStruct(),
+        FMetricSensorFieldSettings::StaticStruct(),
+        FMetricRangeSettings::StaticStruct(),
+        FMetricLocomotionSettings::StaticStruct(),
+        FMetricTrajectorySettings::StaticStruct(),
+        FMetricCameraProbeSettings::StaticStruct(),
+        FMetricCameraSightlineSettings::StaticStruct(),
+        FMetricOverheadClearanceSettings::StaticStruct(),
+        FMetricGroundValidationSettings::StaticStruct(),
+        FMetricFitAnalysisSettings::StaticStruct(),
+        FMetricThresholdAnalysisSettings::StaticStruct(),
+        FMetricTurnClearanceSettings::StaticStruct(),
+        FMetricLedgeAnalysisSettings::StaticStruct(),
+        FMetricStoppingDistanceSettings::StaticStruct(),
+        FMetricCoverExposureSettings::StaticStruct(),
+        FMetricJumpRunwaySettings::StaticStruct(),
+        FMetricInteractionReachSettings::StaticStruct(),
+        FMetricShoulderClearanceSettings::StaticStruct(),
+        FMetricCombatDensitySettings::StaticStruct(),
+        FMetricAlternateStanceSettings::StaticStruct(),
+        FMetricMantleVaultSettings::StaticStruct(),
+        FMetricRecoverySpaceSettings::StaticStruct(),
+        FMetricCrossfireSettings::StaticStruct(),
+        FMetricRepresentationSettings::StaticStruct(),
+        FMetricLayerVisibility::StaticStruct()
+    };
+
+    for (UScriptStruct* Struct : AuthoringStructs)
+    {
+        TestNotNull(TEXT("Authoring settings struct exists"), Struct);
+        if (!Struct)
+        {
+            continue;
+        }
+
+        for (TFieldIterator<FProperty> PropertyIt(Struct, EFieldIterationFlags::None); PropertyIt; ++PropertyIt)
+        {
+            FProperty* Property = *PropertyIt;
+            if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit))
+            {
+                continue;
+            }
+
+            const FString Tooltip = Property->GetMetaData(TEXT("ToolTip"));
+            TestTrue(
+                FString::Printf(TEXT("%s.%s has authoring tooltip metadata"), *Struct->GetName(), *Property->GetName()),
+                !Tooltip.TrimStartAndEnd().IsEmpty());
+        }
+    }
+
+    for (TFieldIterator<FProperty> PropertyIt(UMetricProfile::StaticClass(), EFieldIterationFlags::None); PropertyIt; ++PropertyIt)
+    {
+        FProperty* Property = *PropertyIt;
+        if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit))
+        {
+            continue;
+        }
+
+        const FString Tooltip = Property->GetMetaData(TEXT("ToolTip"));
+        TestTrue(
+            FString::Printf(TEXT("Metric Profile.%s has authoring tooltip metadata"), *Property->GetName()),
+            !Tooltip.TrimStartAndEnd().IsEmpty());
+    }
+
+    return true;
+}
+
 static bool RunMetricPerformanceEnvironmentBenchmark(FAutomationTestBase& Test, EMetricEnvironmentSource Source, const TCHAR* Label)
 {
     MetricAutomation::FEnvironmentSourceScope SourceScope(Source);
     MetricAutomation::FTestWorld TestWorld;
     UWorld* World = TestWorld.GetWorld();
     MetricAutomation::BuildPerformanceFixture(World);
-    UMetricPreset* Profile = MetricAutomation::MakePerformanceProfile();
+    UMetricProfile* Profile = MetricAutomation::MakePerformanceProfile();
     UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
     Test.TestNotNull(TEXT("Metric subsystem"), Subsystem);
     if (!Subsystem) return false;
@@ -1087,7 +1624,7 @@ static bool RunMetricPerformanceEnvironmentBenchmark(FAutomationTestBase& Test, 
     for (int32 Index = 0; Index < 60; ++Index)
     {
         FMetricLiveState State;
-        Subsystem->EvaluatePresetAtLocation(World, Profile, FVector::ZeroVector, FVector::ForwardVector, FVector::UpVector, FVector::UpVector, State);
+        Subsystem->EvaluateProfileAtLocation(World, Profile, FVector::ZeroVector, FVector::ForwardVector, FVector::UpVector, FVector::UpVector, State);
     }
     const MetricPerformance::FCaptureSummary Summary = MetricPerformance::EndCapture();
     Test.AddInfo(Summary.ToString());

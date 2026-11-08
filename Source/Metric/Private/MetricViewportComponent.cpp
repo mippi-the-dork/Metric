@@ -659,7 +659,10 @@ public:
 
             if (State.Crossfire.bVisible)
             {
-                const FVector Target = Base + WorldUp * State.CrossfireSettings.SampleHeight;
+                const FVector HullOffset = WorldForward * State.Hull.LocalOffset.X
+                    + WorldRight * State.Hull.LocalOffset.Y
+                    + WorldUp * State.Hull.LocalOffset.Z;
+                const FVector Target = Base + HullOffset + WorldUp * State.CrossfireSettings.SampleHeight;
                 for (const FMetricCrossfireRay& Ray : State.Crossfire.Rays)
                 {
                     const FVector Threat = ProxyLocalToWorld.TransformPosition(Ray.EndOffset);
@@ -722,14 +725,14 @@ public:
                     Prev = Next;
                 }
 
-                if (State.TrajectorySettings.bShowTrajectoryEnvelope)
+                if (State.TrajectorySettings.bShowTrajectoryGuideRails)
                 {
                     FLinearColor EnvelopeColor = ArcColor;
                     EnvelopeColor.A = 0.45f;
                     const FVector EnvelopeRight = WorldRight;
                     const float HalfWidth = FMath::Max(1.0f, State.Hull.Width * 0.5f);
                     const float HalfHeight = FMath::Max(1.0f, State.Hull.Height * 0.5f);
-                    const int32 Stride = FMath::Clamp(State.TrajectorySettings.EnvelopeSampleStride, 1, 12);
+                    const int32 Stride = FMath::Clamp(State.TrajectorySettings.GuideRailSampleStride, 1, 12);
 
                     for (int32 Index = 1; Index < State.Trajectory.SampleOffsets.Num(); ++Index)
                     {
@@ -816,11 +819,11 @@ public:
                 // Requested endpoint stays visible as a crosshair so designers can
                 // compare intended camera position against the compressed position.
                 const float EndMarker = FMath::Max(10.0f, ProbeRadius * 0.8f);
-                PDI->DrawLine(DesiredCamera - FVector::RightVector * EndMarker, DesiredCamera + FVector::RightVector * EndMarker, CameraProbeColor, SDPG_World, 1.0f, 0.0f, true);
+                PDI->DrawLine(DesiredCamera - WorldRight * EndMarker, DesiredCamera + WorldRight * EndMarker, CameraProbeColor, SDPG_World, 1.0f, 0.0f, true);
                 PDI->DrawLine(DesiredCamera - WorldUp * EndMarker, DesiredCamera + WorldUp * EndMarker, CameraProbeColor, SDPG_World, 1.0f, 0.0f, true);
 
                 const float PivotMarker = 12.0f;
-                PDI->DrawLine(Pivot - FVector::RightVector * PivotMarker, Pivot + FVector::RightVector * PivotMarker, CameraProbeColor, SDPG_World, 2.0f, 0.0f, true);
+                PDI->DrawLine(Pivot - WorldRight * PivotMarker, Pivot + WorldRight * PivotMarker, CameraProbeColor, SDPG_World, 2.0f, 0.0f, true);
                 PDI->DrawLine(Pivot - WorldUp * PivotMarker, Pivot + WorldUp * PivotMarker, CameraProbeColor, SDPG_World, 2.0f, 0.0f, true);
 
                 if (State.CameraProbe.bCompressed)
@@ -939,7 +942,7 @@ public:
             {
                 for (const FMetricFitSample& Sample : State.FitAnalysis.Samples)
                 {
-                    const bool bFitFail = Sample.bWidthFail || Sample.bHeightFail || !Sample.bHasFloor;
+                    const bool bFitFail = Sample.bHullBlocked || Sample.bWidthFail || Sample.bHeightFail || !Sample.bHasFloor;
                     const FLinearColor FitColor = bFitFail
                         ? Theme.Fit.Fail
                         : (Sample.bNearThreshold ? Theme.Fit.Tight : Theme.Fit.Pass);
@@ -949,8 +952,8 @@ public:
                     {
                         const FVector P = ProxyLocalToWorld.TransformPosition(Sample.BaseOffset);
                         const float Cross = 10.0f;
-                        PDI->DrawLine(P - FVector::RightVector * Cross, P + FVector::RightVector * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
-                        PDI->DrawLine(P - FVector::ForwardVector * Cross, P + FVector::ForwardVector * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
+                        PDI->DrawLine(P - State.AnalysisRight * Cross, P + State.AnalysisRight * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
+                        PDI->DrawLine(P - State.AnalysisForward * Cross, P + State.AnalysisForward * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
                         continue;
                     }
 
@@ -967,7 +970,13 @@ public:
                     const float Tick = 10.0f;
                     PDI->DrawLine(LeftPoint - WorldUp * Tick, LeftPoint + WorldUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
                     PDI->DrawLine(RightPoint - WorldUp * Tick, RightPoint + WorldUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
-                    PDI->DrawLine(CeilingPoint - FVector::RightVector * Tick, CeilingPoint + FVector::RightVector * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(CeilingPoint - State.AnalysisRight * Tick, CeilingPoint + State.AnalysisRight * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    if (Sample.bHullBlocked)
+                    {
+                        const FVector ImpactPoint = ProxyLocalToWorld.TransformPosition(Sample.HullImpactOffset);
+                        PDI->DrawLine(ImpactPoint - State.AnalysisRight * Tick, ImpactPoint + State.AnalysisRight * Tick, FitColor, SDPG_World, 2.0f, 0.0f, true);
+                        PDI->DrawLine(ImpactPoint - State.AnalysisUp * Tick, ImpactPoint + State.AnalysisUp * Tick, FitColor, SDPG_World, 2.0f, 0.0f, true);
+                    }
                 }
             }
 
@@ -975,7 +984,7 @@ public:
             {
                 for (const FMetricThresholdSample& Sample : State.ThresholdAnalysis.Samples)
                 {
-                    const bool bFail = !Sample.bHasFloor || Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail;
+                    const bool bFail = !Sample.bHasFloor || Sample.bHullBlocked || Sample.bWidthFail || Sample.bHeightFail || Sample.bStepUpFail || Sample.bStepDownFail;
                     const FLinearColor ThresholdColor = bFail
                         ? Theme.Threshold.Fail
                         : (Sample.bNearThreshold ? Theme.Threshold.Tight : Theme.Threshold.Pass);
@@ -985,8 +994,8 @@ public:
                     if (!Sample.bHasFloor)
                     {
                         const float Cross = 12.0f;
-                        PDI->DrawLine(BasePoint - FVector::RightVector * Cross, BasePoint + FVector::RightVector * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
-                        PDI->DrawLine(BasePoint - FVector::ForwardVector * Cross, BasePoint + FVector::ForwardVector * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
+                        PDI->DrawLine(BasePoint - State.AnalysisRight * Cross, BasePoint + State.AnalysisRight * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
+                        PDI->DrawLine(BasePoint - State.AnalysisForward * Cross, BasePoint + State.AnalysisForward * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
                         continue;
                     }
 
@@ -1002,7 +1011,13 @@ public:
                     const float Tick = 12.0f;
                     PDI->DrawLine(LeftPoint - WorldUp * Tick, LeftPoint + WorldUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
                     PDI->DrawLine(RightPoint - WorldUp * Tick, RightPoint + WorldUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
-                    PDI->DrawLine(CeilingPoint - FVector::RightVector * Tick, CeilingPoint + FVector::RightVector * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    PDI->DrawLine(CeilingPoint - State.AnalysisRight * Tick, CeilingPoint + State.AnalysisRight * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    if (Sample.bHullBlocked)
+                    {
+                        const FVector ImpactPoint = ProxyLocalToWorld.TransformPosition(Sample.HullImpactOffset);
+                        PDI->DrawLine(ImpactPoint - State.AnalysisRight * Tick, ImpactPoint + State.AnalysisRight * Tick, ThresholdColor, SDPG_World, 2.5f, 0.0f, true);
+                        PDI->DrawLine(ImpactPoint - State.AnalysisUp * Tick, ImpactPoint + State.AnalysisUp * Tick, ThresholdColor, SDPG_World, 2.5f, 0.0f, true);
+                    }
 
                     if (Sample.bStepUpFail || Sample.bStepDownFail)
                     {

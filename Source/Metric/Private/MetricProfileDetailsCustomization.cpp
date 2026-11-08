@@ -1,6 +1,6 @@
 #include "MetricProfileDetailsCustomization.h"
 
-#include "MetricPreset.h"
+#include "MetricProfile.h"
 #include "MetricProfileEditorToolkit.h"
 #include "DetailCategoryBuilder.h"
 #include "DetailLayoutBuilder.h"
@@ -213,7 +213,7 @@ FMetricProfileDetailsCustomization::FMetricProfileDetailsCustomization(TSharedRe
 
 void FMetricProfileDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
-    for (TFieldIterator<FProperty> It(UMetricPreset::StaticClass(), EFieldIteratorFlags::ExcludeSuper); It; ++It)
+    for (TFieldIterator<FProperty> It(UMetricProfile::StaticClass(), EFieldIteratorFlags::ExcludeSuper); It; ++It)
     {
         DetailBuilder.HideProperty(It->GetFName());
     }
@@ -223,7 +223,7 @@ void FMetricProfileDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& 
         LOCTEXT("ProfileCategory", "Profile"),
         ECategoryPriority::Important);
 
-    TSharedRef<IPropertyHandle> DisplayNameHandle = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UMetricPreset, DisplayName));
+    TSharedRef<IPropertyHandle> DisplayNameHandle = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UMetricProfile, DisplayName));
     if (DisplayNameHandle->IsValidHandle())
     {
         IdentityCategory.AddProperty(DisplayNameHandle);
@@ -245,7 +245,7 @@ void FMetricProfileDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& 
         LOCTEXT("SelectedMetricCategory", "Selected Metric"),
         ECategoryPriority::Important);
 
-    if (State->SelectedProperty == GET_MEMBER_NAME_CHECKED(UMetricPreset, VisualTheme))
+    if (State->SelectedProperty == GET_MEMBER_NAME_CHECKED(UMetricProfile, VisualTheme))
     {
         MetricProfileDetails::BuildVisualizationColors(SettingsCategory, SelectedHandle);
         return;

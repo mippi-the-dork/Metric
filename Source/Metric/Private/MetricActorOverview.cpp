@@ -1,7 +1,7 @@
 #include "MetricActorOverview.h"
 
 #include "MetricActor.h"
-#include "MetricPreset.h"
+#include "MetricProfile.h"
 #include "Editor.h"
 #include "EngineUtils.h"
 #include "Framework/Docking/TabManager.h"
@@ -39,6 +39,15 @@ namespace
         TWeakObjectPtr<AMetricActor> Actor;
     };
 
+    FText GetMetricProfileDisplayName(const UMetricProfile* Profile)
+    {
+        if (!Profile)
+        {
+            return LOCTEXT("NoProfile", "None");
+        }
+        return Profile->DisplayName.IsEmpty() ? FText::FromString(Profile->GetName()) : Profile->DisplayName;
+    }
+
     class SMetricActorOverviewRow : public SMultiColumnTableRow<TSharedPtr<FMetricActorRowData>>
     {
     public:
@@ -60,7 +69,7 @@ namespace
 
             if (ColumnName == "Actor") return SNew(STextBlock).Text(FText::FromString(Actor->GetActorLabel()));
             if (ColumnName == "Enabled") return SNew(STextBlock).Text(Actor->bEnabled ? LOCTEXT("Yes", "Yes") : LOCTEXT("No", "No"));
-            if (ColumnName == "Profile") return SNew(STextBlock).Text(FText::FromString(Actor->Profile ? Actor->Profile->GetName() : TEXT("None")));
+            if (ColumnName == "Profile") return SNew(STextBlock).Text(GetMetricProfileDisplayName(Actor->Profile));
             if (ColumnName == "Result") return SNew(STextBlock).Text(FText::FromString(Actor->GetOverallResultText()));
             if (ColumnName == "Environment")
             {
@@ -107,12 +116,14 @@ namespace
                     [
                         SNew(SSearchBox)
                         .HintText(LOCTEXT("SearchHint", "Search actor, profile, level..."))
+                        .ToolTipText(LOCTEXT("SearchTip", "Filter Metric Actors by Actor label, Metric Profile asset/name, or level."))
                         .OnTextChanged(this, &SMetricActorOverview::OnSearchChanged)
                     ]
                     + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
                     [
                         SNew(SComboButton)
                         .ButtonContent()[SNew(STextBlock).Text(this, &SMetricActorOverview::GetProfileFilterText)]
+                        .ToolTipText(LOCTEXT("ProfileFilterTip", "Limit the Dashboard to Metric Actors using one Metric Profile."))
                         .OnGetMenuContent(this, &SMetricActorOverview::BuildProfileFilterMenu)
                     ]
                     + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
@@ -206,13 +217,14 @@ namespace
         TSharedPtr<STextBlock> SummaryText;
         FString SearchText;
         EMetricOverviewFilter Filter = EMetricOverviewFilter::All;
-        TWeakObjectPtr<UMetricPreset> ProfileFilter;
+        TWeakObjectPtr<UMetricProfile> ProfileFilter;
         TWeakObjectPtr<AMetricActor> SelectedActor;
 
         TSharedRef<SWidget> MakeFilterButton(const FText& Label, EMetricOverviewFilter InFilter)
         {
             return SNew(SButton)
                 .Text(Label)
+                .ToolTipText(FText::Format(LOCTEXT("ResultFilterTip", "Show Metric Actors matching the {0} result filter."), Label))
                 .OnClicked_Lambda([this, InFilter]()
                 {
                     Filter = InFilter;
@@ -269,8 +281,10 @@ namespace
 
                 if (!SearchText.IsEmpty())
                 {
-                    const FString Haystack = FString::Printf(TEXT("%s %s %s"), *Actor->GetActorLabel(),
-                        Actor->Profile ? *Actor->Profile->GetName() : TEXT(""),
+                    const FString ProfileLabel = Actor->Profile ? GetMetricProfileDisplayName(Actor->Profile).ToString() : FString();
+                    const FString ProfileAssetName = Actor->Profile ? Actor->Profile->GetName() : FString();
+                    const FString Haystack = FString::Printf(TEXT("%s %s %s %s"), *Actor->GetActorLabel(),
+                        *ProfileLabel, *ProfileAssetName,
                         Actor->GetLevel() ? *Actor->GetLevel()->GetOuter()->GetName() : TEXT(""));
                     if (!Haystack.Contains(SearchText, ESearchCase::IgnoreCase)) continue;
                 }
@@ -303,7 +317,7 @@ namespace
         FText GetProfileFilterText() const
         {
             return ProfileFilter.IsValid()
-                ? FText::FromString(FString::Printf(TEXT("Profile: %s"), *ProfileFilter->GetName()))
+                ? FText::Format(LOCTEXT("ProfileFilterActive", "Profile: {0}"), GetMetricProfileDisplayName(ProfileFilter.Get()))
                 : LOCTEXT("AllProfiles", "Profile: All");
         }
 
@@ -313,7 +327,7 @@ namespace
             MenuBuilder.AddMenuEntry(LOCTEXT("ProfileAll", "All Profiles"), FText::GetEmpty(), FSlateIcon(),
                 FUIAction(FExecuteAction::CreateLambda([this](){ ProfileFilter.Reset(); ApplyFilter(); })));
 
-            TSet<UMetricPreset*> Profiles;
+            TSet<UMetricProfile*> Profiles;
             for (const auto& Row : AllRows)
             {
                 if (AMetricActor* Actor = Row.IsValid() ? Row->Actor.Get() : nullptr)
@@ -321,11 +335,14 @@ namespace
                     if (Actor->Profile) Profiles.Add(Actor->Profile);
                 }
             }
-            TArray<UMetricPreset*> Sorted = Profiles.Array();
-            Sorted.Sort([](const UMetricPreset& A, const UMetricPreset& B){ return A.GetName() < B.GetName(); });
-            for (UMetricPreset* Profile : Sorted)
+            TArray<UMetricProfile*> Sorted = Profiles.Array();
+            Sorted.Sort([](const UMetricProfile& A, const UMetricProfile& B)
             {
-                MenuBuilder.AddMenuEntry(FText::FromString(Profile->GetName()), FText::GetEmpty(), FSlateIcon(),
+                return GetMetricProfileDisplayName(&A).ToString() < GetMetricProfileDisplayName(&B).ToString();
+            });
+            for (UMetricProfile* Profile : Sorted)
+            {
+                MenuBuilder.AddMenuEntry(GetMetricProfileDisplayName(Profile), FText::FromString(Profile->GetPathName()), FSlateIcon(),
                     FUIAction(FExecuteAction::CreateLambda([this, Profile](){ ProfileFilter = Profile; ApplyFilter(); })));
             }
             return MenuBuilder.MakeWidget();
@@ -336,7 +353,15 @@ namespace
             const AMetricActor* Actor = SelectedActor.Get();
             if (!Actor)
             {
-                return LOCTEXT("SelectForBreakdown", "Select a Metric Actor to see its analysis breakdown.");
+                if (AllRows.IsEmpty())
+                {
+                    return LOCTEXT("NoMetricActors", "No Metric Actors are present in the current editor world. Place a Metric Actor to add persistent spatial validation to the level.");
+                }
+                if (FilteredRows.IsEmpty())
+                {
+                    return LOCTEXT("NoMatchingMetricActors", "No Metric Actors match the current search and filters.");
+                }
+                return LOCTEXT("SelectForBreakdown", "Select a Metric Actor to see its analysis breakdown. Double-click a row to frame that Actor in the viewport.");
             }
 
             FString Text = FString::Printf(TEXT("%s | %s\n%s"), *Actor->GetActorLabel(), *Actor->GetOverallResultText(), *Actor->ResultSummary);

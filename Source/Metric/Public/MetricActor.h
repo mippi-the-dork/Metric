@@ -7,7 +7,7 @@
 #include "MetricActor.generated.h"
 
 class UBillboardComponent;
-class UMetricPreset;
+class UMetricProfile;
 class UMetricViewportComponent;
 
 UENUM()
@@ -40,7 +40,7 @@ public:
     bool bEnabled = true;
 
     UPROPERTY(EditAnywhere, Category = "Metric", meta = (DisplayPriority = "2", ToolTip = "Metric Profile evaluated at this Actor location. The profile defines the gameplay dimensions, thresholds, and analysis layers used by this Actor."))
-    TObjectPtr<UMetricPreset> Profile;
+    TObjectPtr<UMetricProfile> Profile;
 
     UPROPERTY(EditAnywhere, Category = "Metric", meta = (DisplayPriority = "3", ToolTip = "Controls when this Actor re-evaluates. On Relevant Change updates after meaningful editor changes, Continuous evaluates every editor tick, and Manual evaluates only when Recalculate Metric is pressed."))
     EMetricActorUpdateMode UpdateMode = EMetricActorUpdateMode::OnRelevantChange;
