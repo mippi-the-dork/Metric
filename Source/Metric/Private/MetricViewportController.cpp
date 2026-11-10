@@ -456,6 +456,7 @@ void FMetricViewportController::Tick(float DeltaTime)
     const int32 CurrentEntryIndex = MetricSubsystem->GetActiveIndex();
     const uint8 CurrentEnvironmentSource = static_cast<uint8>(EditorSettings ? EditorSettings->EnvironmentSource : EMetricEnvironmentSource::Collision);
     const uint8 CurrentFrameMode = static_cast<uint8>(EditorSettings ? EditorSettings->AnalysisFrame : EMetricAnalysisFrameMode::World);
+    const uint8 CurrentFrameSampling = static_cast<uint8>(EditorSettings ? EditorSettings->FrameSampling : EMetricFrameSamplingPolicy::FixedAtOrigin);
     const bool bCurrentLiveAnalysisEnabled = !EditorSettings || EditorSettings->bShowLiveVisualizer;
 
     // With Live Analysis paused and no selected benchmark, mouse/camera movement
@@ -470,6 +471,7 @@ void FMetricViewportController::Tick(float DeltaTime)
             || CurrentEntryIndex != LastAnalysisEntryIndex
             || CurrentEnvironmentSource != LastAnalysisEnvironmentSource
             || CurrentFrameMode != LastAnalysisFrameMode
+            || CurrentFrameSampling != LastFrameSamplingPolicy
             || bLastLiveAnalysisEnabled;
 
         if (bDisabledContextChanged)
@@ -480,6 +482,7 @@ void FMetricViewportController::Tick(float DeltaTime)
             LastAnalysisEntryIndex = CurrentEntryIndex;
             LastAnalysisEnvironmentSource = CurrentEnvironmentSource;
             LastAnalysisFrameMode = CurrentFrameMode;
+            LastFrameSamplingPolicy = CurrentFrameSampling;
             bLastLiveAnalysisEnabled = false;
             LastAnalysisWorld = World;
             bHasLiveAnalysisSample = true;
@@ -498,6 +501,7 @@ void FMetricViewportController::Tick(float DeltaTime)
         || CurrentEntryIndex != LastAnalysisEntryIndex
         || CurrentEnvironmentSource != LastAnalysisEnvironmentSource
         || CurrentFrameMode != LastAnalysisFrameMode
+        || CurrentFrameSampling != LastFrameSamplingPolicy
         || bCurrentLiveAnalysisEnabled != bLastLiveAnalysisEnabled;
 
     if (!bAnalysisInputChanged)
@@ -523,6 +527,7 @@ void FMetricViewportController::Tick(float DeltaTime)
     LastAnalysisEntryIndex = CurrentEntryIndex;
     LastAnalysisEnvironmentSource = CurrentEnvironmentSource;
     LastAnalysisFrameMode = CurrentFrameMode;
+    LastFrameSamplingPolicy = CurrentFrameSampling;
     bLastLiveAnalysisEnabled = bCurrentLiveAnalysisEnabled;
     LastAnalysisWorld = World;
     bHasLiveAnalysisSample = true;
@@ -576,11 +581,24 @@ void FMetricViewportController::Tick(float DeltaTime)
         State.SurfaceNormal = Hit.ImpactNormal.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
 
         const EMetricAnalysisFrameMode FrameMode = EditorSettings ? EditorSettings->AnalysisFrame : EMetricAnalysisFrameMode::World;
-        const FVector CustomUp = EditorSettings ? EditorSettings->CustomAnalysisUp : FVector::UpVector;
+        FVector RequestedUp = EditorSettings ? EditorSettings->CustomAnalysisUp : FVector::UpVector;
+        float GravityMagnitude = 0.0f;
+        if (FrameMode == EMetricAnalysisFrameMode::Provider)
+        {
+            if (!MetricFrameUtils::TryResolveProviderGravity(World, State.Location, nullptr, RequestedUp, GravityMagnitude))
+            {
+                RequestedUp = FVector::UpVector;
+                GravityMagnitude = FMath::Abs(World->GetGravityZ());
+            }
+        }
         const FMetricAnalysisBasis Basis = MetricFrameUtils::BuildAnalysisBasis(
-            FrameMode, State.SurfaceNormal, CustomUp, ViewportClient->GetViewRotation().Vector());
+            FrameMode, State.SurfaceNormal, RequestedUp, ViewportClient->GetViewRotation().Vector());
 
         State.AnalysisUp = Basis.Up;
+        State.AnalysisFrameMode = FrameMode;
+        State.FrameSampling = EditorSettings ? EditorSettings->FrameSampling : EMetricFrameSamplingPolicy::FixedAtOrigin;
+        State.AnalysisGravityMagnitude = GravityMagnitude;
+        State.AnalysisContextActor = nullptr;
         State.AnalysisForward = Basis.Forward;
         State.AnalysisRight = Basis.Right;
         State.Forward = Basis.Forward;

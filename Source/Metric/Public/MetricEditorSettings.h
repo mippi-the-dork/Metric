@@ -27,14 +27,6 @@ enum class EMetricEnvironmentSource : uint8
 };
 
 UENUM()
-enum class EMetricAnalysisFrameMode : uint8
-{
-    World UMETA(DisplayName = "World Up", ToolTip = "Use conventional world +Z as Metric Up."),
-    SurfaceNormal UMETA(DisplayName = "Surface Normal", ToolTip = "Use the placement surface normal as Metric Up for non-horizontal traversal and curved spaces."),
-    CustomUp UMETA(DisplayName = "Custom Up", ToolTip = "Use the configured custom world-space direction as Metric Up.")
-};
-
-UENUM()
 enum class EMetricHUDViewportTargeting : uint8
 {
     FollowLastInteracted UMETA(DisplayName = "Follow Last Interacted Viewport"),
@@ -79,6 +71,15 @@ struct FMetricPersistentBenchmark
 
     UPROPERTY()
     FVector AnalysisUp = FVector::UpVector;
+
+    UPROPERTY()
+    EMetricAnalysisFrameMode AnalysisFrameMode = EMetricAnalysisFrameMode::World;
+
+    UPROPERTY()
+    EMetricFrameSamplingPolicy FrameSampling = EMetricFrameSamplingPolicy::FixedAtOrigin;
+
+    UPROPERTY()
+    float AnalysisGravityMagnitude = 0.0f;
 
     UPROPERTY()
     FMetricClearanceSettings ClearanceSettings;
@@ -175,8 +176,11 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Environment Source", ToolTip = "Collision uses authored collision only. Hybrid supplements collision-disabled visible primitives with approximate editor bounds. Visual Geometry uses approximate editor-visible primitive bounds and does not require authored collision."))
     EMetricEnvironmentSource EnvironmentSource = EMetricEnvironmentSource::Collision;
 
-    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Analysis Frame", ToolTip = "Controls the Up direction used by spatial analyses. World Up preserves conventional horizon-locked behavior. Surface Normal aligns Metric to the placement surface. Custom Up uses the configured direction."))
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Analysis Frame", ToolTip = "Controls the Up direction used by spatial analyses. World Up preserves conventional horizon-locked behavior. Surface Normal aligns Metric to the placement surface. Custom Up uses the configured direction. Gravity / Provider asks the configured Metric Gravity Provider for Up and magnitude at the analysis location."))
     EMetricAnalysisFrameMode AnalysisFrame = EMetricAnalysisFrameMode::World;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Frame Sampling", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal || AnalysisFrame == EMetricAnalysisFrameMode::Provider", ToolTip = "Fixed at Origin resolves Up once. Resample Along Analysis re-evaluates Surface Normal or Gravity / Provider as spatial analyses move through the world."))
+    EMetricFrameSamplingPolicy FrameSampling = EMetricFrameSamplingPolicy::FixedAtOrigin;
 
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (DisplayName = "Custom Up Direction", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::CustomUp", ToolTip = "World-space Up direction used by Live Metric when Analysis Frame is Custom Up. Zero-length values fall back to World Up."))
     FVector CustomAnalysisUp = FVector::UpVector;

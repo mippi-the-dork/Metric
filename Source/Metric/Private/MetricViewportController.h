@@ -49,6 +49,7 @@ private:
     int32 LastAnalysisEntryIndex = INDEX_NONE;
     uint8 LastAnalysisEnvironmentSource = 255;
     uint8 LastAnalysisFrameMode = 255;
+    uint8 LastFrameSamplingPolicy = 255;
     bool bLastLiveAnalysisEnabled = false;
     TWeakObjectPtr<UWorld> LastAnalysisWorld;
     bool bHasLiveAnalysisSample = false;

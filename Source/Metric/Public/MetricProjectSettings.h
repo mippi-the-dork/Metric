@@ -6,6 +6,7 @@
 #include "MetricProjectSettings.generated.h"
 
 class UMetricProfile;
+class UMetricGravityProvider;
 class AActor;
 class UActorComponent;
 
@@ -37,6 +38,9 @@ public:
 
     UPROPERTY(Config, EditAnywhere, Category = "Queries", meta = (ClampMin = "1000.0", Units = "cm", ToolTip = "Maximum distance of the cursor placement trace used to find a Metric evaluation point."))
     float PlacementTraceDistance = 1000000.0f;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Analysis Frame", meta = (DisplayName = "Gravity Provider", ToolTip = "Optional Blueprint or C++ gravity adapter used by Gravity / Provider analysis frames. Derive from Metric Gravity Provider and implement the single Sample Gravity for Metric function. Metric and the gravity system remain independent of one another."))
+    TSoftClassPtr<UMetricGravityProvider> GravityProviderClass;
 
     // Shared persistent project exclusion policy. Explicit Actor/Component
     // instance exclusions are intentionally session + world scoped and are not

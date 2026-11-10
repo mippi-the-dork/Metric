@@ -89,6 +89,37 @@ namespace MetricOverlay
         Add(LOCTEXT("FrameWorldMenu", "World Up"), LOCTEXT("FrameWorldTip", "Use conventional world +Z as Metric Up."), EMetricAnalysisFrameMode::World);
         Add(LOCTEXT("FrameSurfaceMenu", "Surface Normal"), LOCTEXT("FrameSurfaceTip", "Align Metric Up to the placement surface normal. Useful for wall-crawling, curved worlds and non-horizontal traversal."), EMetricAnalysisFrameMode::SurfaceNormal);
         Add(LOCTEXT("FrameCustomMenu", "Custom Up"), LOCTEXT("FrameCustomTip", "Use Metric User Settings > Queries > Custom Up Direction as the analysis Up axis."), EMetricAnalysisFrameMode::CustomUp);
+        Add(LOCTEXT("FrameProviderMenu", "Gravity / Provider"), LOCTEXT("FrameProviderTip", "Ask the configured Metric gravity provider for Up and gravity magnitude at the Metric location. Falls back to World Up when it does not resolve the location."), EMetricAnalysisFrameMode::Provider);
+
+        MenuBuilder.AddMenuSeparator();
+        auto AddSampling = [&MenuBuilder](const FText& Label, const FText& Tip, EMetricFrameSamplingPolicy Value)
+        {
+            MenuBuilder.AddMenuEntry(
+                Label, Tip, FSlateIcon(),
+                FUIAction(
+                    FExecuteAction::CreateLambda([Value]()
+                    {
+                        if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+                        {
+                            Settings->FrameSampling = Value;
+                            Settings->SaveConfig();
+                        }
+                    }),
+                    FCanExecuteAction::CreateLambda([]()
+                    {
+                        const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                        return Settings && (Settings->AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal
+                            || Settings->AnalysisFrame == EMetricAnalysisFrameMode::Provider);
+                    }),
+                    FIsActionChecked::CreateLambda([Value]()
+                    {
+                        const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                        return Settings && Settings->FrameSampling == Value;
+                    })),
+                NAME_None, EUserInterfaceActionType::RadioButton);
+        };
+        AddSampling(LOCTEXT("FrameFixedMenu", "Sampling: Fixed at Origin"), LOCTEXT("FrameFixedTip", "Resolve the active frame source once at the Metric origin and keep it fixed."), EMetricFrameSamplingPolicy::FixedAtOrigin);
+        AddSampling(LOCTEXT("FrameResampleMenu", "Sampling: Resample Along Analysis"), LOCTEXT("FrameResampleTip", "Re-evaluate Surface Normal or Gravity / Provider as spatial analyses move through the world."), EMetricFrameSamplingPolicy::ResampleAlongAnalysis);
         return MenuBuilder.MakeWidget();
     }
 
@@ -161,6 +192,13 @@ namespace MetricOverlay
         Sightline,
         Count
     };
+
+    static FMetricLayerVisibility GetEffectiveLiveVisibility(const FMetricLiveState& State, const UMetricEditorSettings* Settings)
+    {
+        FMetricLayerVisibility Visibility = Settings ? Settings->LiveVisibility : FMetricLayerVisibility();
+        Visibility.IntersectWith(State.ProfileVisibility);
+        return Visibility;
+    }
 
     struct FLayerDesc
     {
@@ -799,7 +837,7 @@ namespace MetricOverlay
         const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
         if (!Subsystem || !Settings || !Subsystem->IsMetricActive()) return FString();
         const FMetricLiveState& State = Subsystem->GetLiveState();
-        const FMetricLayerVisibility& V = Settings->LiveVisibility;
+        const FMetricLayerVisibility V = GetEffectiveLiveVisibility(State, Settings);
         if (!ShouldShowLiveResultRow(State, V, LayerIndex)) return FString();
         switch (static_cast<ELayer>(LayerIndex))
         {
@@ -1239,7 +1277,9 @@ void SMetricViewportOverlay::Rebuild()
     bLastLegendVisible = Settings ? Settings->bShowLegend : true;
     bLastHUDMinimized = Settings ? Settings->bHUDMinimized : false;
     bLastLiveVisualizerEnabled = Settings ? Settings->bShowLiveVisualizer : true;
-    LastLiveSummary = (Subsystem && Settings) ? MetricOverlay::ResultSummary(Subsystem->GetLiveState(), Settings->LiveVisibility) : FString();
+    LastLiveSummary = (Subsystem && Settings)
+        ? MetricOverlay::ResultSummary(Subsystem->GetLiveState(), MetricOverlay::GetEffectiveLiveVisibility(Subsystem->GetLiveState(), Settings))
+        : FString();
     LastProfileLabel = Subsystem ? Subsystem->GetLiveState().Label.ToString() : FString();
     LastPinnedSummary.Reset();
     if (Subsystem)
@@ -1665,6 +1705,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
                 {
                 case EMetricAnalysisFrameMode::SurfaceNormal: return LOCTEXT("FrameSurface", "Surface Normal");
                 case EMetricAnalysisFrameMode::CustomUp: return LOCTEXT("FrameCustom", "Custom Up");
+                case EMetricAnalysisFrameMode::Provider: return LOCTEXT("FrameProvider", "Gravity / Provider");
                 default: return LOCTEXT("FrameWorld", "World Up");
                 }
             })
@@ -1679,7 +1720,18 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
         {
             const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
             if (!Settings || Settings->AnalysisFrame == EMetricAnalysisFrameMode::World) return LOCTEXT("FrameWorldDesc", "Horizon-locked analysis using world +Z.");
-            if (Settings->AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal) return LOCTEXT("FrameSurfaceDesc", "Metric Up follows the current placement surface normal.");
+            if (Settings->AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal)
+            {
+                return Settings->FrameSampling == EMetricFrameSamplingPolicy::ResampleAlongAnalysis
+                    ? LOCTEXT("FrameSurfaceFollowDesc", "Metric starts from the placement normal and re-samples surface orientation as traversal analyses move through space.")
+                    : LOCTEXT("FrameSurfaceDesc", "Metric Up uses the placement surface normal as a fixed frame.");
+            }
+            if (Settings->AnalysisFrame == EMetricAnalysisFrameMode::Provider)
+            {
+                return Settings->FrameSampling == EMetricFrameSamplingPolicy::ResampleAlongAnalysis
+                    ? LOCTEXT("FrameProviderResampleDesc", "Metric re-samples the configured gravity provider at relevant spatial samples; World Up is the fallback when the provider does not resolve a location.")
+                    : LOCTEXT("FrameProviderDesc", "Metric samples the configured gravity provider at the analysis origin and keeps that frame fixed.");
+            }
             return FText::Format(LOCTEXT("FrameCustomDesc", "Custom Up: {0}"), FText::FromString(Settings->CustomAnalysisUp.ToCompactString()));
         })
         .AutoWrapText(true)
@@ -1875,7 +1927,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
         Box->AddSlot().AutoHeight().Padding(8,0,8,5)
         [
             SNew(STextBlock)
-            .Text(LOCTEXT("LiveVisibilityExplanation", "Profile controls analysis. This panel controls what the Live Metric draws and reports. Environment, frame and inspection options live under the Setup menu."))
+            .Text(LOCTEXT("LiveVisibilityExplanation", "The Metric Profile owns analysis enablement plus HUD and Visualizer defaults. View Presets and Quick Visibility are temporary presentation filters and cannot re-enable output hidden by the Profile. Environment, frame and inspection options live under Setup."))
             .AutoWrapText(true)
             .Font(FAppStyle::GetFontStyle("SmallFont"))
             .ColorAndOpacity(FSlateColor::UseSubduedForeground())
@@ -2057,7 +2109,12 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
                 .IsEnabled_Lambda([Index, bForBenchmark]()
                 {
                     if (bForBenchmark) return true;
-                    if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem()) return MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index);
+                    if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+                    {
+                        const FMetricLiveState& State = Subsystem->GetLiveState();
+                        return MetricOverlay::IsLayerEnabledByProfile(State, Index)
+                            && MetricOverlay::GetVisibilityFlag(State.ProfileVisibility, Index, true);
+                    }
                     return false;
                 })
                 .ToolTipText_Lambda([Index, bForBenchmark]()
@@ -2066,9 +2123,14 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
                     {
                         if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
                         {
-                            if (!MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index))
+                            const FMetricLiveState& State = Subsystem->GetLiveState();
+                            if (!MetricOverlay::IsLayerEnabledByProfile(State, Index))
                             {
                                 return LOCTEXT("ProfileDisabledVisualTip", "This analysis is Off in the active Metric Profile. Enable it in the Metric Profile Editor before controlling its viewport visibility.");
+                            }
+                            if (!MetricOverlay::GetVisibilityFlag(State.ProfileVisibility, Index, true))
+                            {
+                                return LOCTEXT("ProfileVisualizerHiddenTip", "Visualizer output is Off for this analysis in the active Metric Profile. Change the Profile's Visualizer checkbox to allow temporary display filters to show it.");
                             }
                         }
                     }
@@ -2083,7 +2145,12 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
                 .IsEnabled_Lambda([Index, bForBenchmark]()
                 {
                     if (bForBenchmark) return true;
-                    if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem()) return MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index);
+                    if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+                    {
+                        const FMetricLiveState& State = Subsystem->GetLiveState();
+                        return MetricOverlay::IsLayerEnabledByProfile(State, Index)
+                            && MetricOverlay::GetVisibilityFlag(State.ProfileVisibility, Index, false);
+                    }
                     return false;
                 })
                 .ToolTipText_Lambda([Index, bForBenchmark]()
@@ -2092,9 +2159,14 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildVisibilityMenu(bool bForBenchma
                     {
                         if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
                         {
-                            if (!MetricOverlay::IsLayerEnabledByProfile(Subsystem->GetLiveState(), Index))
+                            const FMetricLiveState& State = Subsystem->GetLiveState();
+                            if (!MetricOverlay::IsLayerEnabledByProfile(State, Index))
                             {
                                 return LOCTEXT("ProfileDisabledResultsTip", "This analysis is Off in the active Metric Profile. Enable it in the Metric Profile Editor before controlling its HUD results.");
+                            }
+                            if (!MetricOverlay::GetVisibilityFlag(State.ProfileVisibility, Index, false))
+                            {
+                                return LOCTEXT("ProfileHUDHiddenTip", "HUD output is Off for this analysis in the active Metric Profile. Change the Profile's HUD checkbox to allow temporary display filters to show it.");
                             }
                         }
                     }
@@ -2149,7 +2221,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLegendContent()
     }
 
     const FMetricLiveState& LiveState = Subsystem->GetLiveState();
-    const FMetricLayerVisibility& LiveVisibility = Settings->LiveVisibility;
+    const FMetricLayerVisibility LiveVisibility = MetricOverlay::GetEffectiveLiveVisibility(LiveState, Settings);
     const FMetricPinnedBenchmark* Pin = Subsystem->GetPinnedBenchmark(Subsystem->GetSelectedPinnedBenchmarkIndex());
     const FMetricLiveState* PinState = Subsystem->GetSelectedPinnedEvaluatedState();
 
@@ -2219,7 +2291,9 @@ FText SMetricViewportOverlay::BuildSummaryText() const
 {
     UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
-    return (Subsystem && Settings) ? FText::FromString(MetricOverlay::ResultSummary(Subsystem->GetLiveState(), Settings->LiveVisibility)) : FText::GetEmpty();
+    return (Subsystem && Settings)
+        ? FText::FromString(MetricOverlay::ResultSummary(Subsystem->GetLiveState(), MetricOverlay::GetEffectiveLiveVisibility(Subsystem->GetLiveState(), Settings)))
+        : FText::GetEmpty();
 }
 
 FText SMetricViewportOverlay::BuildBenchmarkSelectionText() const
@@ -2331,7 +2405,13 @@ ECheckBoxState SMetricViewportOverlay::GetVisibilityCheckedState(int32 LayerInde
         return ECheckBoxState::Unchecked;
     }
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
-    return (!Settings || MetricOverlay::GetVisibilityFlag(Settings->LiveVisibility, LayerIndex, bVisual)) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+    if (!Settings) return ECheckBoxState::Checked;
+    bool bVisible = MetricOverlay::GetVisibilityFlag(Settings->LiveVisibility, LayerIndex, bVisual);
+    if (UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
+    {
+        bVisible = bVisible && MetricOverlay::GetVisibilityFlag(Subsystem->GetLiveState().ProfileVisibility, LayerIndex, bVisual);
+    }
+    return bVisible ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
 void SMetricViewportOverlay::OnVisibilityChanged(ECheckBoxState NewState, int32 LayerIndex, bool bVisual, bool bForBenchmark)

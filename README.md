@@ -2,6 +2,10 @@
 
 Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the Vista Viewport Suite. It gives level designers configurable, approximation-oriented measurements for scale, traversal, clearance, movement, camera behavior, combat space, and persistent benchmark comparison directly in the Level Editor viewport.
 
+## Quick Start
+
+Create **Metric Profile** and **Metric View Preset** assets directly from the Content Browser **Add** menu by searching for `Metric`. A Metric Profile owns analysis parameters, analysis enablement, HUD defaults, Visualizer defaults, and visualization colors. View Presets are optional presentation-only filters. See `Doc/QUICK_START.md`.
+
 
 
 
@@ -64,7 +68,7 @@ Live Metric HUD result labels and Live Display layer names are direct authoring 
 
 Double-click a Metric Profile asset to open the dedicated Metric Profile Editor. Metric is still pre-1.0 and currently has no external compatibility burden, so the 1.0 data model is being cleaned in place rather than carrying migration aliases for internal development assets. Features are grouped by design task, and only the selected feature's settings are shown at once. See `Doc/Metric-Profile-Editor.md`.
 
-The Profile Editor controls whether an analysis runs for that Metric Profile. Display Options and Metric View Presets remain presentation-only controls for enabled analyses.
+The Profile Editor owns three independent per-analysis decisions: **Enabled** controls whether the analysis runs, **HUD** controls its result text, and **Visualizer** controls its world-space drawing. Analysis parameters remain editable while the analysis is Off. Display Options and Metric View Presets are temporary presentation filters layered on top of those Profile defaults.
 
 The Profile Editor also provides feature search, category-level On/Off actions, and advisory profile validation. Validation highlights contradictory or suspicious authored values in the relevant feature without silently changing the asset.
 
@@ -72,7 +76,7 @@ The Profile Editor also provides feature search, category-level On/Off actions, 
 
 Use **Display Options** in the viewport HUD to apply one of Metric's built-in focus views or any project-authored **Metric View Preset** Data Asset. View Presets control only the per-layer **Visual** and **Results** masks. They never modify the active Metric Profile's measurement values.
 
-To share a custom view with a team, create a Data Asset using the `MetricViewPreset` class, configure its visibility mask, and commit the asset to source control. Metric discovers project-authored View Presets automatically. See `Doc/View-Presets.md`.
+To share a custom view with a team, use **Content Browser > Add**, search for **Metric**, and choose **Metric View Preset**. Configure its visibility mask and commit the asset to source control. Metric discovers project-authored View Presets automatically. See `Doc/View-Presets.md`.
 
 ## 0.22.0 Stopping Distance
 
@@ -681,7 +685,7 @@ Live Metric can evaluate the level through three environment sources:
 Environment Source is available directly from Live Metric Display Options and from Metric user settings. Geometry exclusions apply consistently in every mode.
 
 ### Non-world-aligned analysis
-Metric can use World Up, the placement Surface Normal, or a Custom Up direction as its analysis frame. Directional spatial tests and trajectory calculations follow that frame, allowing Metric to evaluate wall-crawling and variable-orientation gameplay spaces without assuming a horizontal world.
+Metric can use World Up, the placement Surface Normal, a Custom Up direction, or a Gravity / Provider source as its analysis frame. Frame Source is separate from Frame Sampling: **Fixed at Origin** captures the frame once, while **Resample Along Analysis** re-evaluates Surface Normal or the configured gravity provider as Metric moves through space. Gravity integrations derive from the Blueprintable `UMetricGravityProvider` contract and implement one `Sample Gravity for Metric` function that receives a world location and returns Up, gravity magnitude, and validity. Metric does not depend on Orbit or any other gravity plugin.
 
 ### Jump Envelope
 Trajectory analysis supports a single arc, a sampled Jump Envelope, or an Animated Envelope. Envelope arcs vary horizontal launch contribution while preserving vertical launch capability, can land below the launch surface, and report valid landing coverage across the sampled family.

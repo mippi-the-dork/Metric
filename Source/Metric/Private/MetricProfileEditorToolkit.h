@@ -77,6 +77,9 @@ private:
     bool IsSectionSelected(FName PropertyName) const;
     bool IsSectionEnabled(FName PropertyName) const;
     void SetSectionEnabled(FName PropertyName, bool bEnabled);
+    bool HasSectionPresentationControls(FName PropertyName) const;
+    bool IsSectionPresentationVisible(FName PropertyName, bool bVisualizer) const;
+    void SetSectionPresentationVisible(FName PropertyName, bool bVisualizer, bool bVisible);
     bool SetSectionEnabledValue(FName PropertyName, bool bEnabled);
     void SetGroupEnabled(const FText& Group, bool bEnabled);
     bool GroupHasToggleableSections(const FText& Group) const;

@@ -13,6 +13,39 @@
 
 namespace MetricProfileDetails
 {
+    static FName EnablePropertyForSection(FName SectionProperty)
+    {
+#define METRIC_ENABLE_PROPERTY(ProfileProperty, SettingsStruct, EnableField) \
+        if (SectionProperty == GET_MEMBER_NAME_CHECKED(UMetricProfile, ProfileProperty)) return GET_MEMBER_NAME_CHECKED(SettingsStruct, EnableField)
+        METRIC_ENABLE_PROPERTY(Clearance, FMetricClearanceSettings, bShowClearanceProbe);
+        METRIC_ENABLE_PROPERTY(OverheadClearance, FMetricOverheadClearanceSettings, bShowOverheadClearance);
+        METRIC_ENABLE_PROPERTY(Sensors, FMetricSensorSettings, bShowSensorHeights);
+        METRIC_ENABLE_PROPERTY(SensorField, FMetricSensorFieldSettings, bShowSensorField);
+        METRIC_ENABLE_PROPERTY(EngagementRanges, FMetricRangeSettings, bShowEngagementRanges);
+        METRIC_ENABLE_PROPERTY(LocomotionBands, FMetricLocomotionSettings, bShowLocomotionBands);
+        METRIC_ENABLE_PROPERTY(Trajectory, FMetricTrajectorySettings, bShowTrajectory);
+        METRIC_ENABLE_PROPERTY(CameraProbe, FMetricCameraProbeSettings, bShowCameraProbe);
+        METRIC_ENABLE_PROPERTY(CameraSightline, FMetricCameraSightlineSettings, bShowCameraSightline);
+        METRIC_ENABLE_PROPERTY(GroundValidation, FMetricGroundValidationSettings, bShowGroundValidation);
+        METRIC_ENABLE_PROPERTY(FitAnalysis, FMetricFitAnalysisSettings, bShowFitAnalysis);
+        METRIC_ENABLE_PROPERTY(ThresholdAnalysis, FMetricThresholdAnalysisSettings, bShowThresholdAnalysis);
+        METRIC_ENABLE_PROPERTY(TurnClearance, FMetricTurnClearanceSettings, bShowTurnClearance);
+        METRIC_ENABLE_PROPERTY(LedgeAnalysis, FMetricLedgeAnalysisSettings, bShowLedgeAnalysis);
+        METRIC_ENABLE_PROPERTY(StoppingDistance, FMetricStoppingDistanceSettings, bShowStoppingDistance);
+        METRIC_ENABLE_PROPERTY(CoverExposure, FMetricCoverExposureSettings, bShowCoverExposure);
+        METRIC_ENABLE_PROPERTY(JumpRunway, FMetricJumpRunwaySettings, bShowJumpRunway);
+        METRIC_ENABLE_PROPERTY(InteractionReach, FMetricInteractionReachSettings, bShowInteractionReach);
+        METRIC_ENABLE_PROPERTY(ShoulderClearance, FMetricShoulderClearanceSettings, bShowShoulderClearance);
+        METRIC_ENABLE_PROPERTY(CombatDensity, FMetricCombatDensitySettings, bShowCombatDensity);
+        METRIC_ENABLE_PROPERTY(AlternateStance, FMetricAlternateStanceSettings, bShowAlternateStance);
+        METRIC_ENABLE_PROPERTY(MantleVault, FMetricMantleVaultSettings, bShowMantleVault);
+        METRIC_ENABLE_PROPERTY(RecoverySpace, FMetricRecoverySpaceSettings, bShowRecoverySpace);
+        METRIC_ENABLE_PROPERTY(Crossfire, FMetricCrossfireSettings, bShowCrossfire);
+        METRIC_ENABLE_PROPERTY(Representation, FMetricRepresentationSettings, bShowStaticMesh);
+#undef METRIC_ENABLE_PROPERTY
+        return NAME_None;
+    }
+
     static TSharedPtr<IPropertyHandle> Child(const TSharedRef<IPropertyHandle>& Parent, const FName Name)
     {
         TSharedPtr<IPropertyHandle> Handle = Parent->GetChildHandle(Name);
@@ -249,6 +282,15 @@ void FMetricProfileDetailsCustomization::CustomizeDetails(IDetailLayoutBuilder& 
     {
         MetricProfileDetails::BuildVisualizationColors(SettingsCategory, SelectedHandle);
         return;
+    }
+
+    const FName EnableProperty = MetricProfileDetails::EnablePropertyForSection(State->SelectedProperty);
+    if (!EnableProperty.IsNone())
+    {
+        if (TSharedPtr<IPropertyHandle> EnableHandle = SelectedHandle->GetChildHandle(EnableProperty))
+        {
+            EnableHandle->MarkHiddenByCustomization();
+        }
     }
 
     SettingsCategory.AddProperty(SelectedHandle).ShouldAutoExpand(true);

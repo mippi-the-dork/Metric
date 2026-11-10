@@ -32,6 +32,48 @@ namespace MetricProfileEditor
     static const FName ProfileTabId(TEXT("MetricProfileEditor.Profile"));
     static TMap<TWeakObjectPtr<UMetricProfile>, FMetricProfileEditorToolkit*> OpenEditors;
     static TMap<TWeakObjectPtr<UMetricProfile>, FName> PendingSections;
+    static const FName HUDPresentationPath(TEXT("__MetricProfileHUD"));
+    static const FName VisualizerPresentationPath(TEXT("__MetricProfileVisualizer"));
+
+    static bool* FindPresentationFlag(UMetricProfile* Profile, FName PropertyName, bool bVisualizer)
+    {
+        if (!Profile) return nullptr;
+        FMetricLayerVisibility& V = Profile->Presentation;
+#define METRIC_PRESENTATION_MAP(ProfileProperty, VisualFlag, ResultsFlag) \
+        if (PropertyName == GET_MEMBER_NAME_CHECKED(UMetricProfile, ProfileProperty)) return bVisualizer ? &V.VisualFlag : &V.ResultsFlag
+        METRIC_PRESENTATION_MAP(Hull, bHullVisual, bHullResults);
+        METRIC_PRESENTATION_MAP(Clearance, bClearanceVisual, bClearanceResults);
+        METRIC_PRESENTATION_MAP(OverheadClearance, bOverheadVisual, bOverheadResults);
+        METRIC_PRESENTATION_MAP(GroundValidation, bGroundVisual, bGroundResults);
+        METRIC_PRESENTATION_MAP(FitAnalysis, bFitVisual, bFitResults);
+        METRIC_PRESENTATION_MAP(ThresholdAnalysis, bThresholdVisual, bThresholdResults);
+        METRIC_PRESENTATION_MAP(Sensors, bSensorsVisual, bSensorsResults);
+        METRIC_PRESENTATION_MAP(SensorField, bSensorFieldVisual, bSensorFieldResults);
+        METRIC_PRESENTATION_MAP(EngagementRanges, bRangesVisual, bRangesResults);
+        METRIC_PRESENTATION_MAP(LocomotionBands, bLocomotionVisual, bLocomotionResults);
+        METRIC_PRESENTATION_MAP(Trajectory, bTrajectoryVisual, bTrajectoryResults);
+        METRIC_PRESENTATION_MAP(CameraProbe, bCameraVisual, bCameraResults);
+        METRIC_PRESENTATION_MAP(CameraSightline, bSightlineVisual, bSightlineResults);
+        METRIC_PRESENTATION_MAP(TurnClearance, bTurnVisual, bTurnResults);
+        METRIC_PRESENTATION_MAP(LedgeAnalysis, bLedgeVisual, bLedgeResults);
+        METRIC_PRESENTATION_MAP(StoppingDistance, bStoppingVisual, bStoppingResults);
+        METRIC_PRESENTATION_MAP(CoverExposure, bCoverVisual, bCoverResults);
+        METRIC_PRESENTATION_MAP(JumpRunway, bJumpRunwayVisual, bJumpRunwayResults);
+        METRIC_PRESENTATION_MAP(InteractionReach, bInteractionVisual, bInteractionResults);
+        METRIC_PRESENTATION_MAP(ShoulderClearance, bShoulderVisual, bShoulderResults);
+        METRIC_PRESENTATION_MAP(CombatDensity, bCombatDensityVisual, bCombatDensityResults);
+        METRIC_PRESENTATION_MAP(AlternateStance, bAlternateStanceVisual, bAlternateStanceResults);
+        METRIC_PRESENTATION_MAP(MantleVault, bMantleVisual, bMantleResults);
+        METRIC_PRESENTATION_MAP(RecoverySpace, bRecoveryVisual, bRecoveryResults);
+        METRIC_PRESENTATION_MAP(Crossfire, bCrossfireVisual, bCrossfireResults);
+#undef METRIC_PRESENTATION_MAP
+        return nullptr;
+    }
+
+    static const bool* FindPresentationFlag(const UMetricProfile* Profile, FName PropertyName, bool bVisualizer)
+    {
+        return FindPresentationFlag(const_cast<UMetricProfile*>(Profile), PropertyName, bVisualizer);
+    }
 }
 
 FMetricProfileEditorToolkit::FMetricProfileEditorToolkit()
@@ -533,83 +575,99 @@ TSharedRef<SWidget> FMetricProfileEditorToolkit::BuildSidebarSectionButton(const
 {
     const FName PropertyName = Section.PropertyName;
 
-    return SNew(SButton)
+    return SNew(SHorizontalBox)
         .Visibility_Lambda([this, PropertyName]()
         {
             const FSection* CurrentSection = FindSection(PropertyName);
             return CurrentSection && SectionMatchesSearch(*CurrentSection) ? EVisibility::Visible : EVisibility::Collapsed;
         })
-        .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
-        .ContentPadding(FMargin(8.0f, 5.0f))
-        .ToolTipText(Section.Description)
-        .ButtonColorAndOpacity_Lambda([this, PropertyName]()
-        {
-            return IsSectionSelected(PropertyName)
-                ? FSlateColor(FLinearColor(0.20f, 0.36f, 0.56f, 0.65f))
-                : FSlateColor(FLinearColor::Transparent);
-        })
-        .OnClicked_Lambda([this, PropertyName]()
-        {
-            SelectSection(PropertyName);
-            return FReply::Handled();
-        })
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
         [
-            SNew(SHorizontalBox)
-            + SHorizontalBox::Slot()
-            .FillWidth(1.0f)
-            .VAlign(VAlign_Center)
+            SNew(SButton)
+            .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
+            .ContentPadding(FMargin(8.0f, 5.0f))
+            .ToolTipText(Section.Description)
+            .ButtonColorAndOpacity_Lambda([this, PropertyName]()
+            {
+                return IsSectionSelected(PropertyName)
+                    ? FSlateColor(FLinearColor(0.20f, 0.36f, 0.56f, 0.65f))
+                    : FSlateColor(FLinearColor::Transparent);
+            })
+            .OnClicked_Lambda([this, PropertyName]()
+            {
+                SelectSection(PropertyName);
+                return FReply::Handled();
+            })
             [
-                SNew(STextBlock)
-                .Text(Section.Label)
-                .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(Section.Label)
+                    .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(6.0f, 0.0f, 0.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([this, PropertyName]() { return GetSectionComparisonMarker(PropertyName); })
+                    .Font(FAppStyle::GetFontStyle(TEXT("SmallFontBold")))
+                    .ColorAndOpacity_Lambda([this, PropertyName]() { return GetSectionComparisonMarkerColor(PropertyName); })
+                    .ToolTipText(LOCTEXT("ComparisonMarkerTip", "Changed values in this section compared with the selected reference profile."))
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(6.0f, 0.0f, 0.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([this, PropertyName]() { return GetSectionValidationMarker(PropertyName); })
+                    .Font(FAppStyle::GetFontStyle(TEXT("SmallFontBold")))
+                    .ColorAndOpacity_Lambda([this, PropertyName]() { return GetSectionValidationMarkerColor(PropertyName); })
+                ]
             ]
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            .VAlign(VAlign_Center)
-            .Padding(6.0f, 0.0f, 0.0f, 0.0f)
-            [
-                SNew(STextBlock)
-                .Text_Lambda([this, PropertyName]() { return GetSectionComparisonMarker(PropertyName); })
-                .Font(FAppStyle::GetFontStyle(TEXT("SmallFontBold")))
-                .ColorAndOpacity_Lambda([this, PropertyName]() { return GetSectionComparisonMarkerColor(PropertyName); })
-                .ToolTipText(LOCTEXT("ComparisonMarkerTip", "Changed values in this section compared with the selected reference profile."))
-            ]
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            .VAlign(VAlign_Center)
-            .Padding(6.0f, 0.0f, 0.0f, 0.0f)
-            [
-                SNew(STextBlock)
-                .Text_Lambda([this, PropertyName]() { return GetSectionValidationMarker(PropertyName); })
-                .Font(FAppStyle::GetFontStyle(TEXT("SmallFontBold")))
-                .ColorAndOpacity_Lambda([this, PropertyName]() { return GetSectionValidationMarkerColor(PropertyName); })
-            ]
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            .VAlign(VAlign_Center)
-            .Padding(8.0f, 0.0f, 0.0f, 0.0f)
-            [
-                SNew(STextBlock)
-                .Text_Lambda([this, PropertyName, Section]()
-                {
-                    if (!Section.bToggleable)
-                    {
-                        return LOCTEXT("Always", "Always");
-                    }
-                    return IsSectionEnabled(PropertyName) ? LOCTEXT("On", "On") : LOCTEXT("Off", "Off");
-                })
-                .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
-                .ColorAndOpacity_Lambda([this, PropertyName, Section]()
-                {
-                    if (!Section.bToggleable)
-                    {
-                        return FSlateColor::UseSubduedForeground();
-                    }
-                    return IsSectionEnabled(PropertyName)
-                        ? FSlateColor(FLinearColor(0.35f, 0.90f, 0.48f, 1.0f))
-                        : FSlateColor::UseSubduedForeground();
-                })
-            ]
+        ]
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .VAlign(VAlign_Center)
+        .Padding(2.0f, 0.0f, 0.0f, 0.0f)
+        [
+            SNew(SButton)
+            .ButtonStyle(FAppStyle::Get(), TEXT("SimpleButton"))
+            .ContentPadding(FMargin(6.0f, 4.0f))
+            .Visibility(Section.bToggleable ? EVisibility::Visible : EVisibility::Collapsed)
+            .ToolTipText(LOCTEXT("ToggleAnalysisFromSidebarTip", "Toggle whether this analysis runs. Its authored settings remain editable when Off."))
+            .Text_Lambda([this, PropertyName]()
+            {
+                return IsSectionEnabled(PropertyName) ? LOCTEXT("SidebarOn", "On") : LOCTEXT("SidebarOff", "Off");
+            })
+            .ForegroundColor_Lambda([this, PropertyName]()
+            {
+                return IsSectionEnabled(PropertyName)
+                    ? FSlateColor(FLinearColor(0.35f, 0.90f, 0.48f, 1.0f))
+                    : FSlateColor::UseSubduedForeground();
+            })
+            .OnClicked_Lambda([this, PropertyName]()
+            {
+                SetSectionEnabled(PropertyName, !IsSectionEnabled(PropertyName));
+                return FReply::Handled();
+            })
+        ]
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .VAlign(VAlign_Center)
+        .Padding(8.0f, 0.0f, 6.0f, 0.0f)
+        [
+            SNew(STextBlock)
+            .Visibility(Section.bToggleable ? EVisibility::Collapsed : EVisibility::Visible)
+            .Text(LOCTEXT("Always", "Always"))
+            .Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
         ];
 }
 
@@ -684,6 +742,7 @@ TSharedRef<SWidget> FMetricProfileEditorToolkit::BuildSectionHeader()
                 [
                     SNew(SCheckBox)
                     .Visibility(bToggleable ? EVisibility::Visible : EVisibility::Collapsed)
+                    .ToolTipText(LOCTEXT("EnabledInProfileTip", "Controls whether this analysis runs for the Metric Profile. Disabling it does not lock or erase the authored settings."))
                     .IsChecked_Lambda([this, PropertyName]()
                     {
                         return IsSectionEnabled(PropertyName) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
@@ -694,7 +753,55 @@ TSharedRef<SWidget> FMetricProfileEditorToolkit::BuildSectionHeader()
                     })
                     [
                         SNew(STextBlock)
-                        .Text(LOCTEXT("Enabled", "Enabled in Profile"))
+                        .Text(LOCTEXT("Enabled", "Enabled"))
+                    ]
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(10.0f, 0.0f, 0.0f, 0.0f)
+                [
+                    SNew(SCheckBox)
+                    .Visibility_Lambda([this, PropertyName]()
+                    {
+                        return HasSectionPresentationControls(PropertyName) ? EVisibility::Visible : EVisibility::Collapsed;
+                    })
+                    .ToolTipText(LOCTEXT("ShowInHUDTip", "Show this analysis' text/result row in the Metric HUD. This is independent from whether the analysis runs."))
+                    .IsChecked_Lambda([this, PropertyName]()
+                    {
+                        return IsSectionPresentationVisible(PropertyName, false) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+                    })
+                    .OnCheckStateChanged_Lambda([this, PropertyName](ECheckBoxState NewState)
+                    {
+                        SetSectionPresentationVisible(PropertyName, false, NewState == ECheckBoxState::Checked);
+                    })
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("ShowInHUD", "HUD"))
+                    ]
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(10.0f, 0.0f, 0.0f, 0.0f)
+                [
+                    SNew(SCheckBox)
+                    .Visibility_Lambda([this, PropertyName]()
+                    {
+                        return HasSectionPresentationControls(PropertyName) ? EVisibility::Visible : EVisibility::Collapsed;
+                    })
+                    .ToolTipText(LOCTEXT("ShowInVisualizerTip", "Show this analysis' world-space visualization. This is independent from whether the analysis runs."))
+                    .IsChecked_Lambda([this, PropertyName]()
+                    {
+                        return IsSectionPresentationVisible(PropertyName, true) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+                    })
+                    .OnCheckStateChanged_Lambda([this, PropertyName](ECheckBoxState NewState)
+                    {
+                        SetSectionPresentationVisible(PropertyName, true, NewState == ECheckBoxState::Checked);
+                    })
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("ShowInVisualizer", "Visualizer"))
                     ]
                 ]
             ]
@@ -953,6 +1060,44 @@ void FMetricProfileEditorToolkit::SetSectionEnabled(FName PropertyName, bool bEn
     {
         DetailsView->ForceRefresh();
     }
+    RebuildSectionHeader();
+}
+
+bool FMetricProfileEditorToolkit::HasSectionPresentationControls(FName PropertyName) const
+{
+    return MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, true) != nullptr
+        && MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, false) != nullptr;
+}
+
+bool FMetricProfileEditorToolkit::IsSectionPresentationVisible(FName PropertyName, bool bVisualizer) const
+{
+    if (const bool* Flag = MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, bVisualizer))
+    {
+        return *Flag;
+    }
+    return true;
+}
+
+void FMetricProfileEditorToolkit::SetSectionPresentationVisible(FName PropertyName, bool bVisualizer, bool bVisible)
+{
+    if (!Preset)
+    {
+        return;
+    }
+
+    bool* Flag = MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, bVisualizer);
+    if (!Flag || *Flag == bVisible)
+    {
+        return;
+    }
+
+    const FScopedTransaction Transaction(bVisualizer
+        ? LOCTEXT("ToggleMetricVisualizerVisibility", "Toggle Metric Profile Visualizer Visibility")
+        : LOCTEXT("ToggleMetricHUDVisibility", "Toggle Metric Profile HUD Visibility"));
+    Preset->Modify();
+    *Flag = bVisible;
+    Preset->PostEditChange();
+    Preset->MarkPackageDirty();
     RebuildSectionHeader();
 }
 
@@ -1293,7 +1438,14 @@ bool FMetricProfileEditorToolkit::IsSectionDifferentFromComparison(FName Propert
     }
 
     const FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), PropertyName);
-    return Property && !Property->Identical_InContainer(Preset.Get(), ComparisonPreset.Get());
+    const bool bPropertyDifferent = Property && !Property->Identical_InContainer(Preset.Get(), ComparisonPreset.Get());
+    const bool* CurrentHUD = MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, false);
+    const bool* CompareHUD = MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), PropertyName, false);
+    const bool* CurrentVisualizer = MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, true);
+    const bool* CompareVisualizer = MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), PropertyName, true);
+    return bPropertyDifferent
+        || (CurrentHUD && CompareHUD && *CurrentHUD != *CompareHUD)
+        || (CurrentVisualizer && CompareVisualizer && *CurrentVisualizer != *CompareVisualizer);
 }
 
 int32 FMetricProfileEditorToolkit::CountComparisonDifferences() const
@@ -1342,25 +1494,48 @@ void FMetricProfileEditorToolkit::GatherSectionComparisonRows(FName PropertyName
     }
 
     const FProperty* RootProperty = FindFProperty<FProperty>(UMetricProfile::StaticClass(), PropertyName);
-    if (!RootProperty || RootProperty->Identical_InContainer(Preset.Get(), ComparisonPreset.Get()))
+    if (RootProperty && !RootProperty->Identical_InContainer(Preset.Get(), ComparisonPreset.Get()))
     {
-        return;
+        const FStructProperty* RootStruct = CastField<FStructProperty>(RootProperty);
+        if (!RootStruct || !RootStruct->Struct)
+        {
+            FComparisonRow& Row = OutRows.AddDefaulted_GetRef();
+            Row.Label = RootProperty->GetDisplayNameText();
+            Row.CurrentValue = ExportPropertyValue(RootProperty, Preset.Get());
+            Row.ComparisonValue = ExportPropertyValue(RootProperty, ComparisonPreset.Get());
+        }
+        else
+        {
+            const void* CurrentContainer = RootProperty->ContainerPtrToValuePtr<void>(Preset.Get());
+            const void* ComparisonContainer = RootProperty->ContainerPtrToValuePtr<void>(ComparisonPreset.Get());
+            TArray<FName> Path;
+            GatherStructComparisonRows(RootStruct->Struct, CurrentContainer, ComparisonContainer, Path, FString(), OutRows);
+        }
     }
 
-    const FStructProperty* RootStruct = CastField<FStructProperty>(RootProperty);
-    if (!RootStruct || !RootStruct->Struct)
+    auto AddPresentationDifference = [&OutRows](const FName PathName, const FText& Label, const bool* Current, const bool* Compare)
     {
+        if (!Current || !Compare || *Current == *Compare)
+        {
+            return;
+        }
         FComparisonRow& Row = OutRows.AddDefaulted_GetRef();
-        Row.Label = RootProperty->GetDisplayNameText();
-        Row.CurrentValue = ExportPropertyValue(RootProperty, Preset.Get());
-        Row.ComparisonValue = ExportPropertyValue(RootProperty, ComparisonPreset.Get());
-        return;
-    }
+        Row.PropertyPath.Add(PathName);
+        Row.Label = Label;
+        Row.CurrentValue = *Current ? LOCTEXT("PresentationOn", "On") : LOCTEXT("PresentationOff", "Off");
+        Row.ComparisonValue = *Compare ? LOCTEXT("PresentationOnCompare", "On") : LOCTEXT("PresentationOffCompare", "Off");
+    };
 
-    const void* CurrentContainer = RootProperty->ContainerPtrToValuePtr<void>(Preset.Get());
-    const void* ComparisonContainer = RootProperty->ContainerPtrToValuePtr<void>(ComparisonPreset.Get());
-    TArray<FName> Path;
-    GatherStructComparisonRows(RootStruct->Struct, CurrentContainer, ComparisonContainer, Path, FString(), OutRows);
+    AddPresentationDifference(
+        MetricProfileEditor::HUDPresentationPath,
+        LOCTEXT("HUDPresentationComparison", "HUD"),
+        MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, false),
+        MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), PropertyName, false));
+    AddPresentationDifference(
+        MetricProfileEditor::VisualizerPresentationPath,
+        LOCTEXT("VisualizerPresentationComparison", "Visualizer"),
+        MetricProfileEditor::FindPresentationFlag(Preset.Get(), PropertyName, true),
+        MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), PropertyName, true));
 }
 
 void FMetricProfileEditorToolkit::GatherStructComparisonRows(const UStruct* StructType, const void* CurrentContainer, const void* ComparisonContainer, TArray<FName>& PropertyPath, const FString& LabelPrefix, TArray<FComparisonRow>& OutRows) const
@@ -1467,7 +1642,14 @@ bool FMetricProfileEditorToolkit::CanResetSelectedSectionToDefaults() const
 
     const UMetricProfile* Defaults = GetDefault<UMetricProfile>();
     const FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), EditorState->SelectedProperty);
-    return Defaults && Property && !Property->Identical_InContainer(Preset.Get(), Defaults);
+    if (!Defaults || !Property) return false;
+    if (!Property->Identical_InContainer(Preset.Get(), Defaults)) return true;
+    const bool* CurrentHUD = MetricProfileEditor::FindPresentationFlag(Preset.Get(), EditorState->SelectedProperty, false);
+    const bool* DefaultHUD = MetricProfileEditor::FindPresentationFlag(Defaults, EditorState->SelectedProperty, false);
+    const bool* CurrentVisualizer = MetricProfileEditor::FindPresentationFlag(Preset.Get(), EditorState->SelectedProperty, true);
+    const bool* DefaultVisualizer = MetricProfileEditor::FindPresentationFlag(Defaults, EditorState->SelectedProperty, true);
+    return (CurrentHUD && DefaultHUD && *CurrentHUD != *DefaultHUD)
+        || (CurrentVisualizer && DefaultVisualizer && *CurrentVisualizer != *DefaultVisualizer);
 }
 
 FReply FMetricProfileEditorToolkit::ResetSelectedSectionToDefaults()
@@ -1487,6 +1669,14 @@ FReply FMetricProfileEditorToolkit::ResetSelectedSectionToDefaults()
     const FScopedTransaction Transaction(LOCTEXT("ResetMetricProfileSection", "Reset Metric Profile Section to Default"));
     Preset->Modify();
     Property->CopyCompleteValue_InContainer(Preset.Get(), Defaults);
+    if (bool* CurrentHUD = MetricProfileEditor::FindPresentationFlag(Preset.Get(), EditorState->SelectedProperty, false))
+    {
+        if (const bool* DefaultHUD = MetricProfileEditor::FindPresentationFlag(Defaults, EditorState->SelectedProperty, false)) *CurrentHUD = *DefaultHUD;
+    }
+    if (bool* CurrentVisualizer = MetricProfileEditor::FindPresentationFlag(Preset.Get(), EditorState->SelectedProperty, true))
+    {
+        if (const bool* DefaultVisualizer = MetricProfileEditor::FindPresentationFlag(Defaults, EditorState->SelectedProperty, true)) *CurrentVisualizer = *DefaultVisualizer;
+    }
     Preset->PostEditChange();
     Preset->MarkPackageDirty();
 
@@ -1511,7 +1701,7 @@ FReply FMetricProfileEditorToolkit::CopySelectedSectionFromComparison()
     }
 
     FProperty* Property = FindFProperty<FProperty>(UMetricProfile::StaticClass(), EditorState->SelectedProperty);
-    if (!Property || Property->Identical_InContainer(Preset.Get(), ComparisonPreset.Get()))
+    if (!Property || !IsSectionDifferentFromComparison(EditorState->SelectedProperty))
     {
         return FReply::Handled();
     }
@@ -1519,6 +1709,14 @@ FReply FMetricProfileEditorToolkit::CopySelectedSectionFromComparison()
     const FScopedTransaction Transaction(LOCTEXT("CopyMetricProfileSection", "Copy Metric Profile Section"));
     Preset->Modify();
     Property->CopyCompleteValue_InContainer(Preset.Get(), ComparisonPreset.Get());
+    if (bool* CurrentHUD = MetricProfileEditor::FindPresentationFlag(Preset.Get(), EditorState->SelectedProperty, false))
+    {
+        if (const bool* CompareHUD = MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), EditorState->SelectedProperty, false)) *CurrentHUD = *CompareHUD;
+    }
+    if (bool* CurrentVisualizer = MetricProfileEditor::FindPresentationFlag(Preset.Get(), EditorState->SelectedProperty, true))
+    {
+        if (const bool* CompareVisualizer = MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), EditorState->SelectedProperty, true)) *CurrentVisualizer = *CompareVisualizer;
+    }
     Preset->PostEditChange();
     Preset->MarkPackageDirty();
 
@@ -1534,6 +1732,23 @@ FReply FMetricProfileEditorToolkit::CopyComparisonPropertyValue(TArray<FName> Pr
 {
     if (!Preset || !ComparisonPreset || !EditorState.IsValid() || PropertyPath.IsEmpty())
     {
+        return FReply::Handled();
+    }
+
+    if (PropertyPath.Num() == 1 && PropertyPath[0] == MetricProfileEditor::HUDPresentationPath)
+    {
+        if (const bool* CompareHUD = MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), EditorState->SelectedProperty, false))
+        {
+            SetSectionPresentationVisible(EditorState->SelectedProperty, false, *CompareHUD);
+        }
+        return FReply::Handled();
+    }
+    if (PropertyPath.Num() == 1 && PropertyPath[0] == MetricProfileEditor::VisualizerPresentationPath)
+    {
+        if (const bool* CompareVisualizer = MetricProfileEditor::FindPresentationFlag(ComparisonPreset.Get(), EditorState->SelectedProperty, true))
+        {
+            SetSectionPresentationVisible(EditorState->SelectedProperty, true, *CompareVisualizer);
+        }
         return FReply::Handled();
     }
 

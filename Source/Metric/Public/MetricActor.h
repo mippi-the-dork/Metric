@@ -48,8 +48,11 @@ public:
     UPROPERTY(EditAnywhere, Category = "Metric|Analysis", meta = (DisplayName = "Environment Source", ToolTip = "Choose what world geometry Metric evaluates. Collision uses authored collision, Hybrid supplements collision with approximate visible bounds, and Visual Geometry uses approximate visible bounds without requiring collision."))
     EMetricEnvironmentSource EnvironmentSource = EMetricEnvironmentSource::Collision;
 
-    UPROPERTY(EditAnywhere, Category = "Metric|Analysis", meta = (DisplayName = "Analysis Frame", ToolTip = "Controls the Up direction used by this Actor's spatial analyses. World Up uses +Z, Surface Normal follows the Actor's local Up direction, and Custom Up uses the direction below."))
+    UPROPERTY(EditAnywhere, Category = "Metric|Analysis", meta = (DisplayName = "Analysis Frame", ToolTip = "Controls the Up direction used by this Actor's spatial analyses. World Up uses +Z, Surface Normal follows the Actor's local Up direction, Custom Up uses the direction below, and Gravity / Provider asks the configured Metric Gravity Provider."))
     EMetricAnalysisFrameMode AnalysisFrame = EMetricAnalysisFrameMode::World;
+
+    UPROPERTY(EditAnywhere, Category = "Metric|Analysis", meta = (DisplayName = "Frame Sampling", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal || AnalysisFrame == EMetricAnalysisFrameMode::Provider", ToolTip = "Fixed at Origin resolves the frame once at this Actor. Resample Along Analysis lets spatial analyses re-evaluate Surface Normal or Gravity / Provider as they move through the world."))
+    EMetricFrameSamplingPolicy FrameSampling = EMetricFrameSamplingPolicy::FixedAtOrigin;
 
     UPROPERTY(EditAnywhere, Category = "Metric|Analysis", meta = (DisplayName = "Custom Up Direction", EditCondition = "AnalysisFrame == EMetricAnalysisFrameMode::CustomUp", ToolTip = "World-space Up direction used when Analysis Frame is Custom Up. Zero-length values fall back to World Up."))
     FVector CustomAnalysisUp = FVector::UpVector;

@@ -80,7 +80,8 @@ namespace
             if (ColumnName == "Frame")
             {
                 const TCHAR* Name = Actor->AnalysisFrame == EMetricAnalysisFrameMode::World ? TEXT("World Up")
-                    : (Actor->AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal ? TEXT("Surface Normal") : TEXT("Custom Up"));
+                    : (Actor->AnalysisFrame == EMetricAnalysisFrameMode::SurfaceNormal ? TEXT("Surface Normal")
+                    : (Actor->AnalysisFrame == EMetricAnalysisFrameMode::Provider ? TEXT("Gravity / Provider") : TEXT("Custom Up")));
                 return SNew(STextBlock).Text(FText::FromString(Name));
             }
             if (ColumnName == "Level") return SNew(STextBlock).Text(FText::FromString(Actor->GetLevel() ? Actor->GetLevel()->GetOuter()->GetName() : TEXT("None")));

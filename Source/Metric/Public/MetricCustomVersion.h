@@ -13,7 +13,10 @@ struct METRIC_API FMetricCustomVersion
         // First schema intended to be carried forward into public releases.
         InitialPublicSchema = 1,
 
-        LatestVersion = InitialPublicSchema
+        // Profiles own independent HUD and world-visual presentation defaults.
+        ProfilePresentation = 2,
+
+        LatestVersion = ProfilePresentation
     };
 
 private:

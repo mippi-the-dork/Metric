@@ -22,6 +22,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric", meta = (ToolTip = "Semantic colors used by this profile in viewport visualization, HUD results, legend swatches, and captured benchmarks."))
     FMetricVisualizationTheme VisualTheme;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric", meta = (ToolTip = "Profile-owned presentation defaults. HUD and Visualizer visibility are independent from whether an analysis is enabled and are combined with temporary View Preset / Display Options filtering."))
+    FMetricLayerVisibility Presentation;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metric", meta = (ToolTip = "Forward hull-clearance settings for usable space ahead of the profile."))
     FMetricClearanceSettings Clearance;
 

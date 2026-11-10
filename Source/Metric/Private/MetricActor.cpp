@@ -2,6 +2,7 @@
 
 #include "MetricProfile.h"
 #include "MetricEditorSettings.h"
+#include "MetricFrameUtils.h"
 #include "MetricSubsystem.h"
 #include "MetricViewportComponent.h"
 #include "MetricActorOverview.h"
@@ -193,6 +194,7 @@ void AMetricActor::RecalculateMetric()
         const FVector Forward = GetActorForwardVector();
         FVector SurfaceNormal = FVector::UpVector;
         FVector Up = FVector::UpVector;
+        float GravityMagnitude = 0.0f;
 
         switch (AnalysisFrame)
         {
@@ -205,6 +207,14 @@ void AMetricActor::RecalculateMetric()
             if (Up.IsNearlyZero()) Up = FVector::UpVector;
             SurfaceNormal = Up;
             break;
+        case EMetricAnalysisFrameMode::Provider:
+            if (!MetricFrameUtils::TryResolveProviderGravity(GetWorld(), Location, this, Up, GravityMagnitude))
+            {
+                Up = FVector::UpVector;
+                GravityMagnitude = FMath::Abs(GetWorld()->GetGravityZ());
+            }
+            SurfaceNormal = Up;
+            break;
         case EMetricAnalysisFrameMode::World:
         default:
             Up = FVector::UpVector;
@@ -215,7 +225,9 @@ void AMetricActor::RecalculateMetric()
         UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>();
         const EMetricEnvironmentSource PreviousSource = Settings ? Settings->EnvironmentSource : EMetricEnvironmentSource::Collision;
         if (Settings) Settings->EnvironmentSource = EnvironmentSource;
-        MetricSubsystem->EvaluateProfileAtLocation(GetWorld(), Profile, Location, Forward, SurfaceNormal, Up, EvaluatedState);
+        MetricSubsystem->EvaluateProfileAtLocation(
+            GetWorld(), Profile, Location, Forward, SurfaceNormal, Up, EvaluatedState,
+            AnalysisFrame, FrameSampling, GravityMagnitude, this);
         if (Settings) Settings->EnvironmentSource = PreviousSource;
         UpdateSummary();
         UpdateVisualization();
@@ -300,6 +312,7 @@ void AMetricActor::UpdateVisualization()
     if (bVisible)
     {
         FMetricLiveState LocalState = EvaluatedState;
+        LocalState.ApplyVisualVisibilityMask(LocalState.ProfileVisibility);
         LocalState.Location = FVector::ZeroVector;
         LocalState.PinnedBenchmarks.Reset();
         LocalState.SelectedPinnedBenchmarkIndex = INDEX_NONE;

@@ -5,10 +5,14 @@
 #include "MetricEditorSettings.h"
 #include "MetricCustomVersion.h"
 #include "MetricActor.h"
+#include "MetricGravityProvider.h"
 #include "MetricEnvironmentQuery.h"
 #include "MetricFrameUtils.h"
 #include "MetricPerformance.h"
 #include "MetricProfile.h"
+#include "MetricProfileFactory.h"
+#include "MetricViewPreset.h"
+#include "MetricViewPresetFactory.h"
 #include "MetricProjectSettings.h"
 #include "MetricSubsystem.h"
 #include "MetricViewportComponent.h"
@@ -25,6 +29,30 @@
 
 namespace MetricAutomation
 {
+
+    struct FGravityProviderScope
+    {
+        UMetricProjectSettings* Settings = nullptr;
+        TSoftClassPtr<UMetricGravityProvider> PreviousClass;
+
+        explicit FGravityProviderScope(UClass* ProviderClass)
+        {
+            Settings = GetMutableDefault<UMetricProjectSettings>();
+            if (Settings)
+            {
+                PreviousClass = Settings->GravityProviderClass;
+                Settings->GravityProviderClass = ProviderClass;
+            }
+        }
+
+        ~FGravityProviderScope()
+        {
+            if (Settings)
+            {
+                Settings->GravityProviderClass = PreviousClass;
+            }
+        }
+    };
 
     struct FEnvironmentSourceScope
     {
@@ -438,6 +466,59 @@ bool FMetricFrameCustomUp::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderResolution, "MetricPlugin.Frame.ProviderResolution", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderResolution::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider->UpDirection;
+    const float PreviousMagnitude = Provider->GravityMagnitude;
+    Provider->UpDirection = FVector(0.0f, -1.0f, 0.0f);
+    Provider->GravityMagnitude = 321.0f;
+
+    FVector ResolvedUp = FVector::ZeroVector;
+    float ResolvedMagnitude = 0.0f;
+    TestTrue(TEXT("Configured provider resolves gravity"), MetricFrameUtils::TryResolveProviderGravity(
+        World, FVector(100.0f, 200.0f, 300.0f), nullptr, ResolvedUp, ResolvedMagnitude));
+    TestTrue(TEXT("Provider Up is normalized"), ResolvedUp.Equals(Provider->UpDirection.GetSafeNormal(), KINDA_SMALL_NUMBER));
+    TestTrue(TEXT("Provider magnitude is preserved"), FMath::IsNearlyEqual(ResolvedMagnitude, 321.0f));
+
+    const FMetricAnalysisBasis Basis = MetricFrameUtils::BuildAnalysisBasis(
+        EMetricAnalysisFrameMode::Provider, FVector::UpVector, ResolvedUp, FVector::ForwardVector);
+    TestTrue(TEXT("Provider mode uses resolved Up"), Basis.Up.Equals(ResolvedUp, KINDA_SMALL_NUMBER));
+
+    Provider->UpDirection = PreviousUp;
+    Provider->GravityMagnitude = PreviousMagnitude;
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderFallback, "MetricPlugin.Frame.ProviderFallback", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderFallback::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FGravityProviderScope ProviderScope(nullptr);
+    FVector ResolvedUp = FVector::ZeroVector;
+    TestFalse(TEXT("Null world cannot resolve a provider"), MetricFrameUtils::TryResolveProviderUp(nullptr, FVector::ZeroVector, ResolvedUp));
+    const FMetricAnalysisBasis Basis = MetricFrameUtils::BuildAnalysisBasis(
+        EMetricAnalysisFrameMode::Provider, FVector::UpVector, FVector::ZeroVector, FVector::ForwardVector);
+    TestTrue(TEXT("Provider mode falls back to World Up when given no resolved direction"), Basis.Up.Equals(FVector::UpVector, KINDA_SMALL_NUMBER));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameFollowSurfacePolicy, "MetricPlugin.Frame.FollowSurfacePolicy", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameFollowSurfacePolicy::RunTest(const FString& Parameters)
+{
+    const FVector FixedUp = FVector::UpVector;
+    const FVector SampleNormal = FVector::RightVector;
+    TestTrue(TEXT("Fixed sampling keeps starting Up"),
+        MetricFrameUtils::ResolveSurfaceUp(false, FixedUp, SampleNormal).Equals(FixedUp, KINDA_SMALL_NUMBER));
+    TestTrue(TEXT("Resampled surface frame adopts sampled surface normal"),
+        MetricFrameUtils::ResolveSurfaceUp(true, FixedUp, SampleNormal).Equals(SampleNormal, KINDA_SMALL_NUMBER));
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameParallelForwardFallback, "MetricPlugin.Frame.ParallelForwardFallback", METRIC_AUTOMATION_FLAGS)
 bool FMetricFrameParallelForwardFallback::RunTest(const FString& Parameters)
 {
@@ -445,6 +526,59 @@ bool FMetricFrameParallelForwardFallback::RunTest(const FString& Parameters)
         EMetricAnalysisFrameMode::World, FVector::UpVector, FVector::UpVector, FVector::UpVector);
     TestFalse(TEXT("Forward fallback is non-zero when preferred forward is parallel to Up"), Basis.Forward.IsNearlyZero());
     TestTrue(TEXT("Fallback Forward is perpendicular to Up"), FMath::IsNearlyZero(FVector::DotProduct(Basis.Forward, Basis.Up), KINDA_SMALL_NUMBER));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameTransportForward, "MetricPlugin.Frame.TransportForward", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameTransportForward::RunTest(const FString& Parameters)
+{
+    const FVector PreviousForward = FVector::ForwardVector;
+    const FVector NewUp = FVector(0.0f, 1.0f, 1.0f).GetSafeNormal();
+    const FVector Transported = MetricFrameUtils::TransportForward(PreviousForward, NewUp);
+    TestFalse(TEXT("Transported Forward remains valid"), Transported.IsNearlyZero());
+    TestTrue(TEXT("Transported Forward is perpendicular to new Up"),
+        FMath::IsNearlyZero(FVector::DotProduct(Transported, NewUp), KINDA_SMALL_NUMBER));
+    TestTrue(TEXT("Transport preserves forward-facing continuity when possible"), FVector::DotProduct(Transported, PreviousForward) > 0.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderTrajectoryResampling, "MetricPlugin.Frame.ProviderTrajectoryResampling", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderTrajectoryResampling::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    TestNotNull(TEXT("Metric subsystem"), Subsystem);
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider->UpDirection;
+    const float PreviousMagnitude = Provider->GravityMagnitude;
+    Provider->UpDirection = FVector::RightVector;
+    Provider->GravityMagnitude = 400.0f;
+
+    FMetricLiveState State = MetricAutomation::MakeTrajectoryState();
+    State.AnalysisFrameMode = EMetricAnalysisFrameMode::Provider;
+    State.FrameSampling = EMetricFrameSamplingPolicy::ResampleAlongAnalysis;
+    State.AnalysisUp = FVector::UpVector; // Deliberately differs from the provider so re-sampling is observable.
+    State.AnalysisGravityMagnitude = 980.0f;
+    State.TrajectorySettings.MaxSimulationTime = 0.15f;
+    State.TrajectorySettings.SampleInterval = 0.05f;
+    State.TrajectorySettings.MaximumDropDistance = 0.0f;
+
+    if (Subsystem)
+    {
+        Subsystem->EvaluateTrajectoryForAutomation(World, State);
+        TestTrue(TEXT("Provider-resampled trajectory produced multiple samples"), State.Trajectory.SampleUps.Num() > 1);
+        if (State.Trajectory.SampleUps.Num() > 1)
+        {
+            TestTrue(TEXT("Trajectory re-sampled provider Up after launch"),
+                State.Trajectory.SampleUps[1].Equals(FVector::RightVector, KINDA_SMALL_NUMBER));
+        }
+    }
+
+    Provider->UpDirection = PreviousUp;
+    Provider->GravityMagnitude = PreviousMagnitude;
     return true;
 }
 
@@ -1513,10 +1647,10 @@ bool FMetricActorIndependentFromLiveTool::RunTest(const FString& Parameters)
 
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricDataModelSchemaV1, "MetricPlugin.DataModel.SchemaV1", METRIC_AUTOMATION_FLAGS)
-bool FMetricDataModelSchemaV1::RunTest(const FString& Parameters)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricDataModelSchemaV2, "MetricPlugin.DataModel.SchemaV2", METRIC_AUTOMATION_FLAGS)
+bool FMetricDataModelSchemaV2::RunTest(const FString& Parameters)
 {
-    TestEqual(TEXT("Metric public schema version is 1"), static_cast<int32>(FMetricCustomVersion::LatestVersion), 1);
+    TestEqual(TEXT("Metric public schema version is 2"), static_cast<int32>(FMetricCustomVersion::LatestVersion), 2);
 
     UStruct* ProjectSettingsStruct = UMetricProjectSettings::StaticClass();
     TestNotNull(TEXT("Registered Profiles project setting exists"), FindFProperty<FProperty>(ProjectSettingsStruct, TEXT("RegisteredProfiles")));
@@ -1531,6 +1665,7 @@ bool FMetricDataModelSchemaV1::RunTest(const FString& Parameters)
     TestTrue(TEXT("Old Envelope Sample Stride setting is removed"), FindFProperty<FProperty>(TrajectoryStruct, TEXT("EnvelopeSampleStride")) == nullptr);
 
     TestTrue(TEXT("Legacy visualization theme migration guard is removed"), FindFProperty<FProperty>(UMetricProfile::StaticClass(), TEXT("VisualizationThemeVersion")) == nullptr);
+    TestNotNull(TEXT("Profile-owned Presentation visibility exists"), FindFProperty<FProperty>(UMetricProfile::StaticClass(), TEXT("Presentation")));
     return true;
 }
 
@@ -1569,6 +1704,39 @@ bool FMetricUXAuthoringMetadata::RunTest(const FString& Parameters)
         FMetricLayerVisibility::StaticStruct()
     };
 
+    const auto ContainsIdentifier = [](const FString& Expression, const FString& Identifier)
+    {
+        const auto IsIdentifierChar = [](TCHAR Character)
+        {
+            return FChar::IsAlnum(Character) || Character == TEXT('_');
+        };
+
+        int32 SearchFrom = 0;
+        while (SearchFrom < Expression.Len())
+        {
+            const int32 FoundAt = Expression.Find(Identifier, ESearchCase::CaseSensitive, ESearchDir::FromStart, SearchFrom);
+            if (FoundAt == INDEX_NONE)
+            {
+                return false;
+            }
+
+            const int32 EndAt = FoundAt + Identifier.Len();
+            const bool bHasIdentifierBefore = FoundAt > 0 && IsIdentifierChar(Expression[FoundAt - 1]);
+            const bool bHasIdentifierAfter = EndAt < Expression.Len() && IsIdentifierChar(Expression[EndAt]);
+            if (!bHasIdentifierBefore && !bHasIdentifierAfter)
+            {
+                return true;
+            }
+
+            SearchFrom = EndAt;
+        }
+
+        return false;
+    };
+
+    TestTrue(TEXT("Exact analysis enable identifier is detected"), ContainsIdentifier(TEXT("!bShowTrajectory && bOtherSetting"), TEXT("bShowTrajectory")));
+    TestFalse(TEXT("Nested setting identifier is not mistaken for its analysis enable prefix"), ContainsIdentifier(TEXT("bShowTrajectoryGuideRails"), TEXT("bShowTrajectory")));
+
     for (UScriptStruct* Struct : AuthoringStructs)
     {
         TestNotNull(TEXT("Authoring settings struct exists"), Struct);
@@ -1589,6 +1757,27 @@ bool FMetricUXAuthoringMetadata::RunTest(const FString& Parameters)
             TestTrue(
                 FString::Printf(TEXT("%s.%s has authoring tooltip metadata"), *Struct->GetName(), *Property->GetName()),
                 !Tooltip.TrimStartAndEnd().IsEmpty());
+
+            const FString EditCondition = Property->GetMetaData(TEXT("EditCondition"));
+            static const TArray<FString> AnalysisEnableConditions =
+            {
+                TEXT("bShowClearanceProbe"), TEXT("bShowOverheadClearance"), TEXT("bShowSensorHeights"),
+                TEXT("bShowSensorField"), TEXT("bShowEngagementRanges"), TEXT("bShowLocomotionBands"),
+                TEXT("bShowTrajectory"), TEXT("bShowCameraProbe"), TEXT("bShowCameraSightline"),
+                TEXT("bShowGroundValidation"), TEXT("bShowFitAnalysis"), TEXT("bShowThresholdAnalysis"),
+                TEXT("bShowTurnClearance"), TEXT("bShowLedgeAnalysis"), TEXT("bShowStoppingDistance"),
+                TEXT("bShowCoverExposure"), TEXT("bShowJumpRunway"), TEXT("bShowInteractionReach"),
+                TEXT("bShowShoulderClearance"), TEXT("bShowCombatDensity"), TEXT("bShowAlternateStance"),
+                TEXT("bShowMantleVault"), TEXT("bShowRecoverySpace"), TEXT("bShowCrossfire")
+            };
+
+            const bool bGatedByAnalysisEnable = AnalysisEnableConditions.ContainsByPredicate([&EditCondition, &ContainsIdentifier](const FString& EnableName)
+            {
+                return ContainsIdentifier(EditCondition, EnableName);
+            });
+            TestFalse(
+                FString::Printf(TEXT("%s.%s remains editable when its analysis is Off"), *Struct->GetName(), *Property->GetName()),
+                bGatedByAnalysisEnable);
         }
     }
 
@@ -1630,6 +1819,45 @@ static bool RunMetricPerformanceEnvironmentBenchmark(FAutomationTestBase& Test, 
     Test.AddInfo(Summary.ToString());
     Test.TestEqual(TEXT("All benchmark generations completed"), Summary.Generations, 60);
     Test.TestTrue(TEXT("Benchmark issued environment queries"), Summary.Analyses.Num() > 0);
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricUXAssetCreationAndPresentation, "MetricPlugin.UX.AssetCreationAndPresentation", METRIC_AUTOMATION_FLAGS)
+bool FMetricUXAssetCreationAndPresentation::RunTest(const FString& Parameters)
+{
+    UMetricProfileFactory* ProfileFactory = NewObject<UMetricProfileFactory>();
+    UMetricViewPresetFactory* ViewPresetFactory = NewObject<UMetricViewPresetFactory>();
+    TestNotNull(TEXT("Metric Profile factory exists"), ProfileFactory);
+    TestNotNull(TEXT("Metric View Preset factory exists"), ViewPresetFactory);
+
+    UObject* ProfileObject = ProfileFactory
+        ? ProfileFactory->FactoryCreateNew(UMetricProfile::StaticClass(), GetTransientPackage(), TEXT("MetricUXProfile"), RF_Transient, nullptr, GWarn)
+        : nullptr;
+    UObject* ViewPresetObject = ViewPresetFactory
+        ? ViewPresetFactory->FactoryCreateNew(UMetricViewPreset::StaticClass(), GetTransientPackage(), TEXT("MetricUXViewPreset"), RF_Transient, nullptr, GWarn)
+        : nullptr;
+
+    UMetricProfile* Profile = Cast<UMetricProfile>(ProfileObject);
+    TestNotNull(TEXT("Metric Profile factory creates a Metric Profile"), Profile);
+    TestTrue(TEXT("Metric View Preset factory creates a Metric View Preset"), Cast<UMetricViewPreset>(ViewPresetObject) != nullptr);
+
+    if (Profile)
+    {
+        TestTrue(TEXT("Profile HUD presentation defaults on"), Profile->Presentation.bGroundResults);
+        TestTrue(TEXT("Profile Visualizer presentation defaults on"), Profile->Presentation.bGroundVisual);
+
+        Profile->GroundValidation.bShowGroundValidation = false;
+        Profile->GroundValidation.ForwardDistance = 777.0f;
+        TestFalse(TEXT("Analysis can be disabled independently"), Profile->GroundValidation.bShowGroundValidation);
+        TestEqual(TEXT("Disabled analysis settings remain authorable data"), Profile->GroundValidation.ForwardDistance, 777.0f);
+
+        Profile->Presentation.bGroundResults = false;
+        Profile->Presentation.bGroundVisual = false;
+        TestFalse(TEXT("HUD visibility can be disabled independently from analysis data"), Profile->Presentation.bGroundResults);
+        TestFalse(TEXT("Visualizer visibility can be disabled independently from analysis data"), Profile->Presentation.bGroundVisual);
+    }
+
     return true;
 }
 

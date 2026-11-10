@@ -7,6 +7,7 @@
 
 class AMetricRenderHostActor;
 class UWorld;
+class AActor;
 
 UCLASS()
 class METRIC_API UMetricSubsystem : public UEditorSubsystem
@@ -59,7 +60,11 @@ public:
         const FVector& Forward,
         const FVector& SurfaceNormal,
         const FVector& AnalysisUp,
-        FMetricLiveState& OutState) const;
+        FMetricLiveState& OutState,
+        EMetricAnalysisFrameMode AnalysisFrameMode = EMetricAnalysisFrameMode::World,
+        EMetricFrameSamplingPolicy FrameSampling = EMetricFrameSamplingPolicy::FixedAtOrigin,
+        float AnalysisGravityMagnitude = 0.0f,
+        AActor* ContextActor = nullptr) const;
 
 #if WITH_DEV_AUTOMATION_TESTS
     void EvaluateTrajectoryForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateTrajectory(World, InOutState); }
