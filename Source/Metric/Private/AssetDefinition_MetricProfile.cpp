@@ -5,6 +5,18 @@
 
 #define LOCTEXT_NAMESPACE "AssetDefinition_MetricProfile"
 
+namespace
+{
+    const TArray<FAssetCategoryPath>& GetMetricTestingCategories()
+    {
+        static const TArray<FAssetCategoryPath> Categories =
+        {
+            FAssetCategoryPath(INVTEXT("Testing")) / INVTEXT("Metric")
+        };
+        return Categories;
+    }
+}
+
 FText UAssetDefinition_MetricProfile::GetAssetDisplayName() const
 {
     return LOCTEXT("MetricProfileDisplayName", "Metric Profile");
@@ -24,6 +36,11 @@ FLinearColor UAssetDefinition_MetricProfile::GetAssetColor() const
 TSoftClassPtr<UObject> UAssetDefinition_MetricProfile::GetAssetClass() const
 {
     return UMetricProfile::StaticClass();
+}
+
+TConstArrayView<FAssetCategoryPath> UAssetDefinition_MetricProfile::GetAssetCategories() const
+{
+    return GetMetricTestingCategories();
 }
 
 EAssetCommandResult UAssetDefinition_MetricProfile::OpenAssets(const FAssetOpenArgs& OpenArgs) const

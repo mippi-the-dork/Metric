@@ -2,6 +2,12 @@
 
 #include "Misc/AutomationTest.h"
 
+#include "AssetDefinition_MetricGravityProviderBlueprint.h"
+#include "AssetDefinition_MetricProfile.h"
+#include "AssetDefinition_MetricViewPreset.h"
+#include "EdGraph/EdGraph.h"
+#include "MetricGravityProviderBlueprint.h"
+#include "MetricGravityProviderBlueprintFactory.h"
 #include "MetricEditorSettings.h"
 #include "MetricCustomVersion.h"
 #include "MetricActor.h"
@@ -1857,6 +1863,66 @@ bool FMetricUXAssetCreationAndPresentation::RunTest(const FString& Parameters)
         TestFalse(TEXT("HUD visibility can be disabled independently from analysis data"), Profile->Presentation.bGroundResults);
         TestFalse(TEXT("Visualizer visibility can be disabled independently from analysis data"), Profile->Presentation.bGroundVisual);
     }
+
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricUXGravityProviderAssetAuthoring, "MetricPlugin.UX.GravityProviderAssetAuthoring", METRIC_AUTOMATION_FLAGS)
+bool FMetricUXGravityProviderAssetAuthoring::RunTest(const FString& Parameters)
+{
+    UMetricGravityProviderBlueprintFactory* Factory = NewObject<UMetricGravityProviderBlueprintFactory>();
+    TestNotNull(TEXT("Metric Gravity Provider factory exists"), Factory);
+
+    UObject* CreatedObject = Factory
+        ? Factory->FactoryCreateNew(UMetricGravityProviderBlueprint::StaticClass(), GetTransientPackage(), TEXT("MetricUXGravityProvider"), RF_Transient, nullptr, GWarn)
+        : nullptr;
+
+    UMetricGravityProviderBlueprint* Blueprint = Cast<UMetricGravityProviderBlueprint>(CreatedObject);
+    TestNotNull(TEXT("Factory creates specialized Metric Gravity Provider Blueprint asset"), Blueprint);
+    if (Blueprint)
+    {
+        TestNotNull(TEXT("Gravity Provider Blueprint has generated class"), Blueprint->GeneratedClass.Get());
+        TestTrue(
+            TEXT("Gravity Provider Blueprint is pre-parented to UMetricGravityProvider"),
+            Blueprint->GeneratedClass && Blueprint->GeneratedClass->IsChildOf(UMetricGravityProvider::StaticClass()));
+        TestTrue(TEXT("Gravity Provider Blueprint forces the full Blueprint editor"), Blueprint->bForceFullEditor);
+
+        const FName SampleFunctionName = GET_FUNCTION_NAME_CHECKED(UMetricGravityProvider, SampleGravityForMetric);
+        bool bHasSampleOverrideGraph = false;
+        for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
+        {
+            if (FunctionGraph && FunctionGraph->GetFName() == SampleFunctionName)
+            {
+                bHasSampleOverrideGraph = true;
+                break;
+            }
+        }
+        TestTrue(TEXT("Gravity Provider Blueprint starts with Sample Gravity for Metric override graph"), bHasSampleOverrideGraph);
+    }
+
+    const auto CheckTestingMetricCategory = [this](const UAssetDefinition* Definition, const TCHAR* Label)
+    {
+        const TConstArrayView<FAssetCategoryPath> Categories = Definition->GetAssetCategories();
+        TestEqual(FString::Printf(TEXT("%s has one asset category"), Label), Categories.Num(), 1);
+        if (Categories.Num() == 1)
+        {
+            TestEqual(FString::Printf(TEXT("%s root category is Testing"), Label), Categories[0].GetCategoryText().ToString(), FString(TEXT("Testing")));
+            TestEqual(FString::Printf(TEXT("%s submenu is Metric"), Label), Categories[0].GetSubCategoryText().ToString(), FString(TEXT("Metric")));
+        }
+    };
+
+    CheckTestingMetricCategory(NewObject<UAssetDefinition_MetricProfile>(), TEXT("Metric Profile"));
+    CheckTestingMetricCategory(NewObject<UAssetDefinition_MetricViewPreset>(), TEXT("Metric View Preset"));
+
+    UAssetDefinition_MetricGravityProviderBlueprint* GravityDefinition = NewObject<UAssetDefinition_MetricGravityProviderBlueprint>();
+    CheckTestingMetricCategory(GravityDefinition, TEXT("Metric Gravity Provider"));
+    TestTrue(
+        TEXT("Metric Gravity Provider uses Blueprint blue #3F7EFF"),
+        GravityDefinition->GetAssetColor().Equals(FLinearColor::FromSRGBColor(FColor(0x3F, 0x7E, 0xFF, 0xFF)), KINDA_SMALL_NUMBER));
+    TestTrue(
+        TEXT("Metric Gravity Provider inherits native Blueprint asset opening behavior"),
+        UAssetDefinition_MetricGravityProviderBlueprint::StaticClass()->IsChildOf(UAssetDefinition_Blueprint::StaticClass()));
 
     return true;
 }

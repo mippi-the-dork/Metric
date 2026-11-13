@@ -31,6 +31,8 @@ void FMetricStyle::Initialize()
         StyleSet->Set(TEXT("ClassThumbnail.MetricProfile"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
         StyleSet->Set(TEXT("ClassIcon.MetricViewPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
         StyleSet->Set(TEXT("ClassThumbnail.MetricViewPreset"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
+        StyleSet->Set(TEXT("ClassIcon.MetricGravityProviderBlueprint"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(16.0f, 16.0f)));
+        StyleSet->Set(TEXT("ClassThumbnail.MetricGravityProviderBlueprint"), new FSlateVectorImageBrush(ProfileIconPath, FVector2D(64.0f, 64.0f)));
     }
 
     const FString ActorIconPath = StyleSet->RootToContentDir(TEXT("MetricActor_16"), TEXT(".svg"));

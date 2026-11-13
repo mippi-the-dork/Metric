@@ -30,6 +30,7 @@ public class Metric : ModuleRules
                 "PhysicsCore",
                 "AssetDefinition",
                 "EngineAssetDefinitions",
+                "BlueprintGraph",
                 "PropertyEditor",
                 "ToolMenus"
             });
