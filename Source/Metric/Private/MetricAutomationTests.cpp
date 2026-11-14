@@ -1889,16 +1889,20 @@ bool FMetricUXGravityProviderAssetAuthoring::RunTest(const FString& Parameters)
         TestTrue(TEXT("Gravity Provider Blueprint forces the full Blueprint editor"), Blueprint->bForceFullEditor);
 
         const FName SampleFunctionName = GET_FUNCTION_NAME_CHECKED(UMetricGravityProvider, SampleGravityForMetric);
-        bool bHasSampleOverrideGraph = false;
+        TestNotNull(
+            TEXT("Gravity Provider parent exposes Sample Gravity for Metric as an inherited override"),
+            UMetricGravityProvider::StaticClass()->FindFunctionByName(SampleFunctionName));
+
+        bool bHasConflictingSeededGraph = false;
         for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
         {
             if (FunctionGraph && FunctionGraph->GetFName() == SampleFunctionName)
             {
-                bHasSampleOverrideGraph = true;
+                bHasConflictingSeededGraph = true;
                 break;
             }
         }
-        TestTrue(TEXT("Gravity Provider Blueprint starts with Sample Gravity for Metric override graph"), bHasSampleOverrideGraph);
+        TestFalse(TEXT("Gravity Provider Blueprint does not pre-seed a conflicting native override graph"), bHasConflictingSeededGraph);
     }
 
     const auto CheckTestingMetricCategory = [this](const UAssetDefinition* Definition, const TCHAR* Label)

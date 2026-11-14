@@ -1,9 +1,6 @@
 #include "MetricGravityProviderBlueprintFactory.h"
 
-#include "EdGraph/EdGraph.h"
-#include "EdGraphSchema_K2.h"
 #include "Engine/BlueprintGeneratedClass.h"
-#include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "MetricGravityProvider.h"
 #include "MetricGravityProviderBlueprint.h"
@@ -45,25 +42,11 @@ UObject* UMetricGravityProviderBlueprintFactory::FactoryCreateNew(
     }
 
     // Gravity providers are authoring assets, not data-only Blueprints. Force the
-    // normal Blueprint editor and seed the one override users are expected to implement.
+    // normal Blueprint editor. The inherited BlueprintNativeEvent is intentionally
+    // left to Unreal's native Overrides workflow rather than manufacturing an override
+    // graph here; doing so can produce a conflicting signature for native functions.
     Blueprint->bForceFullEditor = true;
 
-    const FName SampleFunctionName = GET_FUNCTION_NAME_CHECKED(UMetricGravityProvider, SampleGravityForMetric);
-    if (UFunction* SampleFunction = UMetricGravityProvider::StaticClass()->FindFunctionByName(SampleFunctionName))
-    {
-        UEdGraph* OverrideGraph = FBlueprintEditorUtils::CreateNewGraph(
-            Blueprint,
-            SampleFunctionName,
-            UEdGraph::StaticClass(),
-            UEdGraphSchema_K2::StaticClass());
-
-        if (OverrideGraph)
-        {
-            FBlueprintEditorUtils::AddFunctionGraph(Blueprint, OverrideGraph, false, SampleFunction);
-        }
-    }
-
-    FKismetEditorUtilities::CompileBlueprint(Blueprint);
     return Blueprint;
 }
 
