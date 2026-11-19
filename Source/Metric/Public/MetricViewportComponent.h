@@ -15,6 +15,7 @@ public:
 
     void SetMetricState(const FMetricLiveState& NewState);
     void SetAllowQueryInspection(bool bAllow);
+    void SetQueryInspectionOverride(bool bUseOverride, bool bEnabled, EMetricInspectionTarget Target = EMetricInspectionTarget::Auto);
 
     virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
     virtual void SendRenderDynamicData_Concurrent() override;
@@ -23,4 +24,7 @@ public:
 private:
     FMetricLiveState State;
     bool bAllowQueryInspection = true;
+    bool bUseQueryInspectionOverride = false;
+    bool bQueryInspectionOverrideEnabled = false;
+    EMetricInspectionTarget QueryInspectionOverrideTarget = EMetricInspectionTarget::Auto;
 };

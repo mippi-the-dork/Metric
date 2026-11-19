@@ -18,7 +18,7 @@ class AActor;
  * class in a separate optional integration module.
  */
 UCLASS(Abstract, Blueprintable, BlueprintType)
-class METRIC_API UMetricGravityProvider : public UObject
+class METRICRUNTIME_API UMetricGravityProvider : public UObject
 {
     GENERATED_BODY()
 
@@ -53,7 +53,7 @@ public:
 
 /** Simple built-in provider for projects that only need one constant gravity frame. */
 UCLASS(Blueprintable, BlueprintType, meta = (DisplayName = "Metric Constant Gravity Provider"))
-class METRIC_API UMetricConstantGravityProvider : public UMetricGravityProvider
+class METRICRUNTIME_API UMetricConstantGravityProvider : public UMetricGravityProvider
 {
     GENERATED_BODY()
 

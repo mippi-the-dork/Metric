@@ -13,6 +13,7 @@
 #include "MetricActor.h"
 #include "MetricGravityProvider.h"
 #include "MetricEnvironmentQuery.h"
+#include "MetricDiagnosticUtils.h"
 #include "MetricFrameUtils.h"
 #include "MetricPerformance.h"
 #include "MetricProfile.h"
@@ -21,6 +22,7 @@
 #include "MetricViewPresetFactory.h"
 #include "MetricProjectSettings.h"
 #include "MetricSubsystem.h"
+#include "MetricAutomationGravityProviders.h"
 #include "MetricViewportComponent.h"
 
 #include "Components/BillboardComponent.h"
@@ -585,6 +587,249 @@ bool FMetricFrameProviderTrajectoryResampling::RunTest(const FString& Parameters
 
     Provider->UpDirection = PreviousUp;
     Provider->GravityMagnitude = PreviousMagnitude;
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderStoppingDistanceResampling, "MetricPlugin.Frame.ProviderStoppingDistanceResampling", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderStoppingDistanceResampling::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    TestNotNull(TEXT("Metric subsystem"), Subsystem);
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider->UpDirection;
+    const float PreviousMagnitude = Provider->GravityMagnitude;
+    Provider->UpDirection = FVector::RightVector;
+    Provider->GravityMagnitude = 500.0f;
+
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisFrameMode = EMetricAnalysisFrameMode::Provider;
+    State.FrameSampling = EMetricFrameSamplingPolicy::ResampleAlongAnalysis;
+    State.AnalysisUp = FVector::UpVector;
+    State.StoppingDistanceSettings.bShowStoppingDistance = true;
+    State.StoppingDistanceSettings.Speed = 600.0f;
+    State.StoppingDistanceSettings.Deceleration = 1800.0f;
+    State.StoppingDistanceSettings.ReactionTime = 0.15f;
+
+    if (Subsystem)
+    {
+        Subsystem->EvaluateStoppingDistanceForAutomation(World, State);
+        TestTrue(TEXT("Provider-resampled stopping path produced samples"), State.StoppingDistance.SampleUps.Num() > 1);
+        if (!State.StoppingDistance.SampleUps.IsEmpty())
+        {
+            TestTrue(TEXT("Stopping path uses provider Up"), State.StoppingDistance.SampleUps[0].Equals(FVector::RightVector, KINDA_SMALL_NUMBER));
+        }
+    }
+
+    Provider->UpDirection = PreviousUp;
+    Provider->GravityMagnitude = PreviousMagnitude;
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderTurnClearanceResampling, "MetricPlugin.Frame.ProviderTurnClearanceResampling", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderTurnClearanceResampling::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    TestNotNull(TEXT("Metric subsystem"), Subsystem);
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider->UpDirection;
+    const float PreviousMagnitude = Provider->GravityMagnitude;
+    Provider->UpDirection = FVector::RightVector;
+    Provider->GravityMagnitude = 500.0f;
+
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisFrameMode = EMetricAnalysisFrameMode::Provider;
+    State.FrameSampling = EMetricFrameSamplingPolicy::ResampleAlongAnalysis;
+    State.AnalysisUp = FVector::UpVector;
+    State.TurnClearanceSettings.bShowTurnClearance = true;
+    State.TurnClearanceSettings.Direction = EMetricTurnDirection::Right;
+    State.TurnClearanceSettings.TurnRadius = 250.0f;
+    State.TurnClearanceSettings.TurnAngle = 90.0f;
+    State.TurnClearanceSettings.SampleAngle = 15.0f;
+
+    if (Subsystem)
+    {
+        Subsystem->EvaluateTurnClearanceForAutomation(World, State);
+        TestTrue(TEXT("Provider-resampled turn path produced samples"), State.TurnClearance.Right.SampleUps.Num() > 1);
+        if (!State.TurnClearance.Right.SampleUps.IsEmpty())
+        {
+            TestTrue(TEXT("Turn path uses provider Up"), State.TurnClearance.Right.SampleUps[0].Equals(FVector::RightVector, KINDA_SMALL_NUMBER));
+        }
+    }
+
+    Provider->UpDirection = PreviousUp;
+    Provider->GravityMagnitude = PreviousMagnitude;
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderFitResampling, "MetricPlugin.Frame.ProviderFitResampling", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderFitResampling::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    TestNotNull(TEXT("Metric subsystem"), Subsystem);
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+
+    // Treat +Y as local Up and provide a matching vertical support plane at Y=0.
+    MetricAutomation::SpawnBox(World, FVector(150.0f, -10.0f, 0.0f), FVector(500.0f, 10.0f, 500.0f), true);
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider->UpDirection;
+    const float PreviousMagnitude = Provider->GravityMagnitude;
+    Provider->UpDirection = FVector::RightVector;
+    Provider->GravityMagnitude = 500.0f;
+
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisFrameMode = EMetricAnalysisFrameMode::Provider;
+    State.FrameSampling = EMetricFrameSamplingPolicy::ResampleAlongAnalysis;
+    State.AnalysisUp = FVector::UpVector;
+    State.FitAnalysisSettings.bShowFitAnalysis = true;
+    State.FitAnalysisSettings.ForwardDistance = 150.0f;
+    State.FitAnalysisSettings.SampleSpacing = 50.0f;
+
+    if (Subsystem)
+    {
+        Subsystem->EvaluateFitAnalysisForAutomation(World, State);
+        TestTrue(TEXT("Provider-resampled fit produced multiple stations"), State.FitAnalysis.Samples.Num() > 1);
+        for (const FMetricFitSample& Sample : State.FitAnalysis.Samples)
+        {
+            TestTrue(TEXT("Fit station sampled provider Up"), Sample.LocalUp.Equals(FVector::RightVector, KINDA_SMALL_NUMBER));
+            TestTrue(TEXT("Fit floor query followed provider Up"), Sample.bHasFloor);
+            TestTrue(TEXT("Fit forward remains perpendicular to local Up"),
+                FMath::IsNearlyZero(FVector::DotProduct(Sample.LocalForward, Sample.LocalUp), KINDA_SMALL_NUMBER));
+        }
+    }
+
+    Provider->UpDirection = PreviousUp;
+    Provider->GravityMagnitude = PreviousMagnitude;
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderThresholdResampling, "MetricPlugin.Frame.ProviderThresholdResampling", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderThresholdResampling::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    TestNotNull(TEXT("Metric subsystem"), Subsystem);
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+
+    MetricAutomation::SpawnBox(World, FVector(150.0f, -10.0f, 0.0f), FVector(500.0f, 10.0f, 500.0f), true);
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider->UpDirection;
+    const float PreviousMagnitude = Provider->GravityMagnitude;
+    Provider->UpDirection = FVector::RightVector;
+    Provider->GravityMagnitude = 500.0f;
+
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisFrameMode = EMetricAnalysisFrameMode::Provider;
+    State.FrameSampling = EMetricFrameSamplingPolicy::ResampleAlongAnalysis;
+    State.AnalysisUp = FVector::UpVector;
+    State.ThresholdAnalysisSettings.bShowThresholdAnalysis = true;
+    State.ThresholdAnalysisSettings.ProbeDepth = 120.0f;
+
+    if (Subsystem)
+    {
+        Subsystem->EvaluateThresholdAnalysisForAutomation(World, State);
+        TestEqual(TEXT("Threshold still evaluates entry/mid/exit"), State.ThresholdAnalysis.Samples.Num(), 3);
+        for (const FMetricThresholdSample& Sample : State.ThresholdAnalysis.Samples)
+        {
+            TestTrue(TEXT("Threshold station sampled provider Up"), Sample.LocalUp.Equals(FVector::RightVector, KINDA_SMALL_NUMBER));
+            TestTrue(TEXT("Threshold floor query followed provider Up"), Sample.bHasFloor);
+            TestTrue(TEXT("Threshold forward remains perpendicular to local Up"),
+                FMath::IsNearlyZero(FVector::DotProduct(Sample.LocalForward, Sample.LocalUp), KINDA_SMALL_NUMBER));
+        }
+    }
+
+    Provider->UpDirection = PreviousUp;
+    Provider->GravityMagnitude = PreviousMagnitude;
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricFrameProviderRotatingSpatialProbeSuite, "MetricPlugin.Frame.ProviderRotatingSpatialProbeSuite", METRIC_AUTOMATION_FLAGS)
+bool FMetricFrameProviderRotatingSpatialProbeSuite::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    TestNotNull(TEXT("Metric subsystem"), Subsystem);
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricAutomationRotatingGravityProvider::StaticClass());
+
+    UMetricAutomationRotatingGravityProvider* Provider = GetMutableDefault<UMetricAutomationRotatingGravityProvider>();
+    Provider->DegreesPer100Units = 30.0f;
+    Provider->GravityMagnitude = 700.0f;
+
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.AnalysisFrameMode = EMetricAnalysisFrameMode::Provider;
+    State.FrameSampling = EMetricFrameSamplingPolicy::ResampleAlongAnalysis;
+    State.AnalysisUp = FVector::UpVector;
+    State.AnalysisForward = FVector::ForwardVector;
+    State.Forward = FVector::ForwardVector;
+
+    if (Subsystem)
+    {
+        State.ClearanceSettings.bShowClearanceProbe = true;
+        State.ClearanceSettings.ProbeDistance = 400.0f;
+        State.ClearanceSettings.WarningMargin = 0.0f;
+        Subsystem->EvaluateClearanceForAutomation(World, State);
+        TestTrue(TEXT("Rotating-gravity clearance produced a transported path"), State.Clearance.SampleOffsets.Num() > 2);
+        if (State.Clearance.SampleUps.Num() > 2)
+        {
+            TestFalse(TEXT("Clearance Up changes through rotating gravity"), State.Clearance.SampleUps[0].Equals(State.Clearance.SampleUps.Last(), 0.01f));
+        }
+        if (!State.Clearance.SampleOffsets.IsEmpty())
+        {
+            TestTrue(TEXT("Clearance path bends out of the origin plane"), FMath::Abs(State.Clearance.SampleOffsets.Last().Z) > 1.0f);
+        }
+
+        State.InteractionReachSettings.bShowInteractionReach = true;
+        State.InteractionReachSettings.ReachDistance = 300.0f;
+        Subsystem->EvaluateInteractionReachForAutomation(World, State);
+        TestTrue(TEXT("Interaction Reach produced a transported path"), State.InteractionReach.SampleOffsets.Num() > 2);
+        if (State.InteractionReach.SampleUps.Num() > 2)
+        {
+            TestFalse(TEXT("Interaction Reach samples changing Up"), State.InteractionReach.SampleUps[0].Equals(State.InteractionReach.SampleUps.Last(), 0.01f));
+        }
+
+        State.CameraProbeSettings.bShowCameraProbe = true;
+        State.CameraProbeSettings.TargetDistance = 350.0f;
+        State.CameraProbeSettings.ShoulderOffset = 0.0f;
+        State.CameraProbeSettings.VerticalOffset = 0.0f;
+        Subsystem->EvaluateCameraProbeForAutomation(World, State);
+        TestTrue(TEXT("Camera Probe produced a transported path"), State.CameraProbe.SampleOffsets.Num() > 2);
+        if (State.CameraProbe.SampleUps.Num() > 2)
+        {
+            TestFalse(TEXT("Camera Probe samples changing Up"), State.CameraProbe.SampleUps[0].Equals(State.CameraProbe.SampleUps.Last(), 0.01f));
+        }
+
+        State.ShoulderClearanceSettings.bShowShoulderClearance = true;
+        State.ShoulderClearanceSettings.CameraDistance = 300.0f;
+        State.ShoulderClearanceSettings.ShoulderOffset = 55.0f;
+        Subsystem->EvaluateShoulderClearanceForAutomation(World, State);
+        TestTrue(TEXT("Left shoulder produced a transported path"), State.ShoulderClearance.LeftPathOffsets.Num() > 2);
+        TestTrue(TEXT("Right shoulder produced a transported path"), State.ShoulderClearance.RightPathOffsets.Num() > 2);
+    }
+
     return true;
 }
 
@@ -1473,6 +1718,100 @@ bool FMetricInspectionTrajectoryEvidence::RunTest(const FString& Parameters)
 }
 
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricInspectionExtendedEvidenceCatalog, "MetricPlugin.Inspection.ExtendedEvidenceCatalog", METRIC_AUTOMATION_FLAGS)
+bool FMetricInspectionExtendedEvidenceCatalog::RunTest(const FString& Parameters)
+{
+    UMetricSubsystem* Subsystem = MetricAutomation::GetSubsystem();
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+
+    State.TurnClearance.bVisible = true;
+    State.TurnClearanceSettings.TurnAngle = 90.0f;
+    State.TurnClearance.Left.bTested = true;
+    State.TurnClearance.Left.bBlocked = true;
+    State.TurnClearance.Left.ClearAngle = 35.0f;
+    State.TurnClearance.Left.ImpactPointOffset = FVector(80.0f, -30.0f, 0.0f);
+
+    State.JumpRunway.bVisible = true;
+    State.JumpRunway.bTakeoffPass = false;
+    State.JumpRunway.TakeoffAvailable = 60.0f;
+    State.JumpRunwaySettings.TakeoffRunway = 150.0f;
+
+    State.ShoulderClearance.bVisible = true;
+    State.ShoulderClearance.bLeftBlocked = true;
+    State.ShoulderClearance.LeftDistance = 120.0f;
+    State.ShoulderClearanceSettings.CameraDistance = 300.0f;
+
+    State.AlternateStance.bVisible = true;
+    State.AlternateStance.bStandingFits = false;
+    State.AlternateStance.bAlternateFits = true;
+    State.AlternateStance.AvailableHeight = 120.0f;
+
+    if (Subsystem) Subsystem->BuildQueryEvidenceForAutomation(State);
+
+    auto HasTarget = [&](EMetricInspectionTarget Target)
+    {
+        return State.QueryEvidence.ContainsByPredicate([&](const FMetricQueryEvidence& E){ return E.Target == Target; });
+    };
+    TestTrue(TEXT("Turn Clearance emits inspectable evidence"), HasTarget(EMetricInspectionTarget::TurnClearance));
+    TestTrue(TEXT("Jump Runway emits inspectable evidence"), HasTarget(EMetricInspectionTarget::JumpRunway));
+    TestTrue(TEXT("Shoulder Clearance emits inspectable evidence"), HasTarget(EMetricInspectionTarget::ShoulderClearance));
+    TestTrue(TEXT("Alternate Stance emits inspectable evidence"), HasTarget(EMetricInspectionTarget::AlternateStance));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorInspectionAuthoring, "MetricPlugin.Actor.InspectionAuthoring", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorInspectionAuthoring::RunTest(const FString& Parameters)
+{
+    const FProperty* InspectProperty = AMetricActor::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(AMetricActor, bInspectQueries));
+    const FProperty* TargetProperty = AMetricActor::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(AMetricActor, InspectionTarget));
+    const FProperty* IssuesProperty = AMetricActor::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(AMetricActor, ActiveIssues));
+    const FProperty* ResolvedProperty = AMetricActor::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(AMetricActor, ResolvedInspection));
+    const FProperty* ReasonProperty = AMetricActor::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(AMetricActor, InspectionReason));
+    TestNotNull(TEXT("Metric Actor exposes local Query Inspection toggle"), InspectProperty);
+    TestNotNull(TEXT("Metric Actor exposes local Inspection Target"), TargetProperty);
+    TestNotNull(TEXT("Metric Actor exposes actionable Active Issues"), IssuesProperty);
+    TestNotNull(TEXT("Metric Actor exposes resolved Auto inspection target"), ResolvedProperty);
+    TestNotNull(TEXT("Metric Actor exposes resolved inspection reason"), ReasonProperty);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricInspectionAutoResolver, "MetricPlugin.Inspection.AutoResolver", METRIC_AUTOMATION_FLAGS)
+bool FMetricInspectionAutoResolver::RunTest(const FString& Parameters)
+{
+    FMetricLiveState State = MetricAutomation::MakeAnalysisState();
+    State.GroundValidation.bVisible = true;
+    State.Clearance.bVisible = true;
+
+    FMetricQueryEvidence Warning;
+    Warning.Target = EMetricInspectionTarget::Clearance;
+    Warning.Status = EMetricQueryEvidenceStatus::Warning;
+    Warning.Label = TEXT("Clear 260 / 300 cm");
+    State.QueryEvidence.Add(Warning);
+
+    FMetricQueryEvidence Failure;
+    Failure.Target = EMetricInspectionTarget::GroundValidation;
+    Failure.Status = EMetricQueryEvidenceStatus::Fail;
+    Failure.Label = TEXT("Missing floor");
+    State.QueryEvidence.Add(Failure);
+
+    FString Reason;
+    const EMetricInspectionTarget Resolved = MetricDiagnosticUtils::ResolveInspectionTarget(State, EMetricInspectionTarget::Auto, &Reason);
+    TestEqual(TEXT("Auto resolver prioritizes failure over warning"), Resolved, EMetricInspectionTarget::GroundValidation);
+    TestEqual(TEXT("Auto resolver exposes the selected failure reason"), Reason, FString(TEXT("Missing floor")));
+    TestEqual(TEXT("Inspection target names are user-facing"), MetricDiagnosticUtils::GetInspectionTargetDisplayName(Resolved).ToString(), FString(TEXT("Ground Validation")));
+
+    TestEqual(TEXT("Failure evidence defaults to Primary Issue"), GetDefault<UMetricEditorSettings>()->FailureEvidenceScope, EMetricFailureEvidenceScope::PrimaryIssue);
+    const FMetricQueryEvidence* PrimaryEvidence = MetricDiagnosticUtils::ResolvePrimaryProblemEvidence(State);
+    TestNotNull(TEXT("Primary Issue resolves one representative problem record"), PrimaryEvidence);
+    if (PrimaryEvidence)
+    {
+        TestEqual(TEXT("Primary Issue evidence matches resolved target"), PrimaryEvidence->Target, EMetricInspectionTarget::GroundValidation);
+        TestEqual(TEXT("Primary Issue evidence preserves failure reason"), PrimaryEvidence->Label, FString(TEXT("Missing floor")));
+    }
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorMissingProfile, "MetricPlugin.Actor.MissingProfile", METRIC_AUTOMATION_FLAGS)
 bool FMetricActorMissingProfile::RunTest(const FString& Parameters)
 {
@@ -1598,6 +1937,52 @@ bool FMetricActorProfileFail::RunTest(const FString& Parameters)
     }
     return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorSharedGravityProvider, "MetricPlugin.Actor.SharedGravityProvider", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorSharedGravityProvider::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FGravityProviderScope ProviderScope(UMetricConstantGravityProvider::StaticClass());
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+
+    UMetricConstantGravityProvider* Provider = GetMutableDefault<UMetricConstantGravityProvider>();
+    const FVector PreviousUp = Provider ? Provider->UpDirection : FVector::UpVector;
+    const float PreviousMagnitude = Provider ? Provider->GravityMagnitude : 980.0f;
+
+    const FVector ExpectedUp = FVector(0.0f, 1.0f, 0.0f);
+    constexpr float ExpectedMagnitude = 321.0f;
+    if (Provider)
+    {
+        Provider->UpDirection = ExpectedUp;
+        Provider->GravityMagnitude = ExpectedMagnitude;
+    }
+
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
+    Profile->DisplayName = FText::FromString(TEXT("Automation Provider Actor Profile"));
+
+    AMetricActor* Actor = World ? World->SpawnActor<AMetricActor>(FVector::ZeroVector, FRotator::ZeroRotator) : nullptr;
+    TestNotNull(TEXT("Metric Actor spawned for provider test"), Actor);
+    if (Actor)
+    {
+        Actor->Profile = Profile;
+        Actor->AnalysisFrame = EMetricAnalysisFrameMode::Provider;
+        Actor->FrameSampling = EMetricFrameSamplingPolicy::FixedAtOrigin;
+        Actor->RecalculateMetric();
+
+        const FMetricLiveState& State = Actor->GetEvaluatedState();
+        TestTrue(TEXT("Metric Actor resolves Up through the shared project gravity provider"), State.AnalysisUp.Equals(ExpectedUp, KINDA_SMALL_NUMBER));
+        TestEqual(TEXT("Metric Actor receives gravity magnitude from the shared project gravity provider"), State.AnalysisGravityMagnitude, ExpectedMagnitude);
+        TestEqual(TEXT("Metric Actor evaluated state remains in Provider frame mode"), State.AnalysisFrameMode, EMetricAnalysisFrameMode::Provider);
+    }
+
+    if (Provider)
+    {
+        Provider->UpDirection = PreviousUp;
+        Provider->GravityMagnitude = PreviousMagnitude;
+    }
+    return true;
+}
+
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorRelevantChangeRequest, "MetricPlugin.Actor.RelevantChangeRequest", METRIC_AUTOMATION_FLAGS)
 bool FMetricActorRelevantChangeRequest::RunTest(const FString& Parameters)
@@ -1887,6 +2272,13 @@ bool FMetricUXGravityProviderAssetAuthoring::RunTest(const FString& Parameters)
             TEXT("Gravity Provider Blueprint is pre-parented to UMetricGravityProvider"),
             Blueprint->GeneratedClass && Blueprint->GeneratedClass->IsChildOf(UMetricGravityProvider::StaticClass()));
         TestTrue(TEXT("Gravity Provider Blueprint forces the full Blueprint editor"), Blueprint->bForceFullEditor);
+        TestFalse(
+            TEXT("Gravity Provider generated class is not editor-only"),
+            Blueprint->GeneratedClass && Blueprint->GeneratedClass->GetDefaultObject()->IsEditorOnly());
+        TestEqual(
+            TEXT("Gravity Provider contract lives in MetricRuntime"),
+            UMetricGravityProvider::StaticClass()->GetOutermost()->GetName(),
+            FString(TEXT("/Script/MetricRuntime")));
 
         const FName SampleFunctionName = GET_FUNCTION_NAME_CHECKED(UMetricGravityProvider, SampleGravityForMetric);
         TestNotNull(

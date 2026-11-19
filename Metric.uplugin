@@ -12,6 +12,11 @@
   "EngineVersion": "5.8.0",
   "Modules": [
     {
+      "Name": "MetricRuntime",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    },
+    {
       "Name": "Metric",
       "Type": "Editor",
       "LoadingPhase": "PostEngineInit"

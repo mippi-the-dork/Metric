@@ -12,7 +12,8 @@ public class Metric : ModuleRules
                 "Core",
                 "CoreUObject",
                 "Engine",
-                "EditorSubsystem"
+                "EditorSubsystem",
+                "MetricRuntime"
             });
 
         PrivateDependencyModuleNames.AddRange(

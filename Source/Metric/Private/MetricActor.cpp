@@ -3,6 +3,7 @@
 #include "MetricProfile.h"
 #include "MetricEditorSettings.h"
 #include "MetricFrameUtils.h"
+#include "MetricDiagnosticUtils.h"
 #include "MetricSubsystem.h"
 #include "MetricViewportComponent.h"
 #include "MetricActorOverview.h"
@@ -54,7 +55,8 @@ AMetricActor::AMetricActor()
     VisualizationComponent = CreateDefaultSubobject<UMetricViewportComponent>(TEXT("MetricVisualization"));
     VisualizationComponent->SetupAttachment(RootComponent);
     VisualizationComponent->SetIsVisualizationComponent(true);
-    VisualizationComponent->SetAllowQueryInspection(false);
+    VisualizationComponent->SetAllowQueryInspection(true);
+    VisualizationComponent->SetQueryInspectionOverride(true, false, EMetricInspectionTarget::Auto);
 
 #if WITH_EDITOR
     // Keep Unreal's user-facing per-Actor Editor Billboard Scale at its native default.
@@ -164,6 +166,9 @@ void AMetricActor::RecalculateMetric()
         WarningCount = 0;
         FailureCount = 0;
         ResultSummary = TEXT("Disabled");
+        ActiveIssues.Reset();
+        ResolvedInspection.Reset();
+        InspectionReason.Reset();
         EvaluatedState = FMetricLiveState();
         UpdateVisualization();
         SetActorTickEnabled(false);
@@ -177,6 +182,9 @@ void AMetricActor::RecalculateMetric()
         WarningCount = 0;
         FailureCount = 0;
         ResultSummary = TEXT("Missing Metric Profile");
+        ActiveIssues.Reset();
+        ResolvedInspection.Reset();
+        InspectionReason.Reset();
         EvaluatedState = FMetricLiveState();
         UpdateVisualization();
         SetActorTickEnabled(UpdateMode == EMetricActorUpdateMode::Continuous);
@@ -240,55 +248,34 @@ void AMetricActor::UpdateSummary()
 {
     TSet<FString> FailAnalyses;
     TSet<FString> WarningAnalyses;
+    TMap<FString, FString> IssueLabels;
 
-    auto AddFail = [&](const TCHAR* Name)
+    auto AddFail = [&](const FString& Key, const FString& Label)
     {
-        FailAnalyses.Add(Name);
-        WarningAnalyses.Remove(Name);
+        FailAnalyses.Add(Key);
+        WarningAnalyses.Remove(Key);
+        if (!Label.IsEmpty()) IssueLabels.FindOrAdd(Key) = Label;
     };
-    auto AddWarning = [&](const TCHAR* Name)
+    auto AddWarning = [&](const FString& Key, const FString& Label)
     {
-        if (!FailAnalyses.Contains(Name)) WarningAnalyses.Add(Name);
+        if (!FailAnalyses.Contains(Key))
+        {
+            WarningAnalyses.Add(Key);
+            if (!Label.IsEmpty() && !IssueLabels.Contains(Key)) IssueLabels.Add(Key, Label);
+        }
     };
 
-    // Query Evidence is the canonical classification source for analyses that
-    // currently produce inspectable evidence. Count each analysis once even if
-    // it has many failed samples/segments.
+    // Query Evidence is the canonical issue source. Keep one best reason per
+    // analysis target so the Actor reports actionable problems rather than raw
+    // sample counts.
     for (const FMetricQueryEvidence& Evidence : EvaluatedState.QueryEvidence)
     {
         const FString Key = FString::Printf(TEXT("Inspection.%d"), static_cast<int32>(Evidence.Target));
-        if (Evidence.Status == EMetricQueryEvidenceStatus::Fail) AddFail(*Key);
-        else if (Evidence.Status == EMetricQueryEvidenceStatus::Warning) AddWarning(*Key);
+        if (Evidence.Status == EMetricQueryEvidenceStatus::Fail) AddFail(Key, Evidence.Label);
+        else if (Evidence.Status == EMetricQueryEvidenceStatus::Warning) AddWarning(Key, Evidence.Label);
     }
 
-    // Remaining legacy analysis families do not all emit Query Evidence yet,
-    // so include their explicit result state in the Actor-wide rollup.
-    if (EvaluatedState.OverheadClearance.bVisible)
-    {
-        if (EvaluatedState.OverheadClearance.bBlocked) AddFail(TEXT("Overhead"));
-        else if (EvaluatedState.OverheadClearance.bNearThreshold) AddWarning(TEXT("Overhead"));
-    }
-    if (EvaluatedState.TurnClearance.bVisible)
-    {
-        if ((EvaluatedState.TurnClearance.Left.bTested && EvaluatedState.TurnClearance.Left.bBlocked) ||
-            (EvaluatedState.TurnClearance.Right.bTested && EvaluatedState.TurnClearance.Right.bBlocked))
-        {
-            AddFail(TEXT("TurnClearance"));
-        }
-    }
-    if (EvaluatedState.JumpRunway.bVisible && (!EvaluatedState.JumpRunway.bTakeoffPass || !EvaluatedState.JumpRunway.bLandingPass))
-    {
-        AddFail(TEXT("JumpRunway"));
-    }
-    if (EvaluatedState.ShoulderClearance.bVisible && (EvaluatedState.ShoulderClearance.bLeftBlocked || EvaluatedState.ShoulderClearance.bRightBlocked))
-    {
-        AddWarning(TEXT("ShoulderClearance"));
-    }
-    if (EvaluatedState.AlternateStance.bVisible)
-    {
-        if (!EvaluatedState.AlternateStance.bStandingFits && !EvaluatedState.AlternateStance.bAlternateFits) AddFail(TEXT("AlternateStance"));
-        else if (!EvaluatedState.AlternateStance.bStandingFits && EvaluatedState.AlternateStance.bAlternateFits) AddWarning(TEXT("AlternateStance"));
-    }
+    // Query Evidence now covers all validation analyses that can produce Actor issues.
 
     FailureCount = FailAnalyses.Num();
     WarningCount = WarningAnalyses.Num();
@@ -297,8 +284,36 @@ void AMetricActor::UpdateSummary()
         ? EMetricActorOverallResult::Fail
         : (WarningCount > 0 ? EMetricActorOverallResult::Tight : EMetricActorOverallResult::Pass);
 
+    ActiveIssues.Reset();
+    TArray<FString> FailKeys = FailAnalyses.Array();
+    FailKeys.Sort();
+    for (const FString& Key : FailKeys)
+    {
+        ActiveIssues.Add(FString::Printf(TEXT("FAIL: %s"), *IssueLabels.FindRef(Key)));
+    }
+    TArray<FString> WarningKeys = WarningAnalyses.Array();
+    WarningKeys.Sort();
+    for (const FString& Key : WarningKeys)
+    {
+        ActiveIssues.Add(FString::Printf(TEXT("WARN: %s"), *IssueLabels.FindRef(Key)));
+    }
+
     ResultSummary = FString::Printf(TEXT("%s | %d issue%s (%d fail, %d warning)"),
         *GetOverallResultText(), IssueCount, IssueCount == 1 ? TEXT("") : TEXT("s"), FailureCount, WarningCount);
+
+    if (bInspectQueries)
+    {
+        FString ResolvedReason;
+        const EMetricInspectionTarget ResolvedTarget = MetricDiagnosticUtils::ResolveInspectionTarget(
+            EvaluatedState, InspectionTarget, &ResolvedReason);
+        ResolvedInspection = MetricDiagnosticUtils::GetInspectionTargetDisplayName(ResolvedTarget).ToString();
+        InspectionReason = ResolvedReason;
+    }
+    else
+    {
+        ResolvedInspection.Reset();
+        InspectionReason.Reset();
+    }
 }
 
 void AMetricActor::UpdateVisualization()
@@ -316,6 +331,7 @@ void AMetricActor::UpdateVisualization()
         LocalState.Location = FVector::ZeroVector;
         LocalState.PinnedBenchmarks.Reset();
         LocalState.SelectedPinnedBenchmarkIndex = INDEX_NONE;
+        VisualizationComponent->SetQueryInspectionOverride(true, bInspectQueries, InspectionTarget);
         VisualizationComponent->SetMetricState(LocalState);
     }
     // The Metric billboard is a sibling of the analysis visualization and must remain independently visible.

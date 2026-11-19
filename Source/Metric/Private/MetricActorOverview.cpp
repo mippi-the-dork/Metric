@@ -4,6 +4,7 @@
 #include "MetricProfile.h"
 #include "Editor.h"
 #include "EngineUtils.h"
+#include "Engine/Level.h"
 #include "Framework/Docking/TabManager.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Views/SListView.h"
@@ -86,6 +87,12 @@ namespace
             }
             if (ColumnName == "Level") return SNew(STextBlock).Text(FText::FromString(Actor->GetLevel() ? Actor->GetLevel()->GetOuter()->GetName() : TEXT("None")));
             if (ColumnName == "Issues") return SNew(STextBlock).Text(FText::AsNumber(Actor->IssueCount));
+            if (ColumnName == "PrimaryIssue")
+            {
+                return SNew(STextBlock)
+                    .Text(Actor->ActiveIssues.IsEmpty() ? LOCTEXT("NoPrimaryIssue", "-") : FText::FromString(Actor->ActiveIssues[0]))
+                    .ToolTipText(Actor->ActiveIssues.IsEmpty() ? FText::GetEmpty() : FText::FromString(Actor->ActiveIssues[0]));
+            }
             return SNew(STextBlock).Text(FText::GetEmpty());
         }
 
@@ -129,6 +136,13 @@ namespace
                     ]
                     + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
                     [
+                        SNew(SComboButton)
+                        .ButtonContent()[SNew(STextBlock).Text(this, &SMetricActorOverview::GetLevelFilterText)]
+                        .ToolTipText(LOCTEXT("LevelFilterTip", "Limit the Dashboard to Metric Actors in one loaded level."))
+                        .OnGetMenuContent(this, &SMetricActorOverview::BuildLevelFilterMenu)
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+                    [
                         SNew(SButton).Text(LOCTEXT("Refresh", "Refresh")).ToolTipText(LOCTEXT("RefreshTip", "Rescan the current editor world and refresh Metric Actor results shown in the Dashboard.")).OnClicked(this, &SMetricActorOverview::OnRefresh)
                     ]
                 ]
@@ -160,8 +174,71 @@ namespace
                         + SHeaderRow::Column("Environment").DefaultLabel(LOCTEXT("EnvironmentColumn", "Environment Source")).FillWidth(0.15f)
                         + SHeaderRow::Column("Frame").DefaultLabel(LOCTEXT("FrameColumn", "Analysis Frame")).FillWidth(0.13f)
                         + SHeaderRow::Column("Level").DefaultLabel(LOCTEXT("LevelColumn", "Level")).FillWidth(0.15f)
+                        + SHeaderRow::Column("PrimaryIssue").DefaultLabel(LOCTEXT("PrimaryIssueColumn", "Primary Issue")).FillWidth(0.28f)
                         + SHeaderRow::Column("Issues").DefaultLabel(LOCTEXT("IssuesColumn", "Issues")).FixedWidth(64.0f)
                     )
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(8, 0, 8, 6)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth()
+                    [
+                        SNew(SButton)
+                        .Text(LOCTEXT("RecalculateSelected", "Recalculate"))
+                        .ToolTipText(LOCTEXT("RecalculateSelectedTip", "Recalculate the selected Metric Actor immediately."))
+                        .IsEnabled_Lambda([this](){ return SelectedActor.IsValid(); })
+                        .OnClicked_Lambda([this]()
+                        {
+                            if (AMetricActor* Actor = SelectedActor.Get()) Actor->RecalculateMetric();
+                            Refresh();
+                            return FReply::Handled();
+                        })
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+                    [
+                        SNew(SButton)
+                        .Text(LOCTEXT("InspectPrimarySelected", "Inspect Primary"))
+                        .ToolTipText(LOCTEXT("InspectPrimarySelectedTip", "Enable local Query Inspection on the selected Metric Actor and automatically isolate its most relevant issue."))
+                        .IsEnabled_Lambda([this](){ return SelectedActor.IsValid(); })
+                        .OnClicked_Lambda([this]()
+                        {
+                            if (AMetricActor* Actor = SelectedActor.Get())
+                            {
+                                Actor->bInspectQueries = true;
+                                Actor->InspectionTarget = EMetricInspectionTarget::Auto;
+                                Actor->RecalculateMetric();
+                            }
+                            return FReply::Handled();
+                        })
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+                    [
+                        SNew(SButton)
+                        .Text(LOCTEXT("StopInspectSelected", "Stop Inspecting"))
+                        .ToolTipText(LOCTEXT("StopInspectSelectedTip", "Disable local Query Inspection on the selected Metric Actor."))
+                        .IsEnabled_Lambda([this](){ return SelectedActor.IsValid() && SelectedActor->bInspectQueries; })
+                        .OnClicked_Lambda([this]()
+                        {
+                            if (AMetricActor* Actor = SelectedActor.Get())
+                            {
+                                Actor->bInspectQueries = false;
+                                Actor->RecalculateMetric();
+                            }
+                            return FReply::Handled();
+                        })
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+                    [
+                        SNew(SButton)
+                        .Text(LOCTEXT("OpenProfileSelected", "Open Profile"))
+                        .ToolTipText(LOCTEXT("OpenProfileSelectedTip", "Open the selected Metric Actor's assigned Metric Profile."))
+                        .IsEnabled_Lambda([this](){ return SelectedActor.IsValid() && SelectedActor->Profile != nullptr; })
+                        .OnClicked_Lambda([this]()
+                        {
+                            if (AMetricActor* Actor = SelectedActor.Get()) Actor->OpenMetricProfile();
+                            return FReply::Handled();
+                        })
+                    ]
                 ]
                 + SVerticalBox::Slot().AutoHeight().Padding(8, 0, 8, 8)
                 [
@@ -219,6 +296,7 @@ namespace
         FString SearchText;
         EMetricOverviewFilter Filter = EMetricOverviewFilter::All;
         TWeakObjectPtr<UMetricProfile> ProfileFilter;
+        TWeakObjectPtr<ULevel> LevelFilter;
         TWeakObjectPtr<AMetricActor> SelectedActor;
 
         TSharedRef<SWidget> MakeFilterButton(const FText& Label, EMetricOverviewFilter InFilter)
@@ -279,6 +357,7 @@ namespace
                 if (!bFilterPass) continue;
 
                 if (ProfileFilter.IsValid() && Actor->Profile != ProfileFilter.Get()) continue;
+                if (LevelFilter.IsValid() && Actor->GetLevel() != LevelFilter.Get()) continue;
 
                 if (!SearchText.IsEmpty())
                 {
@@ -320,6 +399,44 @@ namespace
             return ProfileFilter.IsValid()
                 ? FText::Format(LOCTEXT("ProfileFilterActive", "Profile: {0}"), GetMetricProfileDisplayName(ProfileFilter.Get()))
                 : LOCTEXT("AllProfiles", "Profile: All");
+        }
+
+        FText GetLevelFilterText() const
+        {
+            const ULevel* Level = LevelFilter.Get();
+            return Level && Level->GetOuter()
+                ? FText::Format(LOCTEXT("LevelFilterActive", "Level: {0}"), FText::FromString(Level->GetOuter()->GetName()))
+                : LOCTEXT("AllLevels", "Level: All");
+        }
+
+        TSharedRef<SWidget> BuildLevelFilterMenu()
+        {
+            FMenuBuilder MenuBuilder(true, nullptr);
+            MenuBuilder.AddMenuEntry(LOCTEXT("LevelAll", "All Levels"), FText::GetEmpty(), FSlateIcon(),
+                FUIAction(FExecuteAction::CreateLambda([this](){ LevelFilter.Reset(); ApplyFilter(); })));
+
+            TSet<ULevel*> Levels;
+            for (const auto& Row : AllRows)
+            {
+                if (AMetricActor* Actor = Row.IsValid() ? Row->Actor.Get() : nullptr)
+                {
+                    if (Actor->GetLevel()) Levels.Add(Actor->GetLevel());
+                }
+            }
+            TArray<ULevel*> Sorted = Levels.Array();
+            Sorted.Sort([](const ULevel& A, const ULevel& B)
+            {
+                const FString AName = A.GetOuter() ? A.GetOuter()->GetName() : FString();
+                const FString BName = B.GetOuter() ? B.GetOuter()->GetName() : FString();
+                return AName < BName;
+            });
+            for (ULevel* Level : Sorted)
+            {
+                const FString LevelName = Level && Level->GetOuter() ? Level->GetOuter()->GetName() : TEXT("Unknown");
+                MenuBuilder.AddMenuEntry(FText::FromString(LevelName), FText::GetEmpty(), FSlateIcon(),
+                    FUIAction(FExecuteAction::CreateLambda([this, Level](){ LevelFilter = Level; ApplyFilter(); })));
+            }
+            return MenuBuilder.MakeWidget();
         }
 
         TSharedRef<SWidget> BuildProfileFilterMenu()
@@ -366,14 +483,19 @@ namespace
             }
 
             FString Text = FString::Printf(TEXT("%s | %s\n%s"), *Actor->GetActorLabel(), *Actor->GetOverallResultText(), *Actor->ResultSummary);
-            int32 Added = 0;
-            for (const FMetricQueryEvidence& Evidence : Actor->GetEvaluatedState().QueryEvidence)
+            if (Actor->bInspectQueries)
             {
-                if (Evidence.Status == EMetricQueryEvidenceStatus::Fail || Evidence.Status == EMetricQueryEvidenceStatus::Warning)
+                Text += FString::Printf(TEXT("\nInspecting: %s"), *Actor->ResolvedInspection);
+                if (!Actor->InspectionReason.IsEmpty())
                 {
-                    Text += FString::Printf(TEXT("\n%s %s"), Evidence.Status == EMetricQueryEvidenceStatus::Fail ? TEXT("FAIL:") : TEXT("WARN:"), *Evidence.Label);
-                    if (++Added >= 8) break;
+                    Text += FString::Printf(TEXT(" - %s"), *Actor->InspectionReason);
                 }
+            }
+            int32 Added = 0;
+            for (const FString& Issue : Actor->ActiveIssues)
+            {
+                Text += FString::Printf(TEXT("\n%s"), *Issue);
+                if (++Added >= 8) break;
             }
             if (Added == 0 && Actor->OverallResult == EMetricActorOverallResult::Pass)
             {

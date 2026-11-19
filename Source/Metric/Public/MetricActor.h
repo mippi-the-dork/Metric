@@ -60,6 +60,18 @@ public:
     UPROPERTY(EditAnywhere, Category = "Metric|Display", meta = (DisplayName = "Show Visualization", ToolTip = "Show this Actor's Metric analysis visualization in the editor viewport. Disabling this does not disable evaluation or hide the Actor placement billboard."))
     bool bShowVisualization = true;
 
+    UPROPERTY(EditAnywhere, Category = "Metric|Debug", meta = (DisplayName = "Inspect Queries", ToolTip = "Focus this Metric Actor visualization on inspectable query evidence. This is local to the Actor and does not change Live Metric Query Inspection."))
+    bool bInspectQueries = false;
+
+    UPROPERTY(EditAnywhere, Category = "Metric|Debug", meta = (DisplayName = "Inspection Target", EditCondition = "bInspectQueries", ToolTip = "Choose which analysis this Metric Actor isolates. Auto selects the most relevant failing or warning analysis."))
+    EMetricInspectionTarget InspectionTarget = EMetricInspectionTarget::Auto;
+
+    UPROPERTY(VisibleAnywhere, Transient, Category = "Metric|Debug", meta = (DisplayName = "Resolved Inspection", ToolTip = "The analysis currently isolated by Query Inspection. When Inspection Target is Auto, this shows the analysis Auto resolved to."))
+    FString ResolvedInspection;
+
+    UPROPERTY(VisibleAnywhere, Transient, Category = "Metric|Debug", meta = (DisplayName = "Inspection Reason", ToolTip = "The best available warning or failure reason associated with the resolved inspection target."))
+    FString InspectionReason;
+
     UPROPERTY(VisibleAnywhere, Transient, Category = "Metric|Results", meta = (ToolTip = "Overall result from the most recent evaluation. Fail takes priority over Tight/Warning, which takes priority over Pass."))
     EMetricActorOverallResult OverallResult = EMetricActorOverallResult::MissingProfile;
 
@@ -74,6 +86,9 @@ public:
 
     UPROPERTY(VisibleAnywhere, Transient, Category = "Metric|Results", meta = (ToolTip = "Human-readable summary of the most recent Metric evaluation."))
     FString ResultSummary;
+
+    UPROPERTY(VisibleAnywhere, Transient, Category = "Metric|Results", meta = (DisplayName = "Active Issues", ToolTip = "Actionable warning and failure reasons from the most recent evaluation. Query-evidence labels are preferred when available."))
+    TArray<FString> ActiveIssues;
 
     UFUNCTION(CallInEditor, Category = "Metric", meta = (ToolTip = "Evaluate this Metric Actor immediately using its assigned profile, environment source, and analysis frame."))
     void RecalculateMetric();

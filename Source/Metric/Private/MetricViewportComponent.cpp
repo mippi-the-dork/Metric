@@ -1,5 +1,7 @@
 #include "MetricViewportComponent.h"
 #include "MetricPerformance.h"
+#include "MetricFrameUtils.h"
+#include "MetricDiagnosticUtils.h"
 
 #include "MetricEditorSettings.h"
 #include "PrimitiveSceneProxy.h"
@@ -180,7 +182,7 @@ namespace MetricDraw
 class FMetricViewportSceneProxy final : public FPrimitiveSceneProxy
 {
 public:
-    FMetricViewportSceneProxy(const UMetricViewportComponent* Component, const FMetricLiveState& InState, bool bInAllowQueryInspection)
+    FMetricViewportSceneProxy(const UMetricViewportComponent* Component, const FMetricLiveState& InState, bool bInAllowQueryInspection, bool bUseInspectionOverride, bool bInspectionOverrideEnabled, EMetricInspectionTarget InspectionOverrideTarget)
         : FPrimitiveSceneProxy(Component)
         , State(InState)
     {
@@ -209,6 +211,8 @@ public:
         PinnedBenchmarkColor = Theme.PinnedBenchmark;
         SecondaryLineThickness = Settings ? Settings->SecondaryLineThickness : 1.0f;
         Thickness = Settings ? Settings->HullLineThickness : 1.5f;
+        bShowFailureVisualizations = Settings ? Settings->bShowFailureVisualizations : true;
+        FailureEvidenceScope = Settings ? Settings->FailureEvidenceScope : EMetricFailureEvidenceScope::PrimaryIssue;
         bEmphasizeProblemLines = Settings ? Settings->bEmphasizeProblemLines : true;
         WarningLineThicknessMultiplier = Settings ? Settings->WarningLineThicknessMultiplier : 1.75f;
         FailureLineThicknessMultiplier = Settings ? Settings->FailureLineThicknessMultiplier : 2.5f;
@@ -216,65 +220,34 @@ public:
         AnchorRadius = Settings ? Settings->AnchorRadius : 16.0f;
         AnchorLineThickness = Settings ? Settings->AnchorLineThickness : 2.0f;
         bShowAnalysisFrame = Settings ? Settings->bShowAnalysisFrame : true;
-        bQueryInspectionEnabled = bInAllowQueryInspection && Settings ? Settings->bQueryInspectionEnabled : false;
-        InspectionTarget = Settings ? Settings->QueryInspectionTarget : EMetricInspectionTarget::Auto;
+        if (bInAllowQueryInspection && bUseInspectionOverride)
+        {
+            bQueryInspectionEnabled = bInspectionOverrideEnabled;
+            InspectionTarget = InspectionOverrideTarget;
+        }
+        else
+        {
+            bQueryInspectionEnabled = bInAllowQueryInspection && Settings ? Settings->bQueryInspectionEnabled : false;
+            InspectionTarget = Settings ? Settings->QueryInspectionTarget : EMetricInspectionTarget::Auto;
+        }
 
         if (bQueryInspectionEnabled)
         {
-            auto IsTargetVisible = [&](EMetricInspectionTarget Target)
-            {
-                switch (Target)
-                {
-                case EMetricInspectionTarget::Clearance: return State.Clearance.bVisible;
-                case EMetricInspectionTarget::GroundValidation: return State.GroundValidation.bVisible;
-                case EMetricInspectionTarget::FitAnalysis: return State.FitAnalysis.bVisible;
-                case EMetricInspectionTarget::ThresholdAnalysis: return State.ThresholdAnalysis.bVisible;
-                case EMetricInspectionTarget::LedgeAnalysis: return State.LedgeAnalysis.bVisible;
-                case EMetricInspectionTarget::StoppingDistance: return State.StoppingDistance.bVisible;
-                case EMetricInspectionTarget::MantleVault: return State.MantleVault.bVisible;
-                case EMetricInspectionTarget::RecoverySpace: return State.RecoverySpace.bVisible;
-                case EMetricInspectionTarget::CameraProbe: return State.CameraProbe.bVisible;
-                case EMetricInspectionTarget::CameraSightline: return State.CameraSightline.bVisible;
-                case EMetricInspectionTarget::Trajectory: return State.Trajectory.bVisible;
-                default: return false;
-                }
-            };
-
-            if (InspectionTarget == EMetricInspectionTarget::Auto)
-            {
-                auto PickByStatus = [&](EMetricQueryEvidenceStatus Wanted)
-                {
-                    for (const FMetricQueryEvidence& Evidence : State.QueryEvidence)
-                    {
-                        if (Evidence.Status == Wanted && IsTargetVisible(Evidence.Target))
-                        {
-                            InspectionTarget = Evidence.Target;
-                            return true;
-                        }
-                    }
-                    return false;
-                };
-                if (!PickByStatus(EMetricQueryEvidenceStatus::Fail)
-                    && !PickByStatus(EMetricQueryEvidenceStatus::Warning))
-                {
-                    for (const FMetricQueryEvidence& Evidence : State.QueryEvidence)
-                    {
-                        if (IsTargetVisible(Evidence.Target))
-                        {
-                            InspectionTarget = Evidence.Target;
-                            break;
-                        }
-                    }
-                }
-            }
+            InspectionTarget = MetricDiagnosticUtils::ResolveInspectionTarget(State, InspectionTarget);
 
             auto Keep = [&](EMetricInspectionTarget Target) { return InspectionTarget == Target; };
             if (!Keep(EMetricInspectionTarget::Clearance)) State.Clearance.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::OverheadClearance)) State.OverheadClearance.bVisible = false;
             if (!Keep(EMetricInspectionTarget::GroundValidation)) State.GroundValidation.bVisible = false;
             if (!Keep(EMetricInspectionTarget::FitAnalysis)) State.FitAnalysis.bVisible = false;
             if (!Keep(EMetricInspectionTarget::ThresholdAnalysis)) State.ThresholdAnalysis.bVisible = false;
             if (!Keep(EMetricInspectionTarget::LedgeAnalysis)) State.LedgeAnalysis.bVisible = false;
             if (!Keep(EMetricInspectionTarget::StoppingDistance)) State.StoppingDistance.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::TurnClearance)) State.TurnClearance.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::JumpRunway)) State.JumpRunway.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::InteractionReach)) State.InteractionReach.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::ShoulderClearance)) State.ShoulderClearance.bVisible = false;
+            if (!Keep(EMetricInspectionTarget::AlternateStance)) State.AlternateStance.bVisible = false;
             if (!Keep(EMetricInspectionTarget::MantleVault)) State.MantleVault.bVisible = false;
             if (!Keep(EMetricInspectionTarget::RecoverySpace)) State.RecoverySpace.bVisible = false;
             if (!Keep(EMetricInspectionTarget::CameraProbe)) State.CameraProbe.bVisible = false;
@@ -283,15 +256,9 @@ public:
 
             // Query Inspection is deliberately focused. Suppress unrelated reference
             // layers while preserving the hull, forward marker and analysis frame.
-            State.OverheadClearance.bVisible = false;
             State.SensorField.bVisible = false;
-            State.TurnClearance.bVisible = false;
             State.CoverExposure.bVisible = false;
-            State.JumpRunway.bVisible = false;
-            State.InteractionReach.bVisible = false;
-            State.ShoulderClearance.bVisible = false;
             State.CombatDensity.bVisible = false;
-            State.AlternateStance.bVisible = false;
             State.Crossfire.bVisible = false;
             State.Sensors.bShowSensorHeights = false;
             State.Ranges.bShowEngagementRanges = false;
@@ -420,63 +387,97 @@ public:
 
                 const FVector SweepStart = ProxyLocalToWorld.TransformPosition(State.Clearance.SweepStartOffset);
                 const FVector RequestedEnd = ProxyLocalToWorld.TransformPosition(State.Clearance.SweepEndOffset);
-                const FVector ResolvedCenter = SweepStart + WorldForward * State.Clearance.ClearDistance;
+                const FVector ResolvedCenter = State.Clearance.SampleOffsets.IsEmpty()
+                    ? SweepStart + WorldForward * State.Clearance.ClearDistance
+                    : FVector(ProxyLocalToWorld.TransformPosition(State.Clearance.SampleOffsets.Last()));
 
                 // Status drives visual weight: clean paths stay quiet, warnings/failures demand attention.
                 const float ClearanceThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), State.Clearance.bBlocked, State.Clearance.bNearThreshold);
-                PDI->DrawLine(SweepStart, ResolvedCenter, ClearanceColor, SDPG_World, ClearanceThickness, 0.0f, true);
-                if ((RequestedEnd - ResolvedCenter).SizeSquared() > 1.0f)
+                if (State.Clearance.SampleOffsets.Num() >= 2)
                 {
-                    FLinearColor RemainingColor = ClearanceFailColor;
-                    RemainingColor.A = 0.35f;
-                    PDI->DrawLine(ResolvedCenter, RequestedEnd, RemainingColor, SDPG_World, 1.5f, 0.0f, true);
+                    for (int32 Index = 1; Index < State.Clearance.SampleOffsets.Num(); ++Index)
+                    {
+                        const FVector A = ProxyLocalToWorld.TransformPosition(State.Clearance.SampleOffsets[Index - 1]);
+                        const FVector B = ProxyLocalToWorld.TransformPosition(State.Clearance.SampleOffsets[Index]);
+                        PDI->DrawLine(A, B, ClearanceColor, SDPG_World, ClearanceThickness, 0.0f, true);
+                    }
+                }
+                else
+                {
+                    PDI->DrawLine(SweepStart, ResolvedCenter, ClearanceColor, SDPG_World, ClearanceThickness, 0.0f, true);
                 }
 
                 // Quiet side rails make the requested passage width readable without
                 // turning the probe into a solid debug tunnel. They deliberately sit
                 // below the primary center line in the visual hierarchy.
-                const FVector SweepRight = WorldRight;
                 const float HalfVisualWidth = FMath::Max(4.0f, Width * 0.5f);
                 FLinearColor RailColor = ClearanceColor;
                 RailColor.A = 0.35f;
-                const FVector RailStartA = SweepStart + SweepRight * HalfVisualWidth;
-                const FVector RailStartB = SweepStart - SweepRight * HalfVisualWidth;
-                const FVector RailEndA = RequestedEnd + SweepRight * HalfVisualWidth;
-                const FVector RailEndB = RequestedEnd - SweepRight * HalfVisualWidth;
-                PDI->DrawLine(RailStartA, RailEndA, RailColor, SDPG_World, 1.0f, 0.0f, true);
-                PDI->DrawLine(RailStartB, RailEndB, RailColor, SDPG_World, 1.0f, 0.0f, true);
-                PDI->DrawLine(RailEndA, RailEndB, RailColor, SDPG_World, 1.0f, 0.0f, true);
+                if (State.Clearance.SampleOffsets.Num() >= 2)
+                {
+                    for (int32 Index = 1; Index < State.Clearance.SampleOffsets.Num(); ++Index)
+                    {
+                        const FVector P0 = ProxyLocalToWorld.TransformPosition(State.Clearance.SampleOffsets[Index - 1]);
+                        const FVector P1 = ProxyLocalToWorld.TransformPosition(State.Clearance.SampleOffsets[Index]);
+                        FVector SegmentUp = WorldUp;
+                        if (State.Clearance.SampleUps.IsValidIndex(Index))
+                        {
+                            SegmentUp = FVector(ProxyLocalToWorld.TransformVector(State.Clearance.SampleUps[Index])).GetSafeNormal();
+                        }
+                        FVector SegmentForward = FVector::VectorPlaneProject(P1 - P0, SegmentUp).GetSafeNormal();
+                        if (SegmentForward.IsNearlyZero()) SegmentForward = WorldForward;
+                        const FVector SegmentRight = FVector::CrossProduct(SegmentUp, SegmentForward).GetSafeNormal();
+                        PDI->DrawLine(P0 + SegmentRight * HalfVisualWidth, P1 + SegmentRight * HalfVisualWidth, RailColor, SDPG_World, 1.0f, 0.0f, true);
+                        PDI->DrawLine(P0 - SegmentRight * HalfVisualWidth, P1 - SegmentRight * HalfVisualWidth, RailColor, SDPG_World, 1.0f, 0.0f, true);
+                    }
+                }
+                else
+                {
+                    const FVector RailStartA = SweepStart + WorldRight * HalfVisualWidth;
+                    const FVector RailStartB = SweepStart - WorldRight * HalfVisualWidth;
+                    const FVector RailEndA = RequestedEnd + WorldRight * HalfVisualWidth;
+                    const FVector RailEndB = RequestedEnd - WorldRight * HalfVisualWidth;
+                    PDI->DrawLine(RailStartA, RailEndA, RailColor, SDPG_World, 1.0f, 0.0f, true);
+                    PDI->DrawLine(RailStartB, RailEndB, RailColor, SDPG_World, 1.0f, 0.0f, true);
+                    PDI->DrawLine(RailEndA, RailEndB, RailColor, SDPG_World, 1.0f, 0.0f, true);
+                }
 
                 // Draw a ghost hull at the requested destination when clear, or at the
                 // resolved stopping point when blocked. This reads as a swept corridor
                 // without flooding the viewport with repeated debug shapes.
-                const float VisualDistance = State.Clearance.bBlocked
-                    ? State.Clearance.ClearDistance
-                    : State.Clearance.ProbeDistance;
-                const FVector GhostBaseOffset = HullFrameOffset
-                    + State.AnalysisForward.GetSafeNormal() * VisualDistance
-                    + State.AnalysisUp * 1.0f;
-                const FVector GhostBase = ProxyLocalToWorld.TransformPosition(GhostBaseOffset);
+                const FVector GhostBase = ResolvedCenter;
+                FVector GhostUp = WorldUp;
+                FVector GhostForward = WorldForward;
+                if (!State.Clearance.SampleUps.IsEmpty())
+                {
+                    GhostUp = FVector(ProxyLocalToWorld.TransformVector(State.Clearance.SampleUps.Last())).GetSafeNormal();
+                }
+                if (State.Clearance.SampleOffsets.Num() >= 2)
+                {
+                    const FVector Prev = ProxyLocalToWorld.TransformPosition(State.Clearance.SampleOffsets[State.Clearance.SampleOffsets.Num() - 2]);
+                    GhostForward = FVector::VectorPlaneProject(ResolvedCenter - Prev, GhostUp).GetSafeNormal();
+                    if (GhostForward.IsNearlyZero()) GhostForward = WorldForward;
+                }
                 FLinearColor GhostColor = ClearanceColor;
                 GhostColor.A = 0.45f;
 
                 switch (State.Hull.HullType)
                 {
                 case EMetricHullType::Capsule:
-                    MetricDraw::DrawCapsule(PDI, GhostBase, WorldForward, WorldUp, Height, Width, GhostColor, 1.0f);
+                    MetricDraw::DrawCapsule(PDI, GhostBase, GhostForward, GhostUp, Height, Width, GhostColor, 1.0f);
                     break;
                 case EMetricHullType::OrientedBox:
-                    MetricDraw::DrawBox(PDI, GhostBase, WorldForward, WorldUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
+                    MetricDraw::DrawBox(PDI, GhostBase, GhostForward, GhostUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
                     break;
                 case EMetricHullType::Sphere:
-                    MetricDraw::DrawSphere(PDI, GhostBase + WorldUp * (Height * 0.5f), FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
+                    MetricDraw::DrawSphere(PDI, GhostBase + GhostUp * (Height * 0.5f), FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
                     break;
                 case EMetricHullType::Cylinder:
                 default:
                 {
-                    const FVector CylinderRight = WorldRight;
-                    MetricDraw::DrawCircle3D(PDI, GhostBase, WorldForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
-                    MetricDraw::DrawCircle3D(PDI, GhostBase + WorldUp * Height, WorldForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
+                    const FVector CylinderRight = FVector::CrossProduct(GhostUp, GhostForward).GetSafeNormal();
+                    MetricDraw::DrawCircle3D(PDI, GhostBase, GhostForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
+                    MetricDraw::DrawCircle3D(PDI, GhostBase + GhostUp * Height, GhostForward, CylinderRight, Width * 0.5f, GhostColor, 1.0f);
                     break;
                 }
                 }
@@ -553,22 +554,108 @@ public:
                 const bool bWarn = State.StoppingDistance.bNearThreshold && !bFail;
                 const FLinearColor StopColor = bFail ? Theme.Stopping.Fail : (bWarn ? Theme.Stopping.Tight : Theme.Stopping.Pass);
                 const float StopThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), bFail, bWarn);
-                const FVector StopStart = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.StartOffset);
-                const FVector StopEnd = StopStart + WorldForward * State.StoppingDistance.RequiredDistance;
-                const FVector StopRight = WorldRight;
-                const FVector ReactionPoint = StopStart + WorldForward * State.StoppingDistance.ReactionDistance;
                 const float Tick = FMath::Max(14.0f, State.Hull.Width * 0.22f);
 
-                PDI->DrawLine(StopStart, StopEnd, StopColor, SDPG_World, StopThickness, 0.0f, true);
-                PDI->DrawLine(ReactionPoint - StopRight * Tick, ReactionPoint + StopRight * Tick, StopColor, SDPG_World, StopThickness, 0.0f, true);
+                auto SamplePathAtDistance = [&](float TargetDistance, FVector& OutPoint, FVector& OutForward, FVector& OutUp)
+                {
+                    const TArray<FVector>& Offsets = State.StoppingDistance.SampleOffsets;
+                    const TArray<FVector>& Ups = State.StoppingDistance.SampleUps;
+                    if (Offsets.IsEmpty())
+                    {
+                        OutPoint = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.StartOffset);
+                        OutForward = WorldForward;
+                        OutUp = WorldUp;
+                        return;
+                    }
+
+                    FVector Previous = ProxyLocalToWorld.TransformPosition(Offsets[0]);
+                    float Accumulated = 0.0f;
+                    for (int32 Index = 1; Index < Offsets.Num(); ++Index)
+                    {
+                        const FVector Next = ProxyLocalToWorld.TransformPosition(Offsets[Index]);
+                        const float SegmentLength = FVector::Distance(Previous, Next);
+                        if (Accumulated + SegmentLength >= TargetDistance && SegmentLength > KINDA_SMALL_NUMBER)
+                        {
+                            const float Alpha = FMath::Clamp((TargetDistance - Accumulated) / SegmentLength, 0.0f, 1.0f);
+                            OutPoint = FMath::Lerp(Previous, Next, Alpha);
+                            OutForward = (Next - Previous).GetSafeNormal();
+                            const int32 UpIndex = FMath::Min(Index, Ups.Num() - 1);
+                            if (UpIndex >= 0)
+                            {
+                                const FVector TransformedUp = ProxyLocalToWorld.TransformVector(Ups[UpIndex]);
+                                OutUp = TransformedUp.GetSafeNormal();
+                            }
+                            else
+                            {
+                                OutUp = WorldUp;
+                            }
+                            return;
+                        }
+                        Accumulated += SegmentLength;
+                        Previous = Next;
+                    }
+
+                    OutPoint = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.EndOffset);
+                    if (Offsets.Num() >= 2)
+                    {
+                        const FVector LastPoint = ProxyLocalToWorld.TransformPosition(Offsets.Last());
+                        const FVector PreviousPoint = ProxyLocalToWorld.TransformPosition(Offsets[Offsets.Num() - 2]);
+                        OutForward = (LastPoint - PreviousPoint).GetSafeNormal();
+                    }
+                    else
+                    {
+                        OutForward = WorldForward;
+                    }
+                    if (!Ups.IsEmpty())
+                    {
+                        const FVector LastUp = ProxyLocalToWorld.TransformVector(Ups.Last());
+                        OutUp = LastUp.GetSafeNormal();
+                    }
+                    else
+                    {
+                        OutUp = WorldUp;
+                    }
+                };
+
+                if (State.StoppingDistance.SampleOffsets.Num() >= 2)
+                {
+                    float DrawnDistance = 0.0f;
+                    FVector Previous = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.SampleOffsets[0]);
+                    for (int32 Index = 1; Index < State.StoppingDistance.SampleOffsets.Num() && DrawnDistance < State.StoppingDistance.RequiredDistance; ++Index)
+                    {
+                        const FVector Next = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.SampleOffsets[Index]);
+                        const float SegmentLength = FVector::Distance(Previous, Next);
+                        const float Remaining = State.StoppingDistance.RequiredDistance - DrawnDistance;
+                        const FVector DrawEnd = SegmentLength > Remaining && SegmentLength > KINDA_SMALL_NUMBER
+                            ? FMath::Lerp(Previous, Next, Remaining / SegmentLength)
+                            : Next;
+                        PDI->DrawLine(Previous, DrawEnd, StopColor, SDPG_World, StopThickness, 0.0f, true);
+                        DrawnDistance += FMath::Min(SegmentLength, Remaining);
+                        Previous = Next;
+                    }
+                }
+                else
+                {
+                    const FVector StopStart = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.StartOffset);
+                    const FVector StopEnd = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.EndOffset);
+                    PDI->DrawLine(StopStart, StopEnd, StopColor, SDPG_World, StopThickness, 0.0f, true);
+                }
+
+                FVector ReactionPoint, ReactionForward, ReactionUp;
+                SamplePathAtDistance(State.StoppingDistance.ReactionDistance, ReactionPoint, ReactionForward, ReactionUp);
+                FVector StopEnd, StopForward, StopUp;
+                SamplePathAtDistance(State.StoppingDistance.RequiredDistance, StopEnd, StopForward, StopUp);
+                const FVector ReactionRight = FVector::CrossProduct(ReactionUp, ReactionForward).GetSafeNormal();
+                const FVector StopRight = FVector::CrossProduct(StopUp, StopForward).GetSafeNormal();
+                PDI->DrawLine(ReactionPoint - ReactionRight * Tick, ReactionPoint + ReactionRight * Tick, StopColor, SDPG_World, StopThickness, 0.0f, true);
                 PDI->DrawLine(StopEnd - StopRight * Tick * 1.2f, StopEnd + StopRight * Tick * 1.2f, StopColor, SDPG_World, StopThickness, 0.0f, true);
 
                 if (State.StoppingDistance.bHasObstacle)
                 {
                     const FVector Impact = ProxyLocalToWorld.TransformPosition(State.StoppingDistance.ImpactPointOffset);
                     const float Cross = 11.0f;
-                    PDI->DrawLine(Impact - StopRight * Cross - WorldUp * Cross, Impact + StopRight * Cross + WorldUp * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
-                    PDI->DrawLine(Impact + StopRight * Cross - WorldUp * Cross, Impact - StopRight * Cross + WorldUp * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
+                    PDI->DrawLine(Impact - StopRight * Cross - StopUp * Cross, Impact + StopRight * Cross + StopUp * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
+                    PDI->DrawLine(Impact + StopRight * Cross - StopUp * Cross, Impact - StopRight * Cross + StopUp * Cross, StopColor, SDPG_Foreground, StopThickness, 0.0f, true);
                 }
             }
 
@@ -599,7 +686,19 @@ public:
                 const FVector A = ProxyLocalToWorld.TransformPosition(State.InteractionReach.OriginOffset);
                 const FVector B = ProxyLocalToWorld.TransformPosition(State.InteractionReach.bHasTarget ? State.InteractionReach.HitOffset : State.InteractionReach.EndOffset);
                 const FLinearColor C = State.InteractionReach.bHasTarget ? Theme.InteractionTarget : Theme.InteractionOpen;
-                PDI->DrawLine(A, B, C, SDPG_World, State.InteractionReach.bHasTarget ? 2.0f : 1.0f, 0.0f, true);
+                if (State.InteractionReach.SampleOffsets.Num() >= 2)
+                {
+                    for (int32 Index = 1; Index < State.InteractionReach.SampleOffsets.Num(); ++Index)
+                    {
+                        const FVector P0 = ProxyLocalToWorld.TransformPosition(State.InteractionReach.SampleOffsets[Index - 1]);
+                        const FVector P1 = ProxyLocalToWorld.TransformPosition(State.InteractionReach.SampleOffsets[Index]);
+                        PDI->DrawLine(P0, P1, C, SDPG_World, State.InteractionReach.bHasTarget ? 2.0f : 1.0f, 0.0f, true);
+                    }
+                }
+                else
+                {
+                    PDI->DrawLine(A, B, C, SDPG_World, State.InteractionReach.bHasTarget ? 2.0f : 1.0f, 0.0f, true);
+                }
                 MetricDraw::DrawSphere(PDI, B, FMath::Max(5.0f, State.InteractionReachSettings.ProbeRadius), C, 1.0f);
             }
 
@@ -608,8 +707,22 @@ public:
                 const FVector Pivot = ProxyLocalToWorld.TransformPosition(State.ShoulderClearance.PivotOffset);
                 const FVector L = ProxyLocalToWorld.TransformPosition(State.ShoulderClearance.LeftOffset);
                 const FVector R = ProxyLocalToWorld.TransformPosition(State.ShoulderClearance.RightOffset);
-                PDI->DrawLine(Pivot, L, State.ShoulderClearance.bLeftBlocked ? Theme.ShoulderBlocked : Theme.ShoulderClear, SDPG_World, StatusThickness(1.25f, State.ShoulderClearance.bLeftBlocked), 0.0f, true);
-                PDI->DrawLine(Pivot, R, State.ShoulderClearance.bRightBlocked ? Theme.ShoulderBlocked : Theme.ShoulderClear, SDPG_World, StatusThickness(1.25f, State.ShoulderClearance.bRightBlocked), 0.0f, true);
+                auto DrawShoulderPath = [&](const TArray<FVector>& Offsets, const FVector& FallbackEnd, const FLinearColor& Color, float Thickness)
+                {
+                    if (Offsets.Num() >= 2)
+                    {
+                        for (int32 Index = 1; Index < Offsets.Num(); ++Index)
+                        {
+                            PDI->DrawLine(ProxyLocalToWorld.TransformPosition(Offsets[Index - 1]), ProxyLocalToWorld.TransformPosition(Offsets[Index]), Color, SDPG_World, Thickness, 0.0f, true);
+                        }
+                    }
+                    else
+                    {
+                        PDI->DrawLine(Pivot, FallbackEnd, Color, SDPG_World, Thickness, 0.0f, true);
+                    }
+                };
+                DrawShoulderPath(State.ShoulderClearance.LeftPathOffsets, L, State.ShoulderClearance.bLeftBlocked ? Theme.ShoulderBlocked : Theme.ShoulderClear, StatusThickness(1.25f, State.ShoulderClearance.bLeftBlocked));
+                DrawShoulderPath(State.ShoulderClearance.RightPathOffsets, R, State.ShoulderClearance.bRightBlocked ? Theme.ShoulderBlocked : Theme.ShoulderClear, StatusThickness(1.25f, State.ShoulderClearance.bRightBlocked));
             }
 
             if (State.CombatDensity.bVisible)
@@ -641,6 +754,13 @@ public:
                 {
                     const FVector Top = ProxyLocalToWorld.TransformPosition(State.MantleVault.TopOffset);
                     PDI->DrawLine(Front, Top, C, SDPG_World, StatusThickness(1.25f, bFail), 0.0f, true);
+                    if (State.MantleVault.DepthSampleOffsets.Num() >= 2)
+                    {
+                        for (int32 Index = 1; Index < State.MantleVault.DepthSampleOffsets.Num(); ++Index)
+                        {
+                            PDI->DrawLine(ProxyLocalToWorld.TransformPosition(State.MantleVault.DepthSampleOffsets[Index - 1]), ProxyLocalToWorld.TransformPosition(State.MantleVault.DepthSampleOffsets[Index]), C, SDPG_World, 1.25f, 0.0f, true);
+                        }
+                    }
                 }
             }
 
@@ -804,14 +924,45 @@ public:
                 const FVector ResolvedCamera = ProxyLocalToWorld.TransformPosition(State.CameraProbe.ResolvedCameraOffset);
                 const FLinearColor ResolvedColor = State.CameraProbe.bBelowMinimum ? Theme.CameraTooClose : (State.CameraProbe.bCompressed ? Theme.CameraCompressed : Theme.CameraClear);
 
-                // The desired spring arm remains visible as a quiet magenta guide.
+                // The desired spring arm follows the same transported path Metric queried.
                 FLinearColor DesiredColor = CameraProbeColor;
                 DesiredColor.A = State.CameraProbe.bCompressed ? 0.35f : 0.75f;
-                PDI->DrawLine(Pivot, DesiredCamera, DesiredColor, SDPG_World, 1.5f, 0.0f, true);
+                if (State.CameraProbe.SampleOffsets.Num() >= 2)
+                {
+                    for (int32 Index = 1; Index < State.CameraProbe.SampleOffsets.Num(); ++Index)
+                    {
+                        const FVector A = ProxyLocalToWorld.TransformPosition(State.CameraProbe.SampleOffsets[Index - 1]);
+                        const FVector B = ProxyLocalToWorld.TransformPosition(State.CameraProbe.SampleOffsets[Index]);
+                        PDI->DrawLine(A, B, DesiredColor, SDPG_World, 1.5f, 0.0f, true);
+                    }
+                }
+                else
+                {
+                    PDI->DrawLine(Pivot, DesiredCamera, DesiredColor, SDPG_World, 1.5f, 0.0f, true);
+                }
 
                 // The resolved arm is the primary read. Compression gets heavier line weight.
                 const float CameraThickness = StatusThickness(FMath::Max(1.25f, SecondaryLineThickness + 0.5f), State.CameraProbe.bBelowMinimum, State.CameraProbe.bCompressed && !State.CameraProbe.bBelowMinimum);
-                PDI->DrawLine(Pivot, ResolvedCamera, ResolvedColor, SDPG_World, CameraThickness, 0.0f, true);
+                if (!State.CameraProbe.bCompressed)
+                {
+                    if (State.CameraProbe.SampleOffsets.Num() >= 2)
+                    {
+                        for (int32 Index = 1; Index < State.CameraProbe.SampleOffsets.Num(); ++Index)
+                        {
+                            const FVector A = ProxyLocalToWorld.TransformPosition(State.CameraProbe.SampleOffsets[Index - 1]);
+                            const FVector B = ProxyLocalToWorld.TransformPosition(State.CameraProbe.SampleOffsets[Index]);
+                            PDI->DrawLine(A, B, ResolvedColor, SDPG_World, CameraThickness, 0.0f, true);
+                        }
+                    }
+                    else
+                    {
+                        PDI->DrawLine(Pivot, ResolvedCamera, ResolvedColor, SDPG_World, CameraThickness, 0.0f, true);
+                    }
+                }
+                else
+                {
+                    PDI->DrawLine(Pivot, ResolvedCamera, ResolvedColor, SDPG_World, CameraThickness, 0.0f, true);
+                }
 
                 const float ProbeRadius = FMath::Max(1.0f, State.CameraProbeSettings.ProbeRadius);
                 MetricDraw::DrawSphere(PDI, ResolvedCamera, ProbeRadius, ResolvedColor, 2.0f);
@@ -948,12 +1099,18 @@ public:
                         : (Sample.bNearThreshold ? Theme.Fit.Tight : Theme.Fit.Pass);
                     const float FitThickness = StatusThickness(FMath::Max(0.9f, SecondaryLineThickness), bFitFail, Sample.bNearThreshold);
 
+                    const FVector SampleUp = Sample.LocalUp.GetSafeNormal(SMALL_NUMBER, State.AnalysisUp);
+                    const FVector SampleForward = MetricFrameUtils::TransportForward(Sample.LocalForward, SampleUp);
+                    FVector SampleRight = Sample.LocalRight.GetSafeNormal();
+                    if (SampleRight.IsNearlyZero()) SampleRight = FVector::CrossProduct(SampleUp, SampleForward).GetSafeNormal();
+                    if (SampleRight.IsNearlyZero()) SampleRight = State.AnalysisRight;
+
                     if (!Sample.bHasFloor)
                     {
                         const FVector P = ProxyLocalToWorld.TransformPosition(Sample.BaseOffset);
                         const float Cross = 10.0f;
-                        PDI->DrawLine(P - State.AnalysisRight * Cross, P + State.AnalysisRight * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
-                        PDI->DrawLine(P - State.AnalysisForward * Cross, P + State.AnalysisForward * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
+                        PDI->DrawLine(P - SampleRight * Cross, P + SampleRight * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
+                        PDI->DrawLine(P - SampleForward * Cross, P + SampleForward * Cross, FitColor, SDPG_World, FitThickness, 0.0f, true);
                         continue;
                     }
 
@@ -968,14 +1125,14 @@ public:
                     PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, FitThickness, 0.0f, true);
 
                     const float Tick = 10.0f;
-                    PDI->DrawLine(LeftPoint - WorldUp * Tick, LeftPoint + WorldUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
-                    PDI->DrawLine(RightPoint - WorldUp * Tick, RightPoint + WorldUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
-                    PDI->DrawLine(CeilingPoint - State.AnalysisRight * Tick, CeilingPoint + State.AnalysisRight * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(LeftPoint - SampleUp * Tick, LeftPoint + SampleUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(RightPoint - SampleUp * Tick, RightPoint + SampleUp * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
+                    PDI->DrawLine(CeilingPoint - SampleRight * Tick, CeilingPoint + SampleRight * Tick, FitColor, SDPG_World, 1.5f, 0.0f, true);
                     if (Sample.bHullBlocked)
                     {
                         const FVector ImpactPoint = ProxyLocalToWorld.TransformPosition(Sample.HullImpactOffset);
-                        PDI->DrawLine(ImpactPoint - State.AnalysisRight * Tick, ImpactPoint + State.AnalysisRight * Tick, FitColor, SDPG_World, 2.0f, 0.0f, true);
-                        PDI->DrawLine(ImpactPoint - State.AnalysisUp * Tick, ImpactPoint + State.AnalysisUp * Tick, FitColor, SDPG_World, 2.0f, 0.0f, true);
+                        PDI->DrawLine(ImpactPoint - SampleRight * Tick, ImpactPoint + SampleRight * Tick, FitColor, SDPG_World, 2.0f, 0.0f, true);
+                        PDI->DrawLine(ImpactPoint - SampleUp * Tick, ImpactPoint + SampleUp * Tick, FitColor, SDPG_World, 2.0f, 0.0f, true);
                     }
                 }
             }
@@ -990,12 +1147,18 @@ public:
                         : (Sample.bNearThreshold ? Theme.Threshold.Tight : Theme.Threshold.Pass);
                     const float ThresholdThickness = StatusThickness(FMath::Max(1.0f, SecondaryLineThickness), bFail, Sample.bNearThreshold);
 
+                    const FVector SampleUp = Sample.LocalUp.GetSafeNormal(SMALL_NUMBER, State.AnalysisUp);
+                    const FVector SampleForward = MetricFrameUtils::TransportForward(Sample.LocalForward, SampleUp);
+                    FVector SampleRight = Sample.LocalRight.GetSafeNormal();
+                    if (SampleRight.IsNearlyZero()) SampleRight = FVector::CrossProduct(SampleUp, SampleForward).GetSafeNormal();
+                    if (SampleRight.IsNearlyZero()) SampleRight = State.AnalysisRight;
+
                     const FVector BasePoint = ProxyLocalToWorld.TransformPosition(Sample.BaseOffset);
                     if (!Sample.bHasFloor)
                     {
                         const float Cross = 12.0f;
-                        PDI->DrawLine(BasePoint - State.AnalysisRight * Cross, BasePoint + State.AnalysisRight * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
-                        PDI->DrawLine(BasePoint - State.AnalysisForward * Cross, BasePoint + State.AnalysisForward * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
+                        PDI->DrawLine(BasePoint - SampleRight * Cross, BasePoint + SampleRight * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
+                        PDI->DrawLine(BasePoint - SampleForward * Cross, BasePoint + SampleForward * Cross, ThresholdColor, SDPG_World, ThresholdThickness, 0.0f, true);
                         continue;
                     }
 
@@ -1009,14 +1172,14 @@ public:
                     PDI->DrawLine(BasePoint, CeilingPoint, QuietColor, SDPG_World, ThresholdThickness, 0.0f, true);
 
                     const float Tick = 12.0f;
-                    PDI->DrawLine(LeftPoint - WorldUp * Tick, LeftPoint + WorldUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
-                    PDI->DrawLine(RightPoint - WorldUp * Tick, RightPoint + WorldUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
-                    PDI->DrawLine(CeilingPoint - State.AnalysisRight * Tick, CeilingPoint + State.AnalysisRight * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    PDI->DrawLine(LeftPoint - SampleUp * Tick, LeftPoint + SampleUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    PDI->DrawLine(RightPoint - SampleUp * Tick, RightPoint + SampleUp * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
+                    PDI->DrawLine(CeilingPoint - SampleRight * Tick, CeilingPoint + SampleRight * Tick, ThresholdColor, SDPG_World, 2.0f, 0.0f, true);
                     if (Sample.bHullBlocked)
                     {
                         const FVector ImpactPoint = ProxyLocalToWorld.TransformPosition(Sample.HullImpactOffset);
-                        PDI->DrawLine(ImpactPoint - State.AnalysisRight * Tick, ImpactPoint + State.AnalysisRight * Tick, ThresholdColor, SDPG_World, 2.5f, 0.0f, true);
-                        PDI->DrawLine(ImpactPoint - State.AnalysisUp * Tick, ImpactPoint + State.AnalysisUp * Tick, ThresholdColor, SDPG_World, 2.5f, 0.0f, true);
+                        PDI->DrawLine(ImpactPoint - SampleRight * Tick, ImpactPoint + SampleRight * Tick, ThresholdColor, SDPG_World, 2.5f, 0.0f, true);
+                        PDI->DrawLine(ImpactPoint - SampleUp * Tick, ImpactPoint + SampleUp * Tick, ThresholdColor, SDPG_World, 2.5f, 0.0f, true);
                     }
 
                     if (Sample.bStepUpFail || Sample.bStepDownFail)
@@ -1043,19 +1206,29 @@ public:
                     }
 
                     const FVector EndCenter = ProxyLocalToWorld.TransformPosition(Path.SampleOffsets.Last());
-                    const FVector PathForward = Path.SampleOffsets.Num() >= 2
-                        ? (Path.SampleOffsets.Last() - Path.SampleOffsets[Path.SampleOffsets.Num() - 2]).GetSafeNormal()
-                        : State.Forward.GetSafeNormal();
+                    FVector PathForward = WorldForward;
+                    if (Path.SampleOffsets.Num() >= 2)
+                    {
+                        const FVector LastPoint = ProxyLocalToWorld.TransformPosition(Path.SampleOffsets.Last());
+                        const FVector PreviousPoint = ProxyLocalToWorld.TransformPosition(Path.SampleOffsets[Path.SampleOffsets.Num() - 2]);
+                        PathForward = (LastPoint - PreviousPoint).GetSafeNormal();
+                    }
+                    FVector PathUp = WorldUp;
+                    if (!Path.SampleUps.IsEmpty())
+                    {
+                        const FVector LastUp = ProxyLocalToWorld.TransformVector(Path.SampleUps.Last());
+                        PathUp = LastUp.GetSafeNormal();
+                    }
                     FLinearColor GhostColor = PathColor;
                     GhostColor.A = 0.45f;
-                    const FVector GhostBase = EndCenter - WorldUp * (Height * 0.5f);
+                    const FVector GhostBase = EndCenter - PathUp * (Height * 0.5f);
                     switch (State.Hull.HullType)
                     {
                     case EMetricHullType::Capsule:
-                        MetricDraw::DrawCapsule(PDI, GhostBase, PathForward, WorldUp, Height, Width, GhostColor, 1.0f);
+                        MetricDraw::DrawCapsule(PDI, GhostBase, PathForward, PathUp, Height, Width, GhostColor, 1.0f);
                         break;
                     case EMetricHullType::OrientedBox:
-                        MetricDraw::DrawBox(PDI, GhostBase, PathForward, WorldUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
+                        MetricDraw::DrawBox(PDI, GhostBase, PathForward, PathUp, FVector(Length * 0.5f, Width * 0.5f, Height * 0.5f), GhostColor, 1.0f);
                         break;
                     case EMetricHullType::Sphere:
                         MetricDraw::DrawSphere(PDI, EndCenter, FMath::Max3(Width, Length, Height) * 0.5f, GhostColor, 1.0f);
@@ -1063,9 +1236,9 @@ public:
                     case EMetricHullType::Cylinder:
                     default:
                     {
-                        const FVector TurnRight = FVector::CrossProduct(WorldUp, PathForward).GetSafeNormal();
+                        const FVector TurnRight = FVector::CrossProduct(PathUp, PathForward).GetSafeNormal();
                         MetricDraw::DrawCircle3D(PDI, GhostBase, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
-                        MetricDraw::DrawCircle3D(PDI, GhostBase + WorldUp * Height, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
+                        MetricDraw::DrawCircle3D(PDI, GhostBase + PathUp * Height, PathForward, TurnRight, Width * 0.5f, GhostColor, 1.0f);
                         break;
                     }
                     }
@@ -1259,11 +1432,19 @@ public:
                 PDI->DrawLine(ArrowEnd, ArrowEnd + Back - MarkerRight * 10.0f, ForwardColor, SDPG_World, AnchorLineThickness, 0.0f, true);
             }
 
-            if (bQueryInspectionEnabled && InspectionTarget != EMetricInspectionTarget::Auto)
+            if ((bQueryInspectionEnabled && InspectionTarget != EMetricInspectionTarget::Auto) || bShowFailureVisualizations)
             {
+                const FMetricQueryEvidence* PrimaryProblemEvidence = (!bQueryInspectionEnabled && bShowFailureVisualizations && FailureEvidenceScope == EMetricFailureEvidenceScope::PrimaryIssue)
+                    ? MetricDiagnosticUtils::ResolvePrimaryProblemEvidence(State)
+                    : nullptr;
+
                 for (const FMetricQueryEvidence& Evidence : State.QueryEvidence)
                 {
-                    if (Evidence.Target != InspectionTarget)
+                    const bool bFocusedEvidence = bQueryInspectionEnabled && InspectionTarget != EMetricInspectionTarget::Auto && Evidence.Target == InspectionTarget;
+                    const bool bProblemStatus = Evidence.Status == EMetricQueryEvidenceStatus::Fail || Evidence.Status == EMetricQueryEvidenceStatus::Warning;
+                    const bool bProblemEvidence = !bQueryInspectionEnabled && bShowFailureVisualizations && bProblemStatus
+                        && (FailureEvidenceScope == EMetricFailureEvidenceScope::AllIssues || &Evidence == PrimaryProblemEvidence);
+                    if (!bFocusedEvidence && !bProblemEvidence)
                     {
                         continue;
                     }
@@ -1390,6 +1571,8 @@ private:
     FLinearColor PinnedBenchmarkColor;
     float SecondaryLineThickness = 1.0f;
     float Thickness = 1.5f;
+    bool bShowFailureVisualizations = true;
+    EMetricFailureEvidenceScope FailureEvidenceScope = EMetricFailureEvidenceScope::PrimaryIssue;
     bool bEmphasizeProblemLines = true;
     bool bShowAnalysisFrame = true;
     bool bQueryInspectionEnabled = false;
@@ -1416,6 +1599,19 @@ void UMetricViewportComponent::SetAllowQueryInspection(bool bAllow)
     if (bAllowQueryInspection != bAllow)
     {
         bAllowQueryInspection = bAllow;
+        MarkRenderStateDirty();
+    }
+}
+
+void UMetricViewportComponent::SetQueryInspectionOverride(bool bUseOverride, bool bEnabled, EMetricInspectionTarget Target)
+{
+    if (bUseQueryInspectionOverride != bUseOverride
+        || bQueryInspectionOverrideEnabled != bEnabled
+        || QueryInspectionOverrideTarget != Target)
+    {
+        bUseQueryInspectionOverride = bUseOverride;
+        bQueryInspectionOverrideEnabled = bEnabled;
+        QueryInspectionOverrideTarget = Target;
         MarkRenderStateDirty();
     }
 }
@@ -1464,7 +1660,9 @@ void UMetricViewportComponent::SendRenderDynamicData_Concurrent()
 FPrimitiveSceneProxy* UMetricViewportComponent::CreateSceneProxy()
 {
     MetricPerformance::FScopedPipelineStage Scope(TEXT("Render.CreateSceneProxy"));
-    return (State.bHasHit || !State.PinnedBenchmarks.IsEmpty()) ? new FMetricViewportSceneProxy(this, State, bAllowQueryInspection) : nullptr;
+    return (State.bHasHit || !State.PinnedBenchmarks.IsEmpty())
+        ? new FMetricViewportSceneProxy(this, State, bAllowQueryInspection, bUseQueryInspectionOverride, bQueryInspectionOverrideEnabled, QueryInspectionOverrideTarget)
+        : nullptr;
 }
 
 FBoxSphereBounds UMetricViewportComponent::CalcBounds(const FTransform& LocalToWorld) const

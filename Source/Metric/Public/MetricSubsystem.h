@@ -76,6 +76,7 @@ public:
     void EvaluateThresholdAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateThresholdAnalysis(World, InOutState); }
     void EvaluateLedgeAnalysisForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateLedgeAnalysis(World, InOutState); }
     void EvaluateStoppingDistanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateStoppingDistance(World, InOutState); }
+    void EvaluateTurnClearanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateTurnClearance(World, InOutState); }
     void EvaluateJumpRunwayForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateJumpRunway(World, InOutState); }
     void EvaluateAlternateStanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateAlternateStance(World, InOutState); }
     void EvaluateMantleVaultForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateMantleVault(World, InOutState); }

@@ -33,6 +33,13 @@ enum class EMetricHUDViewportTargeting : uint8
     SelectedViewports UMETA(DisplayName = "Selected Viewports")
 };
 
+UENUM()
+enum class EMetricFailureEvidenceScope : uint8
+{
+    PrimaryIssue UMETA(DisplayName = "Primary Issue", ToolTip = "Show failure evidence only for the most relevant current warning or failure. This is the recommended normal authoring view."),
+    AllIssues UMETA(DisplayName = "All Issues", ToolTip = "Show warning and failure evidence for every analysis. Useful for broad forensic review but intentionally more visually dense.")
+};
+
 
 USTRUCT()
 struct FMetricPersistentBenchmark
@@ -233,6 +240,12 @@ public:
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ClampMin = "0.5", ClampMax = "8.0", ToolTip = "Line thickness used to draw the Metric placement anchor."))
     float AnchorLineThickness = 2.0f;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Failure Visualizations", ToolTip = "In normal Metric visualization, draw failed and warning query evidence at the measured span/contact without requiring Query Inspection. Query Inspection remains the focused forensic view."))
+    bool bShowFailureVisualizations = true;
+
+    UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (DisplayName = "Failure Evidence Scope", EditCondition = "bShowFailureVisualizations", ToolTip = "Primary Issue keeps normal authoring readable by showing evidence only for the most relevant current problem. All Issues shows evidence for every warning and failure."))
+    EMetricFailureEvidenceScope FailureEvidenceScope = EMetricFailureEvidenceScope::PrimaryIssue;
 
     UPROPERTY(Config, EditAnywhere, Category = "Display", meta = (ToolTip = "Increase line thickness for warning and failure evidence so problem geometry reads more clearly in the viewport."))
     bool bEmphasizeProblemLines = true;

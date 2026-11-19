@@ -1,0 +1,15 @@
+Metric Runtime Contract Migration
+=================================
+
+The gravity provider contract moved from Source/Metric to Source/MetricRuntime.
+
+When updating an existing Metric plugin installation, REMOVE these obsolete files before building:
+  Source/Metric/Public/MetricGravityProvider.h
+  Source/Metric/Public/MetricGravityProviderBlueprint.h
+  Source/Metric/Private/MetricGravityProvider.cpp
+
+Recommended update method:
+  1. Delete the existing Plugins/Metric folder.
+  2. Copy the Metric folder from this package into Plugins/.
+
+Do not merge this package over an older Metric folder without deleting the obsolete files above.

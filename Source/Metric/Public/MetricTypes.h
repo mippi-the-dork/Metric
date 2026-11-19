@@ -98,6 +98,8 @@ struct FMetricClearanceResult
     FVector SweepEndOffset = FVector::ZeroVector;
     FVector ImpactPointOffset = FVector::ZeroVector;
     FVector ImpactNormal = FVector::UpVector;
+    TArray<FVector> SampleOffsets;
+    TArray<FVector> SampleUps;
 };
 
 USTRUCT(BlueprintType)
@@ -352,6 +354,8 @@ struct FMetricCameraProbeResult
     FVector ResolvedCameraOffset = FVector::ZeroVector;
     FVector ImpactPointOffset = FVector::ZeroVector;
     FVector ImpactNormal = FVector::UpVector;
+    TArray<FVector> SampleOffsets;
+    TArray<FVector> SampleUps;
 };
 
 
@@ -517,6 +521,9 @@ struct FMetricFitAnalysisSettings
 struct FMetricFitSample
 {
     FVector BaseOffset = FVector::ZeroVector;
+    FVector LocalUp = FVector::UpVector;
+    FVector LocalForward = FVector::ForwardVector;
+    FVector LocalRight = FVector::RightVector;
     FVector LeftOffset = FVector::ZeroVector;
     FVector RightOffset = FVector::ZeroVector;
     FVector CeilingOffset = FVector::ZeroVector;
@@ -594,6 +601,9 @@ struct FMetricThresholdAnalysisSettings
 struct FMetricThresholdSample
 {
     FVector BaseOffset = FVector::ZeroVector;
+    FVector LocalUp = FVector::UpVector;
+    FVector LocalForward = FVector::ForwardVector;
+    FVector LocalRight = FVector::RightVector;
     FVector LeftOffset = FVector::ZeroVector;
     FVector RightOffset = FVector::ZeroVector;
     FVector CeilingOffset = FVector::ZeroVector;
@@ -674,6 +684,7 @@ struct FMetricTurnPathResult
     FVector ImpactPointOffset = FVector::ZeroVector;
     FVector ImpactNormal = FVector::UpVector;
     TArray<FVector> SampleOffsets;
+    TArray<FVector> SampleUps;
 };
 
 struct FMetricTurnClearanceResult
@@ -766,6 +777,8 @@ struct FMetricStoppingDistanceResult
     FVector EndOffset = FVector::ZeroVector;
     FVector ImpactPointOffset = FVector::ZeroVector;
     FVector ImpactNormal = FVector::UpVector;
+    TArray<FVector> SampleOffsets;
+    TArray<FVector> SampleUps;
 };
 
 
@@ -817,6 +830,7 @@ struct FMetricInteractionReachSettings
 struct FMetricInteractionReachResult
 {
     bool bVisible=false; bool bHasTarget=false; float TargetDistance=0.0f; FVector OriginOffset=FVector::ZeroVector; FVector EndOffset=FVector::ZeroVector; FVector HitOffset=FVector::ZeroVector;
+    TArray<FVector> SampleOffsets; TArray<FVector> SampleUps;
 };
 
 USTRUCT(BlueprintType)
@@ -834,6 +848,7 @@ struct FMetricShoulderClearanceResult
 {
     bool bVisible=false; bool bLeftBlocked=false; bool bRightBlocked=false; float LeftDistance=0.0f; float RightDistance=0.0f;
     FVector PivotOffset=FVector::ZeroVector; FVector LeftOffset=FVector::ZeroVector; FVector RightOffset=FVector::ZeroVector;
+    TArray<FVector> LeftPathOffsets; TArray<FVector> RightPathOffsets; TArray<FVector> LeftPathUps; TArray<FVector> RightPathUps;
 };
 
 USTRUCT(BlueprintType)
@@ -877,7 +892,8 @@ struct FMetricMantleVaultSettings
 struct FMetricMantleVaultResult
 {
     bool bVisible=false; bool bHasObstacle=false; bool bHeightValid=false; bool bDepthValid=false; float ObstacleHeight=0.0f; float ObstacleDepth=0.0f;
-    FVector FrontOffset=FVector::ZeroVector; FVector TopOffset=FVector::ZeroVector;
+    FVector FrontOffset=FVector::ZeroVector; FVector TopOffset=FVector::ZeroVector; FVector DepthEndOffset=FVector::ZeroVector;
+    TArray<FVector> DepthSampleOffsets; TArray<FVector> DepthSampleUps;
 };
 
 USTRUCT(BlueprintType)
@@ -1240,11 +1256,17 @@ enum class EMetricInspectionTarget : uint8
 {
     Auto UMETA(DisplayName = "Auto (Most Relevant)"),
     Clearance UMETA(DisplayName = "Clearance"),
+    OverheadClearance UMETA(DisplayName = "Overhead Clearance"),
     GroundValidation UMETA(DisplayName = "Ground Validation"),
     FitAnalysis UMETA(DisplayName = "Fit Analysis"),
     ThresholdAnalysis UMETA(DisplayName = "Threshold Analysis"),
     LedgeAnalysis UMETA(DisplayName = "Ledge Analysis"),
     StoppingDistance UMETA(DisplayName = "Stopping Distance"),
+    TurnClearance UMETA(DisplayName = "Turn Clearance"),
+    JumpRunway UMETA(DisplayName = "Jump Runway"),
+    InteractionReach UMETA(DisplayName = "Interaction Reach"),
+    ShoulderClearance UMETA(DisplayName = "Shoulder Camera Clearance"),
+    AlternateStance UMETA(DisplayName = "Alternate Stance Fit"),
     MantleVault UMETA(DisplayName = "Mantle / Vault"),
     RecoverySpace UMETA(DisplayName = "Recovery Space"),
     CameraProbe UMETA(DisplayName = "Camera Probe"),

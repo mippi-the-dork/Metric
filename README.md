@@ -4,6 +4,15 @@ Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the
 
 ## Quick Start
 
+## 0.23.0 v1.0 Diagnostic and Dashboard Consolidation
+
+- Query Inspection Auto now resolves through one shared diagnostic policy used by Live Metric, Metric Actors, and normal Primary Issue failure evidence.
+- Live Metric reports the resolved Auto inspection target and reason directly in the HUD.
+- Metric Actors expose read-only **Resolved Inspection** and **Inspection Reason** fields.
+- **Show Failure Evidence** defaults to **Primary Issue** for a quieter authoring view, with **All Issues** available for broad forensic review.
+- Metric Dashboard adds a **Primary Issue** column, **Level** filter, and selected-Actor actions for Recalculate, Inspect Primary, Stop Inspecting, and Open Profile.
+- `Doc/V1_RELEASE_READINESS.md` separates completed feature work from the remaining release-candidate correctness, performance, compatibility, UX, packaging, and documentation gates.
+
 Create **Metric Profile** and **Metric View Preset** assets directly from the Content Browser **Add** menu by searching for `Metric`. A Metric Profile owns analysis parameters, analysis enablement, HUD defaults, Visualizer defaults, and visualization colors. View Presets are optional presentation-only filters. See `Doc/QUICK_START.md`.
 
 
@@ -718,3 +727,18 @@ Live Metric decouples expensive spatial analysis from viewport rendering. It ski
 ### Performance profiling
 
 Metric includes native per-analysis timing and query-count instrumentation. Run `Automation RunTests MetricPlugin.Performance` for repeatable synthetic diagnostics, or `Metric.ProfilePerformance 120` in the editor console to profile the current Live Metric location against the actual level. See `Doc/PERFORMANCE_PROFILING.md`.
+
+### Gravity Provider Blueprint contract
+
+Metric Gravity Provider assets are normal Blueprint assets backed by the small `MetricRuntime` module, not Editor Utility Blueprints. The provider contract is runtime-safe so a project can implement gravity sampling in Blueprint or C++ without depending on Metric's editor module. Metric's viewport tools and Metric Actor both resolve `Gravity / Provider` through the same Project Settings provider class. The Metric Actor itself remains editor-only and is not intended to ship in packaged builds.
+
+
+### Current gravity-frame coverage
+With `Gravity / Provider` + `Resample Along Analysis`, Metric now transports movement-like analysis paths through changing gravity, including trajectory, ground/ledge/runway/recovery, Fit/Threshold, stopping/turn clearance, forward clearance, interaction reach, camera probes, shoulder clearance, and mantle/vault depth sampling. Visibility rays remain straight by design while using the active analysis frame for their origin/direction.
+
+
+## Failure Visualization and Query Inspection
+
+Metric now treats query evidence as a first-class debugging output. Normal visualization can draw warning/failure spans and contacts automatically, while Query Inspection isolates one analysis and shows its full evidence. Placed Metric Actors have local inspection controls plus an Active Issues list, so persistent level validators can explain failures without changing Live Metric's global inspection state.
+
+Geometry exclusions remain centralized: project-wide Actor Class/Tag and Component Class/Tag rules live in Project Settings > Plugins > Metric, while selected Actor/Component exclusions are current-level session state from the Metric Setup menu.

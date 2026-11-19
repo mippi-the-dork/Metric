@@ -2,6 +2,7 @@
 
 #include "MetricEditorSettings.h"
 #include "MetricEnvironmentQuery.h"
+#include "MetricDiagnosticUtils.h"
 #include "MetricStyle.h"
 #include "MetricSubsystem.h"
 #include "MetricProfile.h"
@@ -150,11 +151,17 @@ namespace MetricOverlay
         Add(LOCTEXT("InspectAutoMenu", "Auto (Most Relevant)"), LOCTEXT("InspectAutoTip", "Automatically isolate the most relevant failing or warning analysis, falling back to the first active inspectable analysis."), EMetricInspectionTarget::Auto);
         MenuBuilder.AddMenuSeparator();
         Add(LOCTEXT("InspectClearanceMenu", "Clearance"), LOCTEXT("InspectClearanceTip", "Show the clearance query span, contacts, and blocking evidence used by the Clearance analysis."), EMetricInspectionTarget::Clearance);
+        Add(LOCTEXT("InspectOverheadMenu", "Overhead Clearance"), LOCTEXT("InspectOverheadTip", "Show the vertical headroom trace and limiting contact used by Overhead Clearance."), EMetricInspectionTarget::OverheadClearance);
         Add(LOCTEXT("InspectGroundMenu", "Ground Validation"), LOCTEXT("InspectGroundTip", "Show the ground samples and evidence used to determine floor presence, step validity, and slope validity."), EMetricInspectionTarget::GroundValidation);
         Add(LOCTEXT("InspectFitMenu", "Fit Analysis"), LOCTEXT("InspectFitTip", "Show the spatial checks used to determine whether the Metric hull fits at the sampled location."), EMetricInspectionTarget::FitAnalysis);
         Add(LOCTEXT("InspectThresholdMenu", "Threshold Analysis"), LOCTEXT("InspectThresholdTip", "Show the query evidence used to evaluate nearby threshold or boundary conditions."), EMetricInspectionTarget::ThresholdAnalysis);
         Add(LOCTEXT("InspectLedgeMenu", "Ledge Analysis"), LOCTEXT("InspectLedgeTip", "Show the samples used to detect nearby ledges and classify their safety state."), EMetricInspectionTarget::LedgeAnalysis);
         Add(LOCTEXT("InspectStoppingMenu", "Stopping Distance"), LOCTEXT("InspectStoppingTip", "Show the forward stopping-distance query and any obstruction evidence."), EMetricInspectionTarget::StoppingDistance);
+        Add(LOCTEXT("InspectTurnMenu", "Turn Clearance"), LOCTEXT("InspectTurnTip", "Show left/right turn-path samples and blocking contacts."), EMetricInspectionTarget::TurnClearance);
+        Add(LOCTEXT("InspectJumpRunwayMenu", "Jump Runway"), LOCTEXT("InspectJumpRunwayTip", "Show takeoff and landing runway requirements and the available supported distance."), EMetricInspectionTarget::JumpRunway);
+        Add(LOCTEXT("InspectInteractionMenu", "Interaction Reach"), LOCTEXT("InspectInteractionTip", "Show the interaction reach path and first reachable contact."), EMetricInspectionTarget::InteractionReach);
+        Add(LOCTEXT("InspectShoulderMenu", "Shoulder Camera Clearance"), LOCTEXT("InspectShoulderTip", "Show the independent left and right shoulder-camera paths."), EMetricInspectionTarget::ShoulderClearance);
+        Add(LOCTEXT("InspectStanceMenu", "Alternate Stance Fit"), LOCTEXT("InspectStanceTip", "Show standing/alternate stance fit evidence and available headroom."), EMetricInspectionTarget::AlternateStance);
         Add(LOCTEXT("InspectMantleMenu", "Mantle / Vault"), LOCTEXT("InspectMantleTip", "Show obstacle, top-surface, and clearance evidence used by Mantle / Vault analysis."), EMetricInspectionTarget::MantleVault);
         Add(LOCTEXT("InspectRecoveryMenu", "Recovery Space"), LOCTEXT("InspectRecoveryTip", "Show directional recovery-space probes and the directions that are blocked or available."), EMetricInspectionTarget::RecoverySpace);
         MenuBuilder.AddMenuSeparator();
@@ -707,6 +714,38 @@ namespace MetricOverlay
         Value.RemoveFromStart(TEXT("METRIC - "));
         Value.RemoveFromStart(TEXT("Metric - "));
         return Value;
+    }
+
+    static TSharedRef<SWidget> BuildFailureEvidenceScopeMenu()
+    {
+        FMenuBuilder MenuBuilder(true, nullptr);
+        auto Add = [&MenuBuilder](const FText& Label, const FText& Tip, EMetricFailureEvidenceScope Value)
+        {
+            MenuBuilder.AddMenuEntry(
+                Label,
+                Tip,
+                FSlateIcon(),
+                FUIAction(
+                    FExecuteAction::CreateLambda([Value]()
+                    {
+                        if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+                        {
+                            Settings->FailureEvidenceScope = Value;
+                            Settings->SaveConfig();
+                        }
+                    }),
+                    FCanExecuteAction(),
+                    FIsActionChecked::CreateLambda([Value]()
+                    {
+                        const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+                        return Settings && Settings->FailureEvidenceScope == Value;
+                    })),
+                NAME_None,
+                EUserInterfaceActionType::RadioButton);
+        };
+        Add(LOCTEXT("FailureScopePrimary", "Primary Issue"), LOCTEXT("FailureScopePrimaryTip", "Show evidence only for the most relevant current warning or failure. Recommended for normal authoring."), EMetricFailureEvidenceScope::PrimaryIssue);
+        Add(LOCTEXT("FailureScopeAll", "All Issues"), LOCTEXT("FailureScopeAllTip", "Show evidence for every warning and failure. Useful for forensic review but intentionally more visually dense."), EMetricFailureEvidenceScope::AllIssues);
+        return MenuBuilder.MakeWidget();
     }
 
     static TSharedRef<SWidget> MakeSwatch(const FLinearColor& Color)
@@ -1753,6 +1792,48 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
         .IsChecked_Lambda([]()
         {
             const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+            return Settings && Settings->bShowFailureVisualizations ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+        })
+        .OnCheckStateChanged_Lambda([](ECheckBoxState State)
+        {
+            if (UMetricEditorSettings* Settings = GetMutableDefault<UMetricEditorSettings>())
+            {
+                Settings->bShowFailureVisualizations = State == ECheckBoxState::Checked;
+                Settings->SaveConfig();
+            }
+        })
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("FailureVisualizationToggle", "Show Failure Evidence"))
+        ]
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SComboButton)
+        .IsEnabled_Lambda([](){ const UMetricEditorSettings* S = GetDefault<UMetricEditorSettings>(); return S && S->bShowFailureVisualizations; })
+        .ContentPadding(FMargin(8,2))
+        .ToolTipText(LOCTEXT("FailureEvidenceScopeTip", "Choose whether normal failure evidence shows only the primary issue or every current warning/failure."))
+        .ButtonContent()
+        [
+            SNew(STextBlock)
+            .Text_Lambda([]()
+            {
+                const UMetricEditorSettings* S = GetDefault<UMetricEditorSettings>();
+                return S && S->FailureEvidenceScope == EMetricFailureEvidenceScope::AllIssues
+                    ? LOCTEXT("FailureScopeAllButton", "Failure Evidence: All Issues")
+                    : LOCTEXT("FailureScopePrimaryButton", "Failure Evidence: Primary Issue");
+            })
+        ]
+        .OnGetMenuContent_Lambda([](){ return MetricOverlay::BuildFailureEvidenceScopeMenu(); })
+    ];
+
+    Box->AddSlot().AutoHeight().Padding(8,0,8,2)
+    [
+        SNew(SCheckBox)
+        .IsChecked_Lambda([]()
+        {
+            const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
             return Settings && Settings->bQueryInspectionEnabled ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
         })
         .OnCheckStateChanged_Lambda([](ECheckBoxState State)
@@ -1780,21 +1861,7 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
             .Text_Lambda([]()
             {
                 const UMetricEditorSettings* S = GetDefault<UMetricEditorSettings>();
-                switch (S ? S->QueryInspectionTarget : EMetricInspectionTarget::Auto)
-                {
-                case EMetricInspectionTarget::Clearance: return LOCTEXT("InspectClearance", "Clearance");
-                case EMetricInspectionTarget::GroundValidation: return LOCTEXT("InspectGround", "Ground Validation");
-                case EMetricInspectionTarget::FitAnalysis: return LOCTEXT("InspectFit", "Fit Analysis");
-                case EMetricInspectionTarget::ThresholdAnalysis: return LOCTEXT("InspectThreshold", "Threshold Analysis");
-                case EMetricInspectionTarget::LedgeAnalysis: return LOCTEXT("InspectLedge", "Ledge Analysis");
-                case EMetricInspectionTarget::StoppingDistance: return LOCTEXT("InspectStopping", "Stopping Distance");
-                case EMetricInspectionTarget::MantleVault: return LOCTEXT("InspectMantle", "Mantle / Vault");
-                case EMetricInspectionTarget::RecoverySpace: return LOCTEXT("InspectRecovery", "Recovery Space");
-                case EMetricInspectionTarget::CameraProbe: return LOCTEXT("InspectCamera", "Camera Probe");
-                case EMetricInspectionTarget::CameraSightline: return LOCTEXT("InspectSightline", "Camera Sightline");
-                case EMetricInspectionTarget::Trajectory: return LOCTEXT("InspectTrajectory", "Trajectory");
-                default: return LOCTEXT("InspectAuto", "Auto (Most Relevant)");
-                }
+                return MetricDiagnosticUtils::GetInspectionTargetDisplayName(S ? S->QueryInspectionTarget : EMetricInspectionTarget::Auto);
             })
         ]
         .OnGetMenuContent_Lambda([](){ return MetricOverlay::BuildInspectionTargetMenu(); })
@@ -1813,17 +1880,24 @@ TSharedRef<SWidget> SMetricViewportOverlay::BuildLiveSetupMenu()
             if (const UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem())
             {
                 const FMetricLiveState& State = Subsystem->GetLiveState();
+                FString Reason;
+                const EMetricInspectionTarget Resolved = MetricDiagnosticUtils::ResolveInspectionTarget(State, Settings->QueryInspectionTarget, &Reason);
                 int32 EvidenceCount = 0;
                 int32 FailCount = 0;
                 for (const FMetricQueryEvidence& E : State.QueryEvidence)
                 {
-                    if (Settings->QueryInspectionTarget == EMetricInspectionTarget::Auto || E.Target == Settings->QueryInspectionTarget)
+                    if (E.Target == Resolved)
                     {
                         ++EvidenceCount;
                         if (E.Status == EMetricQueryEvidenceStatus::Fail) ++FailCount;
                     }
                 }
-                return FText::Format(LOCTEXT("InspectionActiveDesc", "Focused query view. {0} evidence records, {1} failures. Contacts and normals are drawn at the actual measured locations."), FText::AsNumber(EvidenceCount), FText::AsNumber(FailCount));
+                const FText TargetName = MetricDiagnosticUtils::GetInspectionTargetDisplayName(Resolved);
+                if (!Reason.IsEmpty())
+                {
+                    return FText::Format(LOCTEXT("InspectionResolvedReasonDesc", "Inspecting: {0} - {1}. {2} evidence records, {3} failures."), TargetName, FText::FromString(Reason), FText::AsNumber(EvidenceCount), FText::AsNumber(FailCount));
+                }
+                return FText::Format(LOCTEXT("InspectionResolvedDesc", "Inspecting: {0}. {1} evidence records, {2} failures."), TargetName, FText::AsNumber(EvidenceCount), FText::AsNumber(FailCount));
             }
             return LOCTEXT("InspectionActiveNoState", "Focused query view. Move the Live Metric cursor to generate query evidence.");
         })
