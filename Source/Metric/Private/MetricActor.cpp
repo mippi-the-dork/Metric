@@ -13,6 +13,7 @@
 #include "ImageUtils.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
+#include "UObject/StrongObjectPtr.h"
 #include "Editor.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
@@ -21,10 +22,14 @@ namespace
 {
     UTexture2D* LoadMetricActorBillboardTexture()
     {
-        static TWeakObjectPtr<UTexture2D> CachedTexture;
-        if (UTexture2D* Existing = CachedTexture.Get())
+        // Keep the editor billboard texture strongly owned for the lifetime of the Metric module.
+        // FImageUtils imports into the transient package; a weak-only cache can allow that object
+        // to disappear between component reconstruction/transactions and leaves the billboard open
+        // to inheriting an unrelated editor sprite. Metric owns one stable texture identity instead.
+        static TStrongObjectPtr<UTexture2D> CachedTexture;
+        if (CachedTexture.IsValid())
         {
-            return Existing;
+            return CachedTexture.Get();
         }
 
         const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("Metric"));
@@ -35,8 +40,11 @@ namespace
 
         UTexture2D* Texture = FImageUtils::ImportFileAsTexture2D(FPaths::Combine(
             Plugin->GetBaseDir(), TEXT("Resources"), TEXT("MetricProfileAsset_64.png")));
-        CachedTexture = Texture;
-        return Texture;
+        if (Texture)
+        {
+            CachedTexture.Reset(Texture);
+        }
+        return CachedTexture.Get();
     }
 }
 
@@ -54,6 +62,10 @@ AMetricActor::AMetricActor()
 
     VisualizationComponent = CreateDefaultSubobject<UMetricViewportComponent>(TEXT("MetricVisualization"));
     VisualizationComponent->SetupAttachment(RootComponent);
+    // Metric evaluation results are stored as world-space directions and world-relative offsets.
+    // The Actor should contribute translation only when those results are rendered. Inheriting
+    // Actor rotation/scale here would transform already-oriented analysis data a second time.
+    VisualizationComponent->SetAbsolute(false, true, true);
     VisualizationComponent->SetIsVisualizationComponent(true);
     VisualizationComponent->SetAllowQueryInspection(true);
     VisualizationComponent->SetQueryInspectionOverride(true, false, EMetricInspectionTarget::Auto);
@@ -68,6 +80,9 @@ AMetricActor::AMetricActor()
     {
         BillboardComponent->SetFlags(RF_Transient);
         BillboardComponent->SetupAttachment(RootComponent);
+        // Placement billboards are screen-space editor affordances. They follow Actor translation,
+        // but authored Actor rotation/scale must never rotate, stretch, or resize the icon.
+        BillboardComponent->SetAbsolute(false, true, true);
         BillboardComponent->SetIsVisualizationComponent(true);
         BillboardComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         BillboardComponent->SetHiddenInGame(true);
@@ -76,6 +91,10 @@ AMetricActor::AMetricActor()
         BillboardComponent->ScreenSize = GetDefault<UBillboardComponent>()->ScreenSize * 4.0f;
         BillboardComponent->OpacityMaskRefVal = 0.3f;
         BillboardComponent->SetRelativeScale3D(FVector::OneVector);
+        if (UTexture2D* Texture = LoadMetricActorBillboardTexture())
+        {
+            BillboardComponent->SetSprite(Texture);
+        }
     }
 #endif
 }
@@ -99,11 +118,14 @@ void AMetricActor::PostRegisterAllComponents()
 void AMetricActor::RefreshBillboardSprite()
 {
 #if WITH_EDITOR
-    if (!BillboardComponent || IsTemplate() || !GetWorld() || GetWorld()->WorldType != EWorldType::Editor || IsRunningCommandlet())
+    if (!BillboardComponent || IsTemplate() || !GetWorld() ||
+        (GetWorld()->WorldType != EWorldType::Editor && GetWorld()->WorldType != EWorldType::EditorPreview) ||
+        IsRunningCommandlet())
     {
         return;
     }
 
+    BillboardComponent->SetAbsolute(false, true, true);
     BillboardComponent->bIsScreenSizeScaled = true;
     BillboardComponent->bUseInEditorScaling = true;
     BillboardComponent->ScreenSize = GetDefault<UBillboardComponent>()->ScreenSize * 4.0f;
@@ -127,6 +149,19 @@ void AMetricActor::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
 
 #if WITH_EDITOR
+    // Editor transactions/component reconstruction can touch billboard component state independently
+    // of Metric analysis. Cheaply enforce Metric's owned sprite identity whenever this Actor ticks.
+    if (BillboardComponent)
+    {
+        if (UTexture2D* ExpectedTexture = LoadMetricActorBillboardTexture())
+        {
+            if (BillboardComponent->Sprite != ExpectedTexture)
+            {
+                RefreshBillboardSprite();
+            }
+        }
+    }
+
     if (!bEnabled)
     {
         UpdateVisualization();
@@ -376,6 +411,7 @@ void AMetricActor::OpenMetricDashboard()
 void AMetricActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
     Super::PostEditChangeProperty(PropertyChangedEvent);
+    RefreshBillboardSprite();
     bPendingRelevantUpdate = false;
     SetActorTickEnabled(UpdateMode == EMetricActorUpdateMode::Continuous);
     if (UpdateMode == EMetricActorUpdateMode::OnRelevantChange)
@@ -391,14 +427,33 @@ void AMetricActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 void AMetricActor::PostEditMove(bool bFinished)
 {
     Super::PostEditMove(bFinished);
+
+    RefreshBillboardSprite();
+
+    if (UpdateMode != EMetricActorUpdateMode::OnRelevantChange)
+    {
+        return;
+    }
+
     if (bFinished)
     {
+        // Commit one final authoritative evaluation after the gizmo drag finishes.
         bPendingRelevantUpdate = false;
-        if (UpdateMode == EMetricActorUpdateMode::OnRelevantChange)
-        {
-            RecalculateMetric();
-        }
+        RecalculateMetric();
+        return;
     }
+
+    if (!bLiveTransformPreview)
+    {
+        return;
+    }
+
+    // PostEditMove(false) is delivered during Level Editor transform-gizmo motion. Schedule the
+    // evaluation on Tick instead of evaluating directly in the editor callback so multiple raw
+    // mouse/transform events in one frame collapse into one Metric update. This keeps the visualizer
+    // live while dragging without multiplying expensive profile evaluations within the same frame.
+    bPendingRelevantUpdate = true;
+    SetActorTickEnabled(true);
 }
 
 void AMetricActor::PostEditUndo()

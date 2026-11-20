@@ -60,6 +60,9 @@ public:
     UPROPERTY(EditAnywhere, Category = "Metric|Display", meta = (DisplayName = "Show Visualization", ToolTip = "Show this Actor's Metric analysis visualization in the editor viewport. Disabling this does not disable evaluation or hide the Actor placement billboard."))
     bool bShowVisualization = true;
 
+    UPROPERTY(EditAnywhere, Category = "Metric|Display", meta = (DisplayName = "Live Transform Preview", EditCondition = "UpdateMode == EMetricActorUpdateMode::OnRelevantChange", ToolTip = "While moving or rotating this Metric Actor with the Level Editor gizmo, update its analysis visualization during the drag. Raw transform events are coalesced to at most one Metric evaluation per editor tick. Disable this for unusually expensive profiles when release-only transform feedback is preferred."))
+    bool bLiveTransformPreview = true;
+
     UPROPERTY(EditAnywhere, Category = "Metric|Debug", meta = (DisplayName = "Inspect Queries", ToolTip = "Focus this Metric Actor visualization on inspectable query evidence. This is local to the Actor and does not change Live Metric Query Inspection."))
     bool bInspectQueries = false;
 

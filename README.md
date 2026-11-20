@@ -9,6 +9,8 @@ Metric is a viewport-first spatial validation tool for Unreal Engine 5.8 and the
 - Query Inspection Auto now resolves through one shared diagnostic policy used by Live Metric, Metric Actors, and normal Primary Issue failure evidence.
 - Live Metric reports the resolved Auto inspection target and reason directly in the HUD.
 - Metric Actors expose read-only **Resolved Inspection** and **Inspection Reason** fields.
+- Metric Actor transform-gizmo authoring now updates live in **On Relevant Change / Transform**, with raw drag events coalesced to one evaluation per editor tick and a final evaluation on release. **Live Transform Preview** can be disabled per Actor for unusually expensive profiles.
+- Metric Actor billboard identity is now strongly owned and self-healing, and the editor icon ignores Actor rotation/non-uniform scale.
 - **Show Failure Evidence** defaults to **Primary Issue** for a quieter authoring view, with **All Issues** available for broad forensic review.
 - Metric Dashboard adds a **Primary Issue** column, **Level** filter, and selected-Actor actions for Recalculate, Inspect Primary, Stop Inspecting, and Open Profile.
 - `Doc/V1_RELEASE_READINESS.md` separates completed feature work from the remaining release-candidate correctness, performance, compatibility, UX, packaging, and documentation gates.
@@ -707,7 +709,7 @@ Unavailable live analyses remain in the HUD as `N/A` when their Profile and Resu
 
 ### Metric Actor and Overview
 
-Place persistent `Metric Actor` validators in a level, assign a Metric Profile, choose Environment Source and Analysis Frame, and evaluate using On Relevant Change / Transform, Continuous, or Manual update modes. On Relevant Change reacts to editor-world Actor add/delete/move events and Actor/Component property edits without keeping every validator on a continuous tick. Actor results are transient calculated state and remain independent from Live Metric benchmarks and tool toggles. Open **Tools > Metric Dashboard** for a native list with status/profile filters, search, level navigation, issue counts, and Query Evidence breakdown. Metric Actor is currently editor-only because Metric has not yet been split into runtime/editor modules.
+Place persistent `Metric Actor` validators in a level, assign a Metric Profile, choose Environment Source and Analysis Frame, and evaluate using On Relevant Change / Transform, Continuous, or Manual update modes. On Relevant Change reacts to editor-world Actor add/delete/move events and Actor/Component property edits without keeping every validator on a continuous tick. When the Metric Actor itself is moved or rotated with the editor gizmo, the same mode now previews the analysis live by coalescing raw transform events to one evaluation per editor tick, then commits one final evaluation on release. Actor results are transient calculated state and remain independent from Live Metric benchmarks and tool toggles. Open **Tools > Metric Dashboard** for a native list with status/profile filters, search, level navigation, issue counts, and Query Evidence breakdown. Metric Actor is currently editor-only because Metric has not yet been split into runtime/editor modules.
 
 ## Native Automation
 

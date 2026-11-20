@@ -29,6 +29,7 @@
 #include "Components/BoxComponent.h"
 #include "Editor.h"
 #include "Engine/World.h"
+#include "Engine/Texture2D.h"
 #include "GameFramework/Actor.h"
 #include "PreviewScene.h"
 #include "UObject/UnrealType.h"
@@ -1862,6 +1863,148 @@ bool FMetricActorBillboardVisibility::RunTest(const FString& Parameters)
             TestEqual(TEXT("Hiding Metric analysis visualization preserves the billboard component visibility flag"), Billboard->GetVisibleFlag(), bBillboardVisibleBefore);
         }
     }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorVisualizationRotationParity, "MetricPlugin.Actor.VisualizationRotationParity", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorVisualizationRotationParity::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World, 100.0f, 500.0f, 0.0f);
+
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
+    Profile->DisplayName = FText::FromString(TEXT("Automation Rotation Parity Profile"));
+    Profile->Clearance.bShowClearanceProbe = true;
+    Profile->Clearance.ProbeDistance = 150.0f;
+
+    AMetricActor* Actor = World ? World->SpawnActor<AMetricActor>(FVector::ZeroVector, FRotator(0.0f, 90.0f, 0.0f)) : nullptr;
+    TestNotNull(TEXT("Metric Actor spawned for visualization rotation parity"), Actor);
+    if (!Actor)
+    {
+        return true;
+    }
+
+    Actor->Profile = Profile;
+    Actor->RecalculateMetric();
+
+    const FMetricLiveState& State = Actor->GetEvaluatedState();
+    const FVector ExpectedForward = Actor->GetActorForwardVector().GetSafeNormal();
+    TestTrue(TEXT("Analysis forward follows Metric Actor rotation"), State.AnalysisForward.Equals(ExpectedForward, KINDA_SMALL_NUMBER));
+
+    UMetricViewportComponent* Visualization = Actor->FindComponentByClass<UMetricViewportComponent>();
+    TestNotNull(TEXT("Metric Actor owns visualization component"), Visualization);
+    if (Visualization)
+    {
+        TestTrue(TEXT("Visualization does not inherit Actor rotation because evaluated geometry is already world-oriented"), Visualization->IsUsingAbsoluteRotation());
+        TestTrue(TEXT("Visualization does not inherit Actor scale because analysis dimensions are authored in world centimeters"), Visualization->IsUsingAbsoluteScale());
+        TestTrue(TEXT("Visualization render basis remains world-neutral at 90 degree Actor yaw"), Visualization->GetComponentQuat().Equals(FQuat::Identity, KINDA_SMALL_NUMBER));
+    }
+
+    Actor->SetActorRotation(FRotator(0.0f, 180.0f, 0.0f));
+    Actor->RecalculateMetric();
+    TestTrue(TEXT("Analysis forward follows Metric Actor rotation at 180 degrees"),
+        Actor->GetEvaluatedState().AnalysisForward.Equals(Actor->GetActorForwardVector().GetSafeNormal(), KINDA_SMALL_NUMBER));
+    if (Visualization)
+    {
+        TestTrue(TEXT("Visualization basis remains world-neutral after another Actor rotation"), Visualization->GetComponentQuat().Equals(FQuat::Identity, KINDA_SMALL_NUMBER));
+    }
+
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorInteractiveTransformPreview, "MetricPlugin.Actor.InteractiveTransformPreview", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorInteractiveTransformPreview::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    MetricAutomation::SpawnFloor(World, 100.0f, 500.0f, 0.0f);
+
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
+    Profile->DisplayName = FText::FromString(TEXT("Automation Interactive Transform Profile"));
+    Profile->Clearance.bShowClearanceProbe = true;
+    Profile->Clearance.ProbeDistance = 150.0f;
+
+    AMetricActor* Actor = World ? World->SpawnActor<AMetricActor>(FVector::ZeroVector, FRotator::ZeroRotator) : nullptr;
+    TestNotNull(TEXT("Metric Actor spawned for interactive transform preview"), Actor);
+    if (!Actor) return true;
+
+    Actor->Profile = Profile;
+    Actor->UpdateMode = EMetricActorUpdateMode::OnRelevantChange;
+    Actor->RecalculateMetric();
+
+    Actor->SetActorRotation(FRotator(0.0f, 90.0f, 0.0f));
+    Actor->SetActorTickEnabled(false);
+    Actor->PostEditMove(false);
+    TestTrue(TEXT("Interactive transform motion schedules an editor evaluation before drag release"), Actor->IsActorTickEnabled());
+
+    Actor->Tick(1.0f / 60.0f);
+    TestTrue(TEXT("Interactive transform preview updates analysis orientation during the drag"),
+        Actor->GetEvaluatedState().AnalysisForward.Equals(Actor->GetActorForwardVector().GetSafeNormal(), KINDA_SMALL_NUMBER));
+
+    Actor->SetActorRotation(FRotator(0.0f, 180.0f, 0.0f));
+    Actor->PostEditMove(true);
+    TestTrue(TEXT("Finished transform commits one final authoritative evaluation"),
+        Actor->GetEvaluatedState().AnalysisForward.Equals(Actor->GetActorForwardVector().GetSafeNormal(), KINDA_SMALL_NUMBER));
+
+    Actor->UpdateMode = EMetricActorUpdateMode::OnRelevantChange;
+    Actor->bLiveTransformPreview = false;
+    Actor->SetActorTickEnabled(false);
+    Actor->SetActorRotation(FRotator(0.0f, 270.0f, 0.0f));
+    Actor->PostEditMove(false);
+    TestFalse(TEXT("Live Transform Preview can be disabled for expensive profiles"), Actor->IsActorTickEnabled());
+    Actor->PostEditMove(true);
+    TestTrue(TEXT("Disabling live preview still commits the transform when the drag finishes"),
+        Actor->GetEvaluatedState().AnalysisForward.Equals(Actor->GetActorForwardVector().GetSafeNormal(), KINDA_SMALL_NUMBER));
+
+    Actor->UpdateMode = EMetricActorUpdateMode::Manual;
+    Actor->bLiveTransformPreview = true;
+    Actor->SetActorTickEnabled(false);
+    Actor->SetActorRotation(FRotator(0.0f, 0.0f, 0.0f));
+    Actor->PostEditMove(false);
+    TestFalse(TEXT("Manual update mode remains manual during transform-gizmo motion"), Actor->IsActorTickEnabled());
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorBillboardIdentityStability, "MetricPlugin.Actor.BillboardIdentityStability", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorBillboardIdentityStability::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FTestWorld TestWorld;
+    AMetricActor* Actor = TestWorld.GetWorld()->SpawnActor<AMetricActor>();
+    TestNotNull(TEXT("Metric Actor spawned for billboard identity test"), Actor);
+    if (!Actor) return true;
+
+    UBillboardComponent* Billboard = Actor->FindComponentByClass<UBillboardComponent>();
+    TestNotNull(TEXT("Metric Actor owns billboard for identity test"), Billboard);
+    if (!Billboard) return true;
+
+    UTexture2D* ExpectedSprite = Billboard->Sprite;
+    TestNotNull(TEXT("Metric Actor billboard starts with a Metric-owned sprite"), ExpectedSprite);
+    TestTrue(TEXT("Metric billboard ignores Actor rotation"), Billboard->IsUsingAbsoluteRotation());
+    TestTrue(TEXT("Metric billboard ignores Actor scale"), Billboard->IsUsingAbsoluteScale());
+
+    UTexture2D* RogueSprite = UTexture2D::CreateTransient(2, 2);
+    TestNotNull(TEXT("Rogue billboard texture created for recovery test"), RogueSprite);
+    if (RogueSprite)
+    {
+        Billboard->SetSprite(RogueSprite);
+        TestEqual(TEXT("Test fixture replaces the Metric sprite"), Billboard->Sprite.Get(), RogueSprite);
+        Actor->PostEditMove(false);
+        TestEqual(TEXT("Metric Actor restores its owned billboard sprite after editor interaction"), Billboard->Sprite.Get(), ExpectedSprite);
+    }
+
+    Actor->SetActorScale3D(FVector(3.0f, 0.5f, 2.0f));
+    Actor->SetActorRotation(FRotator(35.0f, 90.0f, 20.0f));
+    Actor->PostEditMove(true);
+    TestTrue(TEXT("Billboard stays rotation-independent after authored Actor rotation"), Billboard->IsUsingAbsoluteRotation());
+    TestTrue(TEXT("Billboard stays scale-independent after authored Actor scale"), Billboard->IsUsingAbsoluteScale());
+    TestTrue(TEXT("Billboard component scale remains neutral"), Billboard->GetComponentScale().Equals(FVector::OneVector, KINDA_SMALL_NUMBER));
+    TestEqual(TEXT("Billboard sprite identity remains stable after transform commit"), Billboard->Sprite.Get(), ExpectedSprite);
+
     return true;
 }
 
