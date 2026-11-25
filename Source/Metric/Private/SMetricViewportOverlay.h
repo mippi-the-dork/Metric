@@ -40,6 +40,7 @@ private:
     FReply FocusSelectedPin();
     FReply DeleteSelectedPin();
     FReply ReplaceSelectedPin();
+    FReply ConvertSelectedPinToActor();
     FReply ToggleLegend();
     FReply ToggleHUDMinimized();
     FReply ToggleLiveVisualizer();

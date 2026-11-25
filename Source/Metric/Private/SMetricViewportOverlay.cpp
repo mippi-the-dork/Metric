@@ -5,6 +5,7 @@
 #include "MetricDiagnosticUtils.h"
 #include "MetricStyle.h"
 #include "MetricSubsystem.h"
+#include "Misc/MessageDialog.h"
 #include "MetricProfile.h"
 #include "MetricProfileEditorToolkit.h"
 #include "MetricTypes.h"
@@ -1241,10 +1242,14 @@ void SMetricViewportOverlay::SetViewportNumber(int32 InViewportNumber)
 EVisibility SMetricViewportOverlay::GetHUDVisibility() const
 {
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    const UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
+    const bool bMetricHUDAllowed = Subsystem
+        && Subsystem->IsMetricActive()
+        && !Subsystem->IsEditorPlaySessionActive();
     const bool bShowHUD = !Settings || Settings->bShowViewportHUD;
     const bool bSelectedMode = Settings && Settings->HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports;
     const bool bViewportEnabled = bSelectedMode ? MetricOverlay::IsSelectedViewportEnabled(Settings, ViewportNumber) : bTargetEnabled;
-    return (bViewportEnabled && bLastActive && bShowHUD)
+    return (bViewportEnabled && bMetricHUDAllowed && bShowHUD)
         ? EVisibility::SelfHitTestInvisible
         : EVisibility::Collapsed;
 }
@@ -1548,6 +1553,37 @@ void SMetricViewportOverlay::Rebuild()
                     [ SNew(SButton).ToolTipText(LOCTEXT("FocusTip", "Focus the selected benchmark in the active viewport.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::FocusSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Search"))] ]
                     + SHorizontalBox::Slot().AutoWidth().Padding(0,0,2,0)
                     [ SNew(SButton).ToolTipText(LOCTEXT("ReplaceTip", "Replace this benchmark with the current live Metric snapshot.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::ReplaceSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Refresh"))] ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,2,0)
+                    [
+                        SNew(SButton)
+                        .ToolTipText_Lambda([this]()
+                        {
+                            if (UMetricSubsystem* MetricSubsystem = MetricOverlay::GetSubsystem())
+                            {
+                                FText FailureReason;
+                                const int32 BenchmarkIndex = MetricSubsystem->GetSelectedPinnedBenchmarkIndex();
+                                if (!MetricSubsystem->CanConvertPinnedBenchmarkToMetricActor(BenchmarkIndex, &FailureReason) && !FailureReason.IsEmpty())
+                                {
+                                    return FailureReason;
+                                }
+                            }
+                            return LOCTEXT("ConvertBenchmarkTip", "Convert this benchmark into a persistent Metric Actor at the same location and orientation.");
+                        })
+                        .IsEnabled_Lambda([]()
+                        {
+                            if (UMetricSubsystem* MetricSubsystem = MetricOverlay::GetSubsystem())
+                            {
+                                return MetricSubsystem->CanConvertPinnedBenchmarkToMetricActor(MetricSubsystem->GetSelectedPinnedBenchmarkIndex());
+                            }
+                            return false;
+                        })
+                        .ContentPadding(FMargin(4.0f))
+                        .OnClicked(this, &SMetricViewportOverlay::ConvertSelectedPinToActor)
+                        [
+                            SNew(SImage)
+                            .Image(FMetricStyle::GetBrush(TEXT("Metric.BenchmarkPromote")))
+                        ]
+                    ]
                     + SHorizontalBox::Slot().AutoWidth().Padding(0,0,2,0)
                     [ SNew(SButton).ToolTipText(LOCTEXT("RenameTip", "Rename the selected benchmark.")).ContentPadding(FMargin(4.0f)).OnClicked(this, &SMetricViewportOverlay::RenameSelectedPin)[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Edit"))] ]
                     + SHorizontalBox::Slot().AutoWidth()
@@ -2424,10 +2460,14 @@ FText SMetricViewportOverlay::BuildLegendButtonText() const
 EVisibility SMetricViewportOverlay::GetLegendVisibility() const
 {
     const UMetricEditorSettings* Settings = GetDefault<UMetricEditorSettings>();
+    const UMetricSubsystem* Subsystem = MetricOverlay::GetSubsystem();
+    const bool bMetricHUDAllowed = Subsystem
+        && Subsystem->IsMetricActive()
+        && !Subsystem->IsEditorPlaySessionActive();
     const bool bShowLegend = !Settings || Settings->bShowLegend;
     const bool bSelectedMode = Settings && Settings->HUDViewportTargeting == EMetricHUDViewportTargeting::SelectedViewports;
     const bool bViewportEnabled = bSelectedMode ? MetricOverlay::IsSelectedViewportEnabled(Settings, ViewportNumber) : bTargetEnabled;
-    return (bViewportEnabled && bLastActive && bShowLegend)
+    return (bViewportEnabled && bMetricHUDAllowed && bShowLegend)
         ? EVisibility::HitTestInvisible
         : EVisibility::Collapsed;
 }
@@ -2621,6 +2661,19 @@ FReply SMetricViewportOverlay::SelectPin(int32 Index) { if (UMetricSubsystem* S 
 FReply SMetricViewportOverlay::FocusSelectedPin() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->FocusPinnedBenchmark(S->GetSelectedPinnedBenchmarkIndex()); return FReply::Handled(); }
 FReply SMetricViewportOverlay::DeleteSelectedPin() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->DeletePinnedBenchmark(S->GetSelectedPinnedBenchmarkIndex()); Rebuild(); return FReply::Handled(); }
 FReply SMetricViewportOverlay::ReplaceSelectedPin() { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->ReplacePinnedBenchmarkWithLive(S->GetSelectedPinnedBenchmarkIndex()); Rebuild(); return FReply::Handled(); }
+FReply SMetricViewportOverlay::ConvertSelectedPinToActor()
+{
+    if (UMetricSubsystem* S = MetricOverlay::GetSubsystem())
+    {
+        FText FailureReason;
+        if (!S->ConvertPinnedBenchmarkToMetricActor(S->GetSelectedPinnedBenchmarkIndex(), &FailureReason) && !FailureReason.IsEmpty())
+        {
+            FMessageDialog::Open(EAppMsgType::Ok, FailureReason);
+        }
+    }
+    Rebuild();
+    return FReply::Handled();
+}
 void SMetricViewportOverlay::CommitRename(const FText& NewText, ETextCommit::Type CommitType, int32 Index) { if (UMetricSubsystem* S = MetricOverlay::GetSubsystem()) S->RenamePinnedBenchmark(Index, NewText); bRenameActive = false; Rebuild(); }
 
 #undef LOCTEXT_NAMESPACE

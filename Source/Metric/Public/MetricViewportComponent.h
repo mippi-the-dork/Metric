@@ -17,6 +17,7 @@ public:
     void SetAllowQueryInspection(bool bAllow);
     void SetQueryInspectionOverride(bool bUseOverride, bool bEnabled, EMetricInspectionTarget Target = EMetricInspectionTarget::Auto);
 
+    virtual void OnRegister() override;
     virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
     virtual void SendRenderDynamicData_Concurrent() override;
     virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;

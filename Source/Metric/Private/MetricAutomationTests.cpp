@@ -22,16 +22,22 @@
 #include "MetricViewPresetFactory.h"
 #include "MetricProjectSettings.h"
 #include "MetricSubsystem.h"
+#include "MetricStyle.h"
+#include "MetricViewportController.h"
 #include "MetricAutomationGravityProviders.h"
 #include "MetricViewportComponent.h"
 
 #include "Components/BillboardComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "Engine/Texture2D.h"
 #include "GameFramework/Actor.h"
 #include "PreviewScene.h"
+#include "Styling/SlateBrush.h"
 #include "UObject/UnrealType.h"
 
 #define METRIC_AUTOMATION_FLAGS (EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -180,11 +186,15 @@ namespace MetricAutomation
         return Box;
     }
 
-    bool Trace(UWorld* World, FHitResult& Hit)
+    bool TraceBetween(UWorld* World, FHitResult& Hit, const FVector& Start, const FVector& End)
     {
         const FCollisionQueryParams Params = MetricEnvironmentQuery::MakeParams(World, TEXT("MetricAutomationTrace"), true);
-        return MetricEnvironmentQuery::LineTraceSingleByChannel(
-            World, Hit, FVector(0.0f, 0.0f, 50.0f), FVector(1000.0f, 0.0f, 50.0f), ECC_Visibility, Params);
+        return MetricEnvironmentQuery::LineTraceSingleByChannel(World, Hit, Start, End, ECC_Visibility, Params);
+    }
+
+    bool Trace(UWorld* World, FHitResult& Hit)
+    {
+        return TraceBetween(World, Hit, FVector(0.0f, 0.0f, 50.0f), FVector(1000.0f, 0.0f, 50.0f));
     }
 
     FMetricLiveState MakeAnalysisState()
@@ -355,6 +365,85 @@ bool FMetricEnvironmentVisualGeometryBounds::RunTest(const FString& Parameters)
     FHitResult Hit;
     TestTrue(TEXT("Visual Geometry hits a visible component with no collision"), MetricAutomation::Trace(World, Hit));
     TestEqual(TEXT("Visual Geometry reports the component whose bounds were hit"), Hit.GetComponent(), static_cast<UPrimitiveComponent*>(Box));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricEnvironmentLargeWorldCoordinates, "MetricPlugin.Environment.LargeWorldCoordinates", METRIC_AUTOMATION_FLAGS)
+bool FMetricEnvironmentLargeWorldCoordinates::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    const FVector Origin(2500000.0, -1750000.0, 50000.0);
+    TestNotNull(TEXT("LWC collision box"), MetricAutomation::SpawnBox(World, Origin + FVector(500.0, 0.0, 50.0), FVector(50.0), true));
+    FHitResult Hit;
+    TestTrue(TEXT("Metric collision query remains stable far from world origin"),
+        MetricAutomation::TraceBetween(World, Hit, Origin + FVector(0.0, 0.0, 50.0), Origin + FVector(1000.0, 0.0, 50.0)));
+    TestTrue(TEXT("LWC hit distance remains local and precise"), FMath::IsNearlyEqual(Hit.Distance, 450.0f, 5.0f));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricEnvironmentNonUniformScale, "MetricPlugin.Environment.NonUniformScaleCollision", METRIC_AUTOMATION_FLAGS)
+bool FMetricEnvironmentNonUniformScale::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UBoxComponent* Box = MetricAutomation::SpawnBox(World, FVector(500.0f, 0.0f, 50.0f), FVector(50.0f), true);
+    TestNotNull(TEXT("Scaled collision box"), Box);
+    if (Box)
+    {
+        Box->SetWorldScale3D(FVector(2.0f, 0.5f, 3.0f));
+        Box->UpdateBounds();
+    }
+    FHitResult Hit;
+    TestTrue(TEXT("Metric collision query handles non-uniformly scaled geometry"), MetricAutomation::Trace(World, Hit));
+    TestTrue(TEXT("Scaled X extent moves the collision face as expected"), FMath::IsNearlyEqual(Hit.Distance, 400.0f, 8.0f));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricEnvironmentInstancedMeshes, "MetricPlugin.Environment.InstancedMeshes", METRIC_AUTOMATION_FLAGS)
+bool FMetricEnvironmentInstancedMeshes::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FProjectExclusionScope Exclusions;
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    TestNotNull(TEXT("Engine cube mesh"), Cube);
+    if (!World || !Cube)
+    {
+        return false;
+    }
+
+    auto SpawnInstanced = [&](UClass* ComponentClass, float Y) -> UPrimitiveComponent*
+    {
+        AActor* Actor = World->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator);
+        UInstancedStaticMeshComponent* ISM = Actor ? NewObject<UInstancedStaticMeshComponent>(Actor, ComponentClass, NAME_None, RF_Transient) : nullptr;
+        if (!Actor || !ISM)
+        {
+            return nullptr;
+        }
+        Actor->SetRootComponent(ISM);
+        ISM->SetStaticMesh(Cube);
+        ISM->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        ISM->SetCollisionObjectType(ECC_WorldStatic);
+        ISM->SetCollisionResponseToAllChannels(ECR_Block);
+        ISM->RegisterComponent();
+        ISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector(500.0f, Y, 50.0f), FVector::OneVector));
+        return ISM;
+    };
+
+    TestNotNull(TEXT("ISM component"), SpawnInstanced(UInstancedStaticMeshComponent::StaticClass(), 0.0f));
+    FHitResult ISMHit;
+    TestTrue(TEXT("Metric collision query hits ISM instances"), MetricAutomation::Trace(World, ISMHit));
+
+    TestNotNull(TEXT("HISM component"), SpawnInstanced(UHierarchicalInstancedStaticMeshComponent::StaticClass(), 200.0f));
+    FHitResult HISMHit;
+    TestTrue(TEXT("Metric collision query hits HISM instances"),
+        MetricAutomation::TraceBetween(World, HISMHit, FVector(0.0f, 200.0f, 50.0f), FVector(1000.0f, 200.0f, 50.0f)));
     return true;
 }
 
@@ -1915,6 +2004,22 @@ bool FMetricActorVisualizationRotationParity::RunTest(const FString& Parameters)
 }
 
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorViewportTickPolicy, "MetricPlugin.Actor.ViewportTickPolicy", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorViewportTickPolicy::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FTestWorld TestWorld;
+    AMetricActor* Actor = TestWorld.GetWorld() ? TestWorld.GetWorld()->SpawnActor<AMetricActor>() : nullptr;
+    TestNotNull(TEXT("Metric Actor spawned for viewport tick policy"), Actor);
+    if (!Actor) return true;
+
+    // Level Editor gizmo drags happen while the editor world is not playing. PostEditMove(false)
+    // can queue a lightweight preview update, but Unreal will only deliver the Actor tick during
+    // viewport-only editor frames when the Actor explicitly opts into this policy. This is the
+    // contract the previous synthetic transform-preview test did not cover.
+    TestTrue(TEXT("Metric Actor opts into viewport-only ticking for live transform preview"), Actor->ShouldTickIfViewportsOnly());
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorInteractiveTransformPreview, "MetricPlugin.Actor.InteractiveTransformPreview", METRIC_AUTOMATION_FLAGS)
 bool FMetricActorInteractiveTransformPreview::RunTest(const FString& Parameters)
 {
@@ -1970,6 +2075,23 @@ bool FMetricActorInteractiveTransformPreview::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorPlayAuthoringContract, "MetricPlugin.Actor.PlayAuthoringContract", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorPlayAuthoringContract::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    AMetricActor* Actor = World ? World->SpawnActor<AMetricActor>() : nullptr;
+    TestNotNull(TEXT("Metric Actor"), Actor);
+    if (!Actor)
+    {
+        return false;
+    }
+    TestTrue(TEXT("Show in Play defaults on"), Actor->bShowInPlay);
+    TestEqual(TEXT("Play Evaluation defaults to On Play Start"), Actor->PlayEvaluation, EMetricActorPlayEvaluationMode::OnPlayStart);
+    TestTrue(TEXT("Authored editor Metric Actor remains editor-only"), Actor->IsEditorOnly());
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorBillboardIdentityStability, "MetricPlugin.Actor.BillboardIdentityStability", METRIC_AUTOMATION_FLAGS)
 bool FMetricActorBillboardIdentityStability::RunTest(const FString& Parameters)
 {
@@ -2004,6 +2126,54 @@ bool FMetricActorBillboardIdentityStability::RunTest(const FString& Parameters)
     TestTrue(TEXT("Billboard stays scale-independent after authored Actor scale"), Billboard->IsUsingAbsoluteScale());
     TestTrue(TEXT("Billboard component scale remains neutral"), Billboard->GetComponentScale().Equals(FVector::OneVector, KINDA_SMALL_NUMBER));
     TestEqual(TEXT("Billboard sprite identity remains stable after transform commit"), Billboard->Sprite.Get(), ExpectedSprite);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorManyActorScheduling, "MetricPlugin.Actor.ManyActorScheduling", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorManyActorScheduling::RunTest(const FString& Parameters)
+{
+    MetricAutomation::FEnvironmentSourceScope Source(EMetricEnvironmentSource::Collision);
+    MetricAutomation::FTestWorld TestWorld;
+    UWorld* World = TestWorld.GetWorld();
+    TestNotNull(TEXT("Stress fixture world exists"), World);
+    if (!World) return true;
+
+    MetricAutomation::SpawnFloor(World, 100.0f, 1500.0f, 0.0f);
+    UMetricProfile* Profile = NewObject<UMetricProfile>(GetTransientPackage());
+    Profile->DisplayName = FText::FromString(TEXT("Automation Many Actor Profile"));
+    Profile->Clearance.bShowClearanceProbe = true;
+    Profile->Clearance.ProbeDistance = 100.0f;
+
+    constexpr int32 ActorCount = 32;
+    TArray<AMetricActor*> Actors;
+    Actors.Reserve(ActorCount);
+    for (int32 Index = 0; Index < ActorCount; ++Index)
+    {
+        const FVector Location(static_cast<double>(Index % 8) * 150.0, static_cast<double>(Index / 8) * 150.0, 0.0);
+        AMetricActor* Actor = World->SpawnActor<AMetricActor>(Location, FRotator(0.0f, static_cast<double>((Index % 4) * 90), 0.0f));
+        if (Actor)
+        {
+            Actor->Profile = Profile;
+            Actor->UpdateMode = EMetricActorUpdateMode::OnRelevantChange;
+            Actor->RecalculateMetric();
+            Actors.Add(Actor);
+        }
+    }
+
+    TestEqual(TEXT("Many-Actor fixture spawned all Metric Actors"), Actors.Num(), ActorCount);
+    for (AMetricActor* Actor : Actors)
+    {
+        Actor->RequestRelevantUpdate();
+        TestTrue(TEXT("Relevant update schedules the Actor"), Actor->IsActorTickEnabled());
+    }
+
+    for (AMetricActor* Actor : Actors)
+    {
+        Actor->Tick(1.0f / 60.0f);
+        TestTrue(TEXT("Scheduled many-Actor evaluation produces a live state"), Actor->GetEvaluatedState().bHasHit);
+        TestFalse(TEXT("On Relevant Change Actor returns to idle after evaluation"), Actor->IsActorTickEnabled());
+    }
 
     return true;
 }
@@ -2180,6 +2350,85 @@ bool FMetricActorIndependentFromLiveTool::RunTest(const FString& Parameters)
 }
 
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricActorBenchmarkPromotionContract, "MetricPlugin.Actor.BenchmarkPromotionContract", METRIC_AUTOMATION_FLAGS)
+bool FMetricActorBenchmarkPromotionContract::RunTest(const FString& Parameters)
+{
+    UScriptStruct* PinStruct = FMetricPinnedBenchmark::StaticStruct();
+    UScriptStruct* StoredPinStruct = FMetricPersistentBenchmark::StaticStruct();
+    TestNotNull(TEXT("Pinned benchmark retains exact source Metric Profile identity"), FindFProperty<FProperty>(PinStruct, TEXT("SourceProfile")));
+    TestNotNull(TEXT("Persisted benchmark retains source Metric Profile identity across editor sessions"), FindFProperty<FProperty>(StoredPinStruct, TEXT("SourceProfile")));
+
+    AMetricActor* Defaults = GetMutableDefault<AMetricActor>();
+    TestTrue(TEXT("Promoted Metric Actors inherit live transform authoring by default"), Defaults && Defaults->bLiveTransformPreview);
+    TestEqual(TEXT("Promoted Metric Actors use relevant-change updates by default"), Defaults ? Defaults->UpdateMode : EMetricActorUpdateMode::Manual, EMetricActorUpdateMode::OnRelevantChange);
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricLifecyclePlaySessionIsolation, "MetricPlugin.Lifecycle.PlaySessionIsolation", METRIC_AUTOMATION_FLAGS)
+bool FMetricLifecyclePlaySessionIsolation::RunTest(const FString& Parameters)
+{
+    if (!GEditor)
+    {
+        AddError(TEXT("GEditor is unavailable."));
+        return false;
+    }
+
+    UMetricSubsystem* Subsystem = GEditor->GetEditorSubsystem<UMetricSubsystem>();
+    TestNotNull(TEXT("Metric subsystem exists"), Subsystem);
+    if (!Subsystem)
+    {
+        return false;
+    }
+
+    const bool bWasActive = Subsystem->IsMetricActive();
+    Subsystem->SetMetricActive(true);
+
+    MetricAutomation::FTestWorld TestWorld;
+    FMetricLiveState PendingState;
+    PendingState.bHasHit = true;
+    PendingState.Location = FVector::ZeroVector;
+    PendingState.AnalysisForward = FVector::ForwardVector;
+    PendingState.AnalysisUp = FVector::UpVector;
+    PendingState.SurfaceNormal = FVector::UpVector;
+    Subsystem->BeginLiveAnalysis(TestWorld.GetWorld(), PendingState);
+    TestTrue(TEXT("Live analysis is pending before entering PIE"), Subsystem->HasPendingLiveAnalysis());
+
+    Subsystem->HandleBeginPIEForAutomation(false);
+    TestTrue(TEXT("Metric records the play-session boundary"), Subsystem->IsEditorPlaySessionActive());
+    TestTrue(TEXT("Metric stays enabled across PIE"), Subsystem->IsMetricActive());
+    TestFalse(TEXT("Pending live analysis is cancelled before PIE"), Subsystem->HasPendingLiveAnalysis());
+
+    Subsystem->HandleEndPIEForAutomation(false);
+    TestFalse(TEXT("Metric clears the play-session boundary after PIE"), Subsystem->IsEditorPlaySessionActive());
+    TestTrue(TEXT("Metric remains enabled after PIE"), Subsystem->IsMetricActive());
+
+    Subsystem->SetMetricActive(bWasActive);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricViewportFollowTargetPolicy, "MetricPlugin.Viewport.FollowTargetPolicy", METRIC_AUTOMATION_FLAGS)
+bool FMetricViewportFollowTargetPolicy::RunTest(const FString& Parameters)
+{
+    TestEqual(TEXT("No visible viewports resolves to no owner"), FMetricViewportController::ResolveFollowTargetIndexForAutomation(INDEX_NONE, 0), INDEX_NONE);
+    TestEqual(TEXT("A fresh multi-viewport layout gets a deterministic owner"), FMetricViewportController::ResolveFollowTargetIndexForAutomation(INDEX_NONE, 4), 0);
+    TestEqual(TEXT("The last interacted viewport remains the owner"), FMetricViewportController::ResolveFollowTargetIndexForAutomation(2, 4), 2);
+    TestEqual(TEXT("A stale viewport owner falls back safely"), FMetricViewportController::ResolveFollowTargetIndexForAutomation(7, 4), 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricUXBenchmarkPromotionIcon, "MetricPlugin.UX.BenchmarkPromotionIcon", METRIC_AUTOMATION_FLAGS)
+bool FMetricUXBenchmarkPromotionIcon::RunTest(const FString& Parameters)
+{
+    const FSlateBrush* PromotionBrush = FMetricStyle::GetBrush(TEXT("Metric.BenchmarkPromote"));
+    TestNotNull(TEXT("Benchmark promotion uses a dedicated Metric icon brush"), PromotionBrush);
+    if (PromotionBrush)
+    {
+        TestTrue(TEXT("Benchmark promotion icon has a usable image size"), PromotionBrush->ImageSize.X > 0.0f && PromotionBrush->ImageSize.Y > 0.0f);
+    }
+    return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetricDataModelSchemaV2, "MetricPlugin.DataModel.SchemaV2", METRIC_AUTOMATION_FLAGS)
 bool FMetricDataModelSchemaV2::RunTest(const FString& Parameters)

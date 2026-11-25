@@ -21,6 +21,9 @@ public:
     static FLevelEditorViewportClient* GetActivePerspectiveLevelViewport();
     static bool IsLevelViewportFocused();
     static void NotifyViewportInteractionAtScreenPosition(const FVector2D& ScreenPosition);
+#if WITH_DEV_AUTOMATION_TESTS
+    static int32 ResolveFollowTargetIndexForAutomation(int32 LastInteractedIndex, int32 ViewportCount);
+#endif
 
 private:
     struct FOverlayEntry

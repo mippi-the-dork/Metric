@@ -291,7 +291,9 @@ public:
         Result.bDrawRelevance = IsShown(View) && (State.bHasHit || !State.PinnedBenchmarks.IsEmpty());
         Result.bDynamicRelevance = true;
         Result.bShadowRelevance = false;
-        Result.bEditorPrimitiveRelevance = true;
+        // Editor worlds use editor-primitive compositing; transient Metric Actor
+        // play previews must also render in PIE/SIE game views.
+        Result.bEditorPrimitiveRelevance = !View->Family->EngineShowFlags.Game;
         return Result;
     }
 
@@ -1592,6 +1594,18 @@ UMetricViewportComponent::UMetricViewportComponent()
     SetHiddenInGame(true);
     SetIsVisualizationComponent(true);
     Mobility = EComponentMobility::Movable;
+}
+
+void UMetricViewportComponent::OnRegister()
+{
+    // Visualization components are editor affordances by default, but Metric Actor
+    // play-session preview copies intentionally render in PIE/SIE. Flip the flag
+    // before registration finishes so the component is eligible for the game view.
+    if (const UWorld* World = GetWorld(); World && World->WorldType == EWorldType::PIE)
+    {
+        SetIsVisualizationComponent(false);
+    }
+    Super::OnRegister();
 }
 
 void UMetricViewportComponent::SetAllowQueryInspection(bool bAllow)

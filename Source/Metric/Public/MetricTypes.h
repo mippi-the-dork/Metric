@@ -1208,48 +1208,90 @@ struct FMetricLayerVisibility
 
 };
 
+USTRUCT()
 struct FMetricPinnedBenchmark
 {
+    GENERATED_BODY()
+
+    UPROPERTY()
     FVector WorldLocation = FVector::ZeroVector;
+    UPROPERTY()
     FVector SurfaceNormal = FVector::UpVector;
+    UPROPERTY()
     FVector AnalysisUp = FVector::UpVector;
+    UPROPERTY()
     EMetricAnalysisFrameMode AnalysisFrameMode = EMetricAnalysisFrameMode::World;
+    UPROPERTY()
     EMetricFrameSamplingPolicy FrameSampling = EMetricFrameSamplingPolicy::FixedAtOrigin;
+    UPROPERTY()
     float AnalysisGravityMagnitude = 0.0f;
+    UPROPERTY()
     FVector Forward = FVector::ForwardVector;
+    UPROPERTY()
     FMetricHullSettings Hull;
+    UPROPERTY()
     FMetricVisualizationTheme VisualTheme;
+    UPROPERTY()
     FText Label;
+    UPROPERTY()
     FText SourceProfileLabel;
+    UPROPERTY()
+    TSoftObjectPtr<UMetricProfile> SourceProfile;
+    UPROPERTY()
     FString CapturedResults;
+    UPROPERTY()
     bool bHasVisualSnapshot = false;
+    UPROPERTY()
     FMetricLayerVisibility Visibility;
+    UPROPERTY()
     FMetricClearanceSettings ClearanceSettings;
+    UPROPERTY()
     FMetricOverheadClearanceSettings OverheadClearanceSettings;
+    UPROPERTY()
     FMetricSensorSettings Sensors;
+    UPROPERTY()
     FMetricSensorFieldSettings SensorFieldSettings;
+    UPROPERTY()
     FMetricRangeSettings Ranges;
+    UPROPERTY()
     FMetricLocomotionSettings Locomotion;
+    UPROPERTY()
     FMetricTrajectorySettings TrajectorySettings;
+    UPROPERTY()
     FMetricCameraProbeSettings CameraProbeSettings;
+    UPROPERTY()
     FMetricCameraSightlineSettings CameraSightlineSettings;
+    UPROPERTY()
     FMetricGroundValidationSettings GroundValidationSettings;
+    UPROPERTY()
     FMetricFitAnalysisSettings FitAnalysisSettings;
+    UPROPERTY()
     FMetricThresholdAnalysisSettings ThresholdAnalysisSettings;
+    UPROPERTY()
     FMetricTurnClearanceSettings TurnClearanceSettings;
+    UPROPERTY()
     FMetricLedgeAnalysisSettings LedgeAnalysisSettings;
+    UPROPERTY()
     FMetricStoppingDistanceSettings StoppingDistanceSettings;
+    UPROPERTY()
     FMetricCoverExposureSettings CoverExposureSettings;
+    UPROPERTY()
     FMetricJumpRunwaySettings JumpRunwaySettings;
+    UPROPERTY()
     FMetricInteractionReachSettings InteractionReachSettings;
+    UPROPERTY()
     FMetricShoulderClearanceSettings ShoulderClearanceSettings;
+    UPROPERTY()
     FMetricCombatDensitySettings CombatDensitySettings;
+    UPROPERTY()
     FMetricAlternateStanceSettings AlternateStanceSettings;
+    UPROPERTY()
     FMetricMantleVaultSettings MantleVaultSettings;
+    UPROPERTY()
     FMetricRecoverySpaceSettings RecoverySpaceSettings;
+    UPROPERTY()
     FMetricCrossfireSettings CrossfireSettings;
 };
-
 
 UENUM()
 enum class EMetricInspectionTarget : uint8

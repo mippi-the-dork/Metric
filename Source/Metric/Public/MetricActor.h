@@ -19,6 +19,14 @@ enum class EMetricActorUpdateMode : uint8
 };
 
 UENUM()
+enum class EMetricActorPlayEvaluationMode : uint8
+{
+    Snapshot UMETA(DisplayName = "Snapshot / No Play Calculation"),
+    OnPlayStart UMETA(DisplayName = "On Play Start"),
+    Continuous UMETA(DisplayName = "Continuous")
+};
+
+UENUM()
 enum class EMetricActorOverallResult : uint8
 {
     Pass UMETA(DisplayName = "Pass"),
@@ -62,6 +70,12 @@ public:
 
     UPROPERTY(EditAnywhere, Category = "Metric|Display", meta = (DisplayName = "Live Transform Preview", EditCondition = "UpdateMode == EMetricActorUpdateMode::OnRelevantChange", ToolTip = "While moving or rotating this Metric Actor with the Level Editor gizmo, update its analysis visualization during the drag. Raw transform events are coalesced to at most one Metric evaluation per editor tick. Disable this for unusually expensive profiles when release-only transform feedback is preferred."))
     bool bLiveTransformPreview = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric|Play", meta = (DisplayName = "Show in Play", ToolTip = "Show this Metric Actor's analysis visualization during PIE or SIE. Metric Actors remain editor tooling and are stripped from packaged game builds."))
+    bool bShowInPlay = true;
+
+    UPROPERTY(EditAnywhere, Category = "Metric|Play", meta = (DisplayName = "Play Evaluation", ToolTip = "Controls calculation during PIE/SIE. Snapshot uses the last editor result without recalculating, On Play Start evaluates once against the play world, and Continuous re-evaluates every play-world tick."))
+    EMetricActorPlayEvaluationMode PlayEvaluation = EMetricActorPlayEvaluationMode::OnPlayStart;
 
     UPROPERTY(EditAnywhere, Category = "Metric|Debug", meta = (DisplayName = "Inspect Queries", ToolTip = "Focus this Metric Actor visualization on inspectable query evidence. This is local to the Actor and does not change Live Metric Query Inspection."))
     bool bInspectQueries = false;
@@ -108,11 +122,15 @@ public:
     const FMetricLiveState& GetEvaluatedState() const { return EvaluatedState; }
     FString GetOverallResultText() const;
 
-    virtual bool IsEditorOnly() const override { return true; }
+    virtual bool IsEditorOnly() const override;
     virtual bool IsLevelBoundsRelevant() const override { return false; }
     virtual void Tick(float DeltaSeconds) override;
+    virtual bool ShouldTickIfViewportsOnly() const override { return true; }
     virtual void PostLoad() override;
     virtual void PostRegisterAllComponents() override;
+
+    /** Initialize a transient PIE/SIE preview copy from an authored editor Metric Actor. */
+    void InitializePlaySessionPreviewFrom(const AMetricActor& SourceActor);
 
 #if WITH_EDITOR
     virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -129,7 +147,10 @@ private:
 
     FMetricLiveState EvaluatedState;
     bool bPendingRelevantUpdate = true;
+    bool bIsPlaySessionPreview = false;
 
+    bool ShouldTickContinuously() const;
+    bool IsPlaySessionWorld() const;
     void UpdateSummary();
     void UpdateVisualization();
     void RefreshBillboardSprite();

@@ -65,6 +65,10 @@ struct FMetricPersistentBenchmark
     FString SourceProfileLabel;
 
     UPROPERTY()
+    TSoftObjectPtr<UMetricProfile> SourceProfile;
+
+
+    UPROPERTY()
     FString CapturedResults;
 
     UPROPERTY()

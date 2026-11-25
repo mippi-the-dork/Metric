@@ -99,6 +99,71 @@ AMetricActor::AMetricActor()
 #endif
 }
 
+bool AMetricActor::IsPlaySessionWorld() const
+{
+    const UWorld* World = GetWorld();
+    return World && World->WorldType == EWorldType::PIE;
+}
+
+bool AMetricActor::IsEditorOnly() const
+{
+    // Authored Metric Actors are editor-only content and must be stripped by cooking.
+    // Transient preview copies explicitly spawned into a PIE/SIE world are allowed to
+    // exist there so designers can validate persistent Metric placement while playing.
+    return !IsPlaySessionWorld();
+}
+
+bool AMetricActor::ShouldTickContinuously() const
+{
+    return bIsPlaySessionPreview
+        ? PlayEvaluation == EMetricActorPlayEvaluationMode::Continuous
+        : UpdateMode == EMetricActorUpdateMode::Continuous;
+}
+
+void AMetricActor::InitializePlaySessionPreviewFrom(const AMetricActor& SourceActor)
+{
+#if WITH_EDITOR
+    bIsPlaySessionPreview = true;
+    bIsEditorOnlyActor = false;
+    bEnabled = SourceActor.bEnabled;
+    Profile = SourceActor.Profile;
+    EnvironmentSource = SourceActor.EnvironmentSource;
+    AnalysisFrame = SourceActor.AnalysisFrame;
+    FrameSampling = SourceActor.FrameSampling;
+    CustomAnalysisUp = SourceActor.CustomAnalysisUp;
+    bShowVisualization = SourceActor.bShowVisualization;
+    bShowInPlay = SourceActor.bShowInPlay;
+    PlayEvaluation = SourceActor.PlayEvaluation;
+    bInspectQueries = SourceActor.bInspectQueries;
+    InspectionTarget = SourceActor.InspectionTarget;
+
+    // Snapshot mode intentionally performs zero play-world analysis. Carry the last
+    // editor result into the transient preview so the authored validation remains
+    // visible while gameplay runs. On Play Start and Continuous immediately evaluate
+    // against the PIE/SIE world instead.
+    if (PlayEvaluation == EMetricActorPlayEvaluationMode::Snapshot)
+    {
+        EvaluatedState = SourceActor.EvaluatedState;
+        OverallResult = SourceActor.OverallResult;
+        IssueCount = SourceActor.IssueCount;
+        WarningCount = SourceActor.WarningCount;
+        FailureCount = SourceActor.FailureCount;
+        ResultSummary = SourceActor.ResultSummary;
+        ActiveIssues = SourceActor.ActiveIssues;
+        ResolvedInspection = SourceActor.ResolvedInspection;
+        InspectionReason = SourceActor.InspectionReason;
+        bPendingRelevantUpdate = false;
+        UpdateVisualization();
+        SetActorTickEnabled(false);
+    }
+    else
+    {
+        RecalculateMetric();
+        SetActorTickEnabled(PlayEvaluation == EMetricActorPlayEvaluationMode::Continuous);
+    }
+#endif
+}
+
 void AMetricActor::PostLoad()
 {
     Super::PostLoad();
@@ -169,6 +234,15 @@ void AMetricActor::Tick(float DeltaSeconds)
         return;
     }
 
+    if (bIsPlaySessionPreview)
+    {
+        if (PlayEvaluation == EMetricActorPlayEvaluationMode::Continuous)
+        {
+            RecalculateMetric();
+        }
+        return;
+    }
+
     if (UpdateMode == EMetricActorUpdateMode::Continuous || bPendingRelevantUpdate)
     {
         RecalculateMetric();
@@ -222,7 +296,7 @@ void AMetricActor::RecalculateMetric()
         InspectionReason.Reset();
         EvaluatedState = FMetricLiveState();
         UpdateVisualization();
-        SetActorTickEnabled(UpdateMode == EMetricActorUpdateMode::Continuous);
+        SetActorTickEnabled(ShouldTickContinuously());
         return;
     }
 
@@ -274,7 +348,7 @@ void AMetricActor::RecalculateMetric()
         if (Settings) Settings->EnvironmentSource = PreviousSource;
         UpdateSummary();
         UpdateVisualization();
-        SetActorTickEnabled(UpdateMode == EMetricActorUpdateMode::Continuous);
+        SetActorTickEnabled(ShouldTickContinuously());
     }
 #endif
 }
@@ -358,7 +432,9 @@ void AMetricActor::UpdateVisualization()
         return;
     }
 
-    const bool bVisible = bEnabled && bShowVisualization && Profile != nullptr && EvaluatedState.bHasHit;
+    const bool bPlayPreview = bIsPlaySessionPreview && IsPlaySessionWorld();
+    const bool bPresentationAllowed = bPlayPreview ? bShowInPlay : bShowVisualization;
+    const bool bVisible = bEnabled && bPresentationAllowed && Profile != nullptr && EvaluatedState.bHasHit;
     if (bVisible)
     {
         FMetricLiveState LocalState = EvaluatedState;
@@ -371,6 +447,8 @@ void AMetricActor::UpdateVisualization()
     }
     // The Metric billboard is a sibling of the analysis visualization and must remain independently visible.
     // Do not propagate analysis-visualization visibility to unrelated editor components.
+    VisualizationComponent->SetHiddenInGame(!(bPlayPreview && bShowInPlay));
+    VisualizationComponent->SetIsVisualizationComponent(!bPlayPreview);
     VisualizationComponent->SetVisibility(bVisible, false);
 }
 
@@ -413,7 +491,7 @@ void AMetricActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
     Super::PostEditChangeProperty(PropertyChangedEvent);
     RefreshBillboardSprite();
     bPendingRelevantUpdate = false;
-    SetActorTickEnabled(UpdateMode == EMetricActorUpdateMode::Continuous);
+    SetActorTickEnabled(ShouldTickContinuously());
     if (UpdateMode == EMetricActorUpdateMode::OnRelevantChange)
     {
         RecalculateMetric();

@@ -1,6 +1,7 @@
 #include "MetricSubsystem.h"
 
 #include "MetricEditorSettings.h"
+#include "MetricActor.h"
 #include "MetricEnvironmentQuery.h"
 #include "MetricFrameUtils.h"
 #include "MetricPerformance.h"
@@ -12,6 +13,9 @@
 #include "Containers/Ticker.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Editor.h"
+#include "Editor/EditorEngine.h"
+#include "Engine/Level.h"
+#include "Engine/Engine.h"
 #include "EditorViewportClient.h"
 #include "LevelEditorViewport.h"
 #include "HAL/FileManager.h"
@@ -19,10 +23,12 @@
 #include "HAL/IConsoleManager.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "ScopedTransaction.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #include "UObject/UObjectGlobals.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Settings/LevelEditorViewportSettings.h"
 
 #define LOCTEXT_NAMESPACE "MetricSubsystem"
@@ -545,6 +551,7 @@ namespace MetricBenchmark
 void UMetricSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
+    SetFlags(RF_Transactional);
     RefreshCycleEntries();
 
     // The subsystem outlives individual editor worlds. Release world-owned
@@ -554,9 +561,15 @@ void UMetricSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     PreLoadMapHandle = FCoreUObjectDelegates::PreLoadMap.AddUObject(
         this,
         &UMetricSubsystem::HandlePreLoadMap);
+    PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
+        this,
+        &UMetricSubsystem::HandlePostLoadMapWithWorld);
     WorldBeginTearDownHandle = FWorldDelegates::OnWorldBeginTearDown.AddUObject(
         this,
         &UMetricSubsystem::HandleWorldBeginTearDown);
+    BeginPIEHandle = FEditorDelegates::BeginPIE.AddUObject(this, &UMetricSubsystem::HandleBeginPIE);
+    PostPIEStartedHandle = FEditorDelegates::PostPIEStarted.AddUObject(this, &UMetricSubsystem::HandlePostPIEStarted);
+    EndPIEHandle = FEditorDelegates::EndPIE.AddUObject(this, &UMetricSubsystem::HandleEndPIE);
 
     // Creating/saving starter assets during subsystem initialization can run
     // before UE has finished registering all Data Validation validators. Defer
@@ -890,11 +903,36 @@ void UMetricSubsystem::Deinitialize()
         PreLoadMapHandle.Reset();
     }
 
+    if (PostLoadMapHandle.IsValid())
+    {
+        FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
+        PostLoadMapHandle.Reset();
+    }
+
     if (WorldBeginTearDownHandle.IsValid())
     {
         FWorldDelegates::OnWorldBeginTearDown.Remove(WorldBeginTearDownHandle);
         WorldBeginTearDownHandle.Reset();
     }
+
+    if (BeginPIEHandle.IsValid())
+    {
+        FEditorDelegates::BeginPIE.Remove(BeginPIEHandle);
+        BeginPIEHandle.Reset();
+    }
+
+    if (PostPIEStartedHandle.IsValid())
+    {
+        FEditorDelegates::PostPIEStarted.Remove(PostPIEStartedHandle);
+        PostPIEStartedHandle.Reset();
+    }
+    if (EndPIEHandle.IsValid())
+    {
+        FEditorDelegates::EndPIE.Remove(EndPIEHandle);
+        EndPIEHandle.Reset();
+    }
+    DestroyPlaySessionMetricActors();
+    bEditorPlaySessionActive = false;
 
     if (GEditor)
     {
@@ -938,6 +976,127 @@ void UMetricSubsystem::HandlePreLoadMap(const FString& /*MapName*/)
     bHasSelectedPinnedEvaluatedState = false;
     SelectedPinnedEvaluatedState = FMetricLiveState();
     ActivePinnedBenchmarkMap.Reset();
+}
+
+void UMetricSubsystem::HandlePostLoadMapWithWorld(UWorld* World)
+{
+    if (!World || World->WorldType != EWorldType::Editor)
+    {
+        return;
+    }
+
+    CancelPendingLiveAnalysis();
+    ClearRenderHost();
+    LoadPinnedBenchmarksForWorld(World);
+    LiveState.bHasHit = false;
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::DestroyPlaySessionMetricActors()
+{
+    for (TWeakObjectPtr<AMetricActor>& WeakActor : PlaySessionMetricActors)
+    {
+        if (AMetricActor* Actor = WeakActor.Get())
+        {
+            if (!Actor->IsActorBeingDestroyed())
+            {
+                Actor->Destroy();
+            }
+        }
+    }
+    PlaySessionMetricActors.Reset();
+}
+
+void UMetricSubsystem::SpawnPlaySessionMetricActors()
+{
+    DestroyPlaySessionMetricActors();
+    if (!GEditor)
+    {
+        return;
+    }
+
+    UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+    if (!EditorWorld)
+    {
+        return;
+    }
+
+    TArray<AMetricActor*> AuthoredActors;
+    for (TActorIterator<AMetricActor> It(EditorWorld); It; ++It)
+    {
+        AMetricActor* SourceActor = *It;
+        if (IsValid(SourceActor) && !SourceActor->IsActorBeingDestroyed())
+        {
+            AuthoredActors.Add(SourceActor);
+        }
+    }
+
+    if (AuthoredActors.IsEmpty())
+    {
+        return;
+    }
+
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+    {
+        UWorld* PlayWorld = Context.World();
+        if (!PlayWorld || PlayWorld->WorldType != EWorldType::PIE)
+        {
+            continue;
+        }
+
+        for (AMetricActor* SourceActor : AuthoredActors)
+        {
+            FActorSpawnParameters SpawnParams;
+            SpawnParams.ObjectFlags |= RF_Transient;
+            SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+            AMetricActor* PreviewActor = PlayWorld->SpawnActor<AMetricActor>(
+                AMetricActor::StaticClass(), SourceActor->GetActorTransform(), SpawnParams);
+            if (!PreviewActor)
+            {
+                continue;
+            }
+
+            PreviewActor->InitializePlaySessionPreviewFrom(*SourceActor);
+            PlaySessionMetricActors.Add(PreviewActor);
+        }
+    }
+}
+
+void UMetricSubsystem::HandlePostPIEStarted(bool /*bIsSimulating*/)
+{
+    SpawnPlaySessionMetricActors();
+}
+
+void UMetricSubsystem::HandleBeginPIE(bool /*bIsSimulating*/)
+{
+    DestroyPlaySessionMetricActors();
+    bEditorPlaySessionActive = true;
+    CancelPendingLiveAnalysis();
+    ClearRenderHost();
+    LiveState.bHasHit = false;
+    bHasSelectedPinnedEvaluatedState = false;
+    SelectedPinnedEvaluatedState = FMetricLiveState();
+    NotifyStateChanged();
+}
+
+void UMetricSubsystem::HandleEndPIE(bool /*bIsSimulating*/)
+{
+    DestroyPlaySessionMetricActors();
+    bEditorPlaySessionActive = false;
+    CancelPendingLiveAnalysis();
+    ClearRenderHost();
+    LiveState.bHasHit = false;
+
+    if (GEditor)
+    {
+        if (UWorld* EditorWorld = GEditor->GetEditorWorldContext().World())
+        {
+            EnsurePinnedBenchmarkMap(EditorWorld);
+            RefreshSelectedPinnedVisualization(EditorWorld);
+        }
+    }
+    NotifyStateChanged();
 }
 
 void UMetricSubsystem::HandleWorldBeginTearDown(UWorld* World)
@@ -1061,6 +1220,7 @@ void UMetricSubsystem::SavePinnedBenchmarksForWorld(UWorld* World)
         StoredPin.VisualTheme = Pin.VisualTheme;
         StoredPin.Label = Pin.Label.ToString();
         StoredPin.SourceProfileLabel = Pin.SourceProfileLabel.ToString();
+        StoredPin.SourceProfile = Pin.SourceProfile;
         StoredPin.CapturedResults = Pin.CapturedResults;
         StoredPin.bHasVisualSnapshot = Pin.bHasVisualSnapshot;
         StoredPin.Visibility = Pin.Visibility;
@@ -1135,6 +1295,7 @@ void UMetricSubsystem::LoadPinnedBenchmarksForWorld(UWorld* World)
             Pin.VisualTheme = StoredPin.VisualTheme;
             Pin.Label = FText::FromString(StoredPin.Label);
             Pin.SourceProfileLabel = StoredPin.SourceProfileLabel.IsEmpty() ? Pin.Label : FText::FromString(StoredPin.SourceProfileLabel);
+            Pin.SourceProfile = StoredPin.SourceProfile;
             Pin.CapturedResults = StoredPin.CapturedResults;
             Pin.bHasVisualSnapshot = StoredPin.bHasVisualSnapshot;
             Pin.Visibility = StoredPin.Visibility;
@@ -1260,6 +1421,10 @@ void UMetricSubsystem::PinCurrentBenchmark()
     Pin.VisualTheme = LiveState.VisualTheme;
     Pin.Label = LiveState.Label;
     Pin.SourceProfileLabel = LiveState.Label;
+    if (const FMetricCycleEntry* ActiveEntry = GetActiveEntry())
+    {
+        if (ActiveEntry->Type == EMetricCycleEntryType::MetricProfile) Pin.SourceProfile = ActiveEntry->Profile;
+    }
     Pin.CapturedResults = MetricBenchmark::BuildCapturedResults(LiveState);
     Pin.bHasVisualSnapshot = true;
     if (Settings)
@@ -1311,6 +1476,125 @@ void UMetricSubsystem::PinCurrentBenchmark()
     }
     if (GEditor) RefreshSelectedPinnedVisualization(GEditor->GetEditorWorldContext().World());
     NotifyStateChanged();
+}
+
+
+static UMetricProfile* ResolveBenchmarkProfileForConversion(const FMetricPinnedBenchmark& Pin, FText* OutFailureReason)
+{
+    if (!Pin.SourceProfile.IsNull())
+    {
+        if (UMetricProfile* Profile = Pin.SourceProfile.LoadSynchronous()) return Profile;
+    }
+
+    const UMetricProjectSettings* ProjectSettings = GetDefault<UMetricProjectSettings>();
+    TArray<UMetricProfile*> Matches;
+    if (ProjectSettings)
+    {
+        const FString Wanted = (Pin.SourceProfileLabel.IsEmpty() ? Pin.Label : Pin.SourceProfileLabel).ToString();
+        for (const TSoftObjectPtr<UMetricProfile>& ProfilePtr : ProjectSettings->RegisteredProfiles)
+        {
+            if (UMetricProfile* Profile = ProfilePtr.LoadSynchronous())
+            {
+                const FString Display = Profile->DisplayName.IsEmpty() ? Profile->GetName() : Profile->DisplayName.ToString();
+                if (Display.Equals(Wanted, ESearchCase::IgnoreCase) || Profile->GetName().Equals(Wanted, ESearchCase::IgnoreCase)) Matches.Add(Profile);
+            }
+        }
+    }
+
+    if (Matches.Num() == 1) return Matches[0];
+    if (OutFailureReason)
+    {
+        *OutFailureReason = Matches.Num() > 1
+            ? LOCTEXT("BenchmarkConvertAmbiguousProfile", "Metric could not convert this benchmark because more than one registered Metric Profile matches its captured profile label.")
+            : LOCTEXT("BenchmarkConvertMissingProfile", "Metric could not convert this benchmark because its source Metric Profile could not be resolved. Replace the benchmark from an active project profile and try again.");
+    }
+    return nullptr;
+}
+
+bool UMetricSubsystem::CanConvertPinnedBenchmarkToMetricActor(int32 Index, FText* OutFailureReason) const
+{
+    if (!PinnedBenchmarks.IsValidIndex(Index))
+    {
+        if (OutFailureReason) *OutFailureReason = LOCTEXT("BenchmarkConvertInvalid", "No Metric benchmark is selected.");
+        return false;
+    }
+    return ResolveBenchmarkProfileForConversion(PinnedBenchmarks[Index], OutFailureReason) != nullptr;
+}
+
+AMetricActor* UMetricSubsystem::ConvertPinnedBenchmarkToMetricActor(int32 Index, FText* OutFailureReason)
+{
+#if WITH_EDITOR
+    if (!GEditor || !PinnedBenchmarks.IsValidIndex(Index))
+    {
+        if (OutFailureReason) *OutFailureReason = LOCTEXT("BenchmarkConvertUnavailable", "Metric benchmark conversion is only available in the Level Editor.");
+        return nullptr;
+    }
+
+    UWorld* World = GEditor->GetEditorWorldContext().World();
+    if (!World || World->WorldType != EWorldType::Editor)
+    {
+        if (OutFailureReason) *OutFailureReason = LOCTEXT("BenchmarkConvertWorld", "Metric benchmark conversion requires an Editor world.");
+        return nullptr;
+    }
+
+    const FMetricPinnedBenchmark Pin = PinnedBenchmarks[Index];
+    UMetricProfile* SourceProfile = ResolveBenchmarkProfileForConversion(Pin, OutFailureReason);
+    if (!SourceProfile) return nullptr;
+
+    const FVector Up = (Pin.AnalysisFrameMode == EMetricAnalysisFrameMode::SurfaceNormal ? Pin.SurfaceNormal : Pin.AnalysisUp).GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+    FVector Forward = FVector::VectorPlaneProject(Pin.Forward, Up).GetSafeNormal();
+    if (Forward.IsNearlyZero()) Forward = FVector::VectorPlaneProject(FVector::ForwardVector, Up).GetSafeNormal();
+    const FTransform SpawnTransform(FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat(), Pin.WorldLocation, FVector::OneVector);
+
+    FScopedTransaction Transaction(LOCTEXT("ConvertBenchmarkTransaction", "Convert Metric Benchmark to Metric Actor"));
+    Modify();
+    if (ULevel* Level = World->GetCurrentLevel()) Level->Modify();
+
+    AMetricActor* Actor = Cast<AMetricActor>(GEditor->AddActor(World->GetCurrentLevel(), AMetricActor::StaticClass(), SpawnTransform, true, RF_Transactional, false));
+    if (!Actor)
+    {
+        Transaction.Cancel();
+        if (OutFailureReason) *OutFailureReason = LOCTEXT("BenchmarkConvertSpawnFailed", "Metric could not create the Metric Actor.");
+        return nullptr;
+    }
+
+    Actor->Modify();
+    Actor->Profile = SourceProfile;
+    if (const UMetricEditorSettings* EditorSettings = GetDefault<UMetricEditorSettings>()) Actor->EnvironmentSource = EditorSettings->EnvironmentSource;
+    Actor->AnalysisFrame = Pin.AnalysisFrameMode;
+    Actor->FrameSampling = Pin.FrameSampling;
+    Actor->CustomAnalysisUp = Pin.AnalysisUp.GetSafeNormal(SMALL_NUMBER, FVector::UpVector);
+    Actor->bEnabled = true;
+    Actor->bShowVisualization = true;
+    Actor->UpdateMode = EMetricActorUpdateMode::OnRelevantChange;
+    Actor->bLiveTransformPreview = true;
+    Actor->SetActorLabel(Pin.Label.IsEmpty() ? TEXT("MetricActor") : Pin.Label.ToString(), true);
+    Actor->RecalculateMetric();
+
+    DeletePinnedBenchmark(Index);
+    GEditor->SelectNone(false, true, false);
+    GEditor->SelectActor(Actor, true, true, true);
+    return Actor;
+#else
+    return nullptr;
+#endif
+}
+
+void UMetricSubsystem::PostEditUndo()
+{
+    Super::PostEditUndo();
+#if WITH_EDITOR
+    LiveState.PinnedBenchmarks = PinnedBenchmarks;
+    LiveState.SelectedPinnedBenchmarkIndex = SelectedPinnedBenchmarkIndex;
+    if (GEditor)
+    {
+        UWorld* World = GEditor->GetEditorWorldContext().World();
+        SavePinnedBenchmarksForWorld(World);
+        RefreshSelectedPinnedVisualization(World);
+    }
+    if (AMetricRenderHostActor* Host = RenderHost.Get()) Host->ApplyMetricState(LiveState);
+    NotifyStateChanged();
+#endif
 }
 
 void UMetricSubsystem::ClearPinnedBenchmarks()
@@ -1404,6 +1688,10 @@ void UMetricSubsystem::ReplacePinnedBenchmarkWithLive(int32 Index)
     PinnedBenchmarks[Index].VisualTheme = LiveState.VisualTheme;
     PinnedBenchmarks[Index].Label = ExistingLabel;
     PinnedBenchmarks[Index].SourceProfileLabel = LiveState.Label;
+    if (const FMetricCycleEntry* ActiveEntry = GetActiveEntry())
+    {
+        PinnedBenchmarks[Index].SourceProfile = ActiveEntry->Type == EMetricCycleEntryType::MetricProfile ? ActiveEntry->Profile : TSoftObjectPtr<UMetricProfile>();
+    }
     PinnedBenchmarks[Index].CapturedResults = MetricBenchmark::BuildCapturedResults(LiveState);
     PinnedBenchmarks[Index].bHasVisualSnapshot = true;
     PinnedBenchmarks[Index].ClearanceSettings = LiveState.ClearanceSettings;

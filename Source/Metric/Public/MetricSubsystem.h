@@ -8,6 +8,7 @@
 class AMetricRenderHostActor;
 class UWorld;
 class AActor;
+class AMetricActor;
 
 UCLASS()
 class METRIC_API UMetricSubsystem : public UEditorSubsystem
@@ -17,8 +18,10 @@ class METRIC_API UMetricSubsystem : public UEditorSubsystem
 public:
     virtual void Initialize(FSubsystemCollectionBase& Collection) override;
     virtual void Deinitialize() override;
+    virtual void PostEditUndo() override;
 
     bool IsMetricActive() const { return bMetricActive; }
+    bool IsEditorPlaySessionActive() const { return bEditorPlaySessionActive; }
     void ToggleMetric();
     void SetMetricActive(bool bActive);
     void CycleNext();
@@ -36,6 +39,8 @@ public:
     void ReplacePinnedBenchmarkWithLive(int32 Index);
     void FocusPinnedBenchmark(int32 Index);
     void SetPinnedBenchmarkVisibility(int32 Index, const FMetricLayerVisibility& Visibility);
+    AMetricActor* ConvertPinnedBenchmarkToMetricActor(int32 Index, FText* OutFailureReason = nullptr);
+    bool CanConvertPinnedBenchmarkToMetricActor(int32 Index, FText* OutFailureReason = nullptr) const;
 
     void RefreshCycleEntries();
     const FMetricCycleEntry* GetActiveEntry() const;
@@ -67,6 +72,10 @@ public:
         AActor* ContextActor = nullptr) const;
 
 #if WITH_DEV_AUTOMATION_TESTS
+    void HandleBeginPIEForAutomation(bool bIsSimulating) { HandleBeginPIE(bIsSimulating); }
+    void HandleEndPIEForAutomation(bool bIsSimulating) { HandleEndPIE(bIsSimulating); }
+    void HandlePreLoadMapForAutomation() { HandlePreLoadMap(FString()); }
+    void HandlePostLoadMapForAutomation(UWorld* World) { HandlePostLoadMapWithWorld(World); }
     void EvaluateTrajectoryForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateTrajectory(World, InOutState); }
     void EvaluateClearanceForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateClearance(World, InOutState); }
     void EvaluateCameraProbeForAutomation(UWorld* World, FMetricLiveState& InOutState) const { EvaluateCameraProbe(World, InOutState); }
@@ -93,7 +102,13 @@ public:
 
 private:
     void HandlePreLoadMap(const FString& MapName);
+    void HandlePostLoadMapWithWorld(UWorld* World);
     void HandleWorldBeginTearDown(UWorld* World);
+    void HandleBeginPIE(bool bIsSimulating);
+    void HandlePostPIEStarted(bool bIsSimulating);
+    void HandleEndPIE(bool bIsSimulating);
+    void SpawnPlaySessionMetricActors();
+    void DestroyPlaySessionMetricActors();
     FString GetPersistableMapPackageName(UWorld* World) const;
     void SavePinnedBenchmarksForWorld(UWorld* World);
     void LoadPinnedBenchmarksForWorld(UWorld* World);
@@ -133,8 +148,10 @@ private:
     int32 ActiveIndex = 0;
     TArray<FMetricCycleEntry> CycleEntries;
     FMetricLiveState LiveState;
+    UPROPERTY(Transient)
     TArray<FMetricPinnedBenchmark> PinnedBenchmarks;
     FString ActivePinnedBenchmarkMap;
+    UPROPERTY(Transient)
     int32 SelectedPinnedBenchmarkIndex = INDEX_NONE;
     FMetricLiveState SelectedPinnedEvaluatedState;
     bool bHasSelectedPinnedEvaluatedState = false;
@@ -149,6 +166,12 @@ private:
     // otherwise an old editor World can be kept alive across map changes.
     TWeakObjectPtr<AMetricRenderHostActor> RenderHost;
 
+    bool bEditorPlaySessionActive = false;
     FDelegateHandle PreLoadMapHandle;
+    FDelegateHandle PostLoadMapHandle;
     FDelegateHandle WorldBeginTearDownHandle;
+    FDelegateHandle BeginPIEHandle;
+    FDelegateHandle PostPIEStartedHandle;
+    FDelegateHandle EndPIEHandle;
+    TArray<TWeakObjectPtr<AMetricActor>> PlaySessionMetricActors;
 };

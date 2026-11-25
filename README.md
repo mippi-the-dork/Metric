@@ -744,3 +744,12 @@ With `Gravity / Provider` + `Resample Along Analysis`, Metric now transports mov
 Metric now treats query evidence as a first-class debugging output. Normal visualization can draw warning/failure spans and contacts automatically, while Query Inspection isolates one analysis and shows its full evidence. Placed Metric Actors have local inspection controls plus an Active Issues list, so persistent level validators can explain failures without changing Live Metric's global inspection state.
 
 Geometry exclusions remain centralized: project-wide Actor Class/Tag and Component Class/Tag rules live in Project Settings > Plugins > Metric, while selected Actor/Component exclusions are current-level session state from the Metric Setup menu.
+
+
+### 1.0 authoring hardening
+
+Pinned benchmarks can be promoted directly into persistent Metric Actors. The benchmark row uses a dedicated promotion icon rather than a text action, preserves source-profile identity, and blocks unsafe conversion when the source profile cannot be resolved. Metric also now owns explicit PIE/SIE and post-map-load lifecycle boundaries so transient live-analysis state cannot leak across editor worlds.
+
+
+### Metric Actors in PIE / SIE
+Placed Metric Actors can remain visible as transient validation previews during PIE/SIE. Per Actor controls choose whether to show in play and whether to use the editor snapshot, evaluate once at play start, or evaluate continuously. These previews remain editor tooling and are not shipped in packaged games.

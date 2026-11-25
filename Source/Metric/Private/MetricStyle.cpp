@@ -41,6 +41,12 @@ void FMetricStyle::Initialize()
         StyleSet->Set(TEXT("ClassIcon.MetricActor"), new FSlateVectorImageBrush(ActorIconPath, FVector2D(16.0f, 16.0f)));
     }
 
+    const FString BenchmarkPromoteIconPath = StyleSet->RootToContentDir(TEXT("MetricBenchmarkPromote_16"), TEXT(".svg"));
+    if (FPaths::FileExists(BenchmarkPromoteIconPath))
+    {
+        StyleSet->Set(TEXT("Metric.BenchmarkPromote"), new FSlateVectorImageBrush(BenchmarkPromoteIconPath, FVector2D(16.0f, 16.0f)));
+    }
+
     // Use a rasterized copy of the exact Metric SVG for viewport chrome.
     // UE 5.8 reliably renders this through FSlateImageBrush in overlay buttons,
     // while the Content Browser continues to use the vector asset.

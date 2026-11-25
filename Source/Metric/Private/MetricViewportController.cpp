@@ -24,6 +24,15 @@ namespace
 {
     FMetricViewportController* GMetricViewportControllerInstance = nullptr;
 
+    int32 ResolveFollowTargetIndex(int32 LastInteractedIndex, int32 ViewportCount)
+    {
+        if (ViewportCount <= 0)
+        {
+            return INDEX_NONE;
+        }
+        return (LastInteractedIndex >= 0 && LastInteractedIndex < ViewportCount) ? LastInteractedIndex : 0;
+    }
+
     bool HasAnyMetricVisual(const FMetricLayerVisibility& V)
     {
         return V.bHullVisual
@@ -84,17 +93,35 @@ namespace
         return false;
     }
 
-    void RequestMetricViewportRedraw(FLevelEditorViewportClient* ViewportClient, const UMetricEditorSettings* Settings, const UMetricSubsystem* Subsystem)
+    void RequestAllMetricViewportRedraw(const UMetricEditorSettings* Settings, const UMetricSubsystem* Subsystem)
     {
-        if (!ViewportClient || !ShouldRedrawMetricViewport(Settings, Subsystem))
+        if (!GEditor || !ShouldRedrawMetricViewport(Settings, Subsystem))
         {
             return;
         }
 
-        // Metric never changes editor selection or hit-test geometry. Rebuilding
-        // hit proxies here is unnecessary and is particularly expensive while
-        // the mouse is moving. Invalidate display only.
-        ViewportClient->Invalidate(true, false);
+        // Metric's render host/state is shared by every Level Editor view. If we
+        // invalidate only the perspective viewport driving the cursor ray, other
+        // perspective and orthographic views keep displaying the previous Metric
+        // state until Unreal happens to redraw them for another reason. Invalidate
+        // every editor Level viewport so all views track the Lens in the same frame.
+        // Metric never changes editor selection or hit-test geometry, so hit proxy
+        // rebuilding is intentionally skipped.
+        for (FLevelEditorViewportClient* LevelClient : GEditor->GetLevelViewportClients())
+        {
+            if (!LevelClient || !LevelClient->Viewport)
+            {
+                continue;
+            }
+
+            UWorld* ViewWorld = LevelClient->GetWorld();
+            if (!ViewWorld || ViewWorld->WorldType != EWorldType::Editor)
+            {
+                continue;
+            }
+
+            LevelClient->Invalidate(true, false);
+        }
     }
 }
 
@@ -182,6 +209,13 @@ void FMetricViewportController::NotifyViewportInteractionAtScreenPosition(const 
     }
 }
 
+
+#if WITH_DEV_AUTOMATION_TESTS
+int32 FMetricViewportController::ResolveFollowTargetIndexForAutomation(int32 LastInteractedIndex, int32 ViewportCount)
+{
+    return ResolveFollowTargetIndex(LastInteractedIndex, ViewportCount);
+}
+#endif
 
 bool FMetricViewportController::IsViewportSelectedBySettings(int32 ViewportIndex) const
 {
@@ -278,10 +312,47 @@ void FMetricViewportController::SyncOverlays()
         AddOverlayToViewport(Viewport);
     }
 
+    TSharedPtr<SLevelViewport> FollowTargetViewport;
+    if (Targeting == EMetricHUDViewportTargeting::FollowLastInteracted)
+    {
+        TSharedPtr<SLevelViewport> LastViewport = LastInteractedViewport.Pin();
+        const bool bLastViewportStillOwnedByLevelEditor = LastViewport.IsValid() && Viewports.Contains(LastViewport);
+
+        if (bLastViewportStillOwnedByLevelEditor)
+        {
+            // HUD ownership follows the Slate viewport object, not its cached geometry.
+            // Cached geometry can transiently become zero-sized while the user resizes
+            // a viewport or while camera input causes layout/prepass churn. Dropping the
+            // owner during that transient frame made the HUD vanish until another camera
+            // event rebuilt/retargeted it. Keep the owner as long as Level Editor still
+            // owns the viewport, even if it is temporarily absent from visual ordering.
+            FollowTargetViewport = LastViewport;
+        }
+        else if (!OrderedViewports.IsEmpty())
+        {
+            FollowTargetViewport = OrderedViewports[0];
+            LastInteractedViewport = FollowTargetViewport;
+        }
+        else
+        {
+            // Geometry may be unavailable for a frame during a resize. Fall back to the
+            // first valid Level Editor viewport instead of dropping HUD ownership.
+            for (const TSharedPtr<SLevelViewport>& Viewport : Viewports)
+            {
+                if (Viewport.IsValid())
+                {
+                    FollowTargetViewport = Viewport;
+                    LastInteractedViewport = Viewport;
+                    break;
+                }
+            }
+        }
+    }
+
     for (int32 EntryIndex = OverlayEntries.Num() - 1; EntryIndex >= 0; --EntryIndex)
     {
         TSharedPtr<SLevelViewport> ExistingViewport = OverlayEntries[EntryIndex].Viewport.Pin();
-        if (!ExistingViewport.IsValid() || !OrderedViewports.Contains(ExistingViewport))
+        if (!ExistingViewport.IsValid() || !Viewports.Contains(ExistingViewport))
         {
             if (ExistingViewport.IsValid() && OverlayEntries[EntryIndex].Widget.IsValid())
             {
@@ -295,12 +366,17 @@ void FMetricViewportController::SyncOverlays()
         bool bShouldShow = true;
         if (Targeting == EMetricHUDViewportTargeting::FollowLastInteracted)
         {
-            bShouldShow = LastInteractedViewport.Pin() == ExistingViewport;
+            bShouldShow = ExistingViewport == FollowTargetViewport;
         }
 
         if (OverlayEntries[EntryIndex].Widget.IsValid())
         {
-            OverlayEntries[EntryIndex].Widget->SetViewportNumber(VisualIndex != INDEX_NONE ? VisualIndex + 1 : INDEX_NONE);
+            // Preserve the previous viewport number while cached geometry is temporarily
+            // unavailable. Selected-viewport targeting should not flicker off during resize.
+            if (VisualIndex != INDEX_NONE)
+            {
+                OverlayEntries[EntryIndex].Widget->SetViewportNumber(VisualIndex + 1);
+            }
             OverlayEntries[EntryIndex].Widget->SetTargetEnabled(bShouldShow);
         }
     }
@@ -413,6 +489,14 @@ void FMetricViewportController::Tick(float DeltaTime)
         return;
     }
 
+    if (MetricSubsystem->IsEditorPlaySessionActive())
+    {
+        MetricSubsystem->CancelPendingLiveAnalysis();
+        bHasLiveAnalysisSample = false;
+        LastAnalysisWorld.Reset();
+        return;
+    }
+
     FLevelEditorViewportClient* ViewportClient = GetActivePerspectiveLevelViewport();
     if (!ViewportClient || !ViewportClient->Viewport)
     {
@@ -437,7 +521,7 @@ void FMetricViewportController::Tick(float DeltaTime)
         MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
         {
             MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
-            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+            RequestAllMetricViewportRedraw(EditorSettings, MetricSubsystem);
         }
         if (MetricSubsystem->HasPendingLiveAnalysis())
         {
@@ -488,7 +572,7 @@ void FMetricViewportController::Tick(float DeltaTime)
             bHasLiveAnalysisSample = true;
 
             MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
-            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+            RequestAllMetricViewportRedraw(EditorSettings, MetricSubsystem);
         }
         return;
     }
@@ -541,7 +625,7 @@ void FMetricViewportController::Tick(float DeltaTime)
         MetricSubsystem->UpdateWithLiveAnalysisDisabled(World, CurrentViewLocation);
         {
             MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
-            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+            RequestAllMetricViewportRedraw(EditorSettings, MetricSubsystem);
         }
         return;
     }
@@ -609,6 +693,6 @@ void FMetricViewportController::Tick(float DeltaTime)
     MetricSubsystem->ProcessLiveAnalysisBudget(World, TimeBudgetMs);
     {
             MetricPerformance::FScopedPipelineStage Scope(TEXT("Controller.ViewportInvalidate"));
-            RequestMetricViewportRedraw(ViewportClient, EditorSettings, MetricSubsystem);
+            RequestAllMetricViewportRedraw(EditorSettings, MetricSubsystem);
         }
 }
